@@ -1,6 +1,7 @@
 <?php
 /*
 
+
 ABCMS - A Basic Content Management System
 
 The abcms() function returns the abcms object with its properties and methods.
