@@ -64,7 +64,7 @@ public function __construct() {
 		'clif'	=> (PHP_SAPI === 'cli'),								// command line execution
 		'file'	=> (__FILE__),											// filename
 		'dirn'	=> (__DIR__),											// foldername
-		'base'	=> (basename(__DIR__)),									// basename
+		'base'	=> (dirname(__DIR__)),									// basename
 		'furl'	=> $path=((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http').'://'.$_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI']), // full URL
 		'purl'	=> parse_url($path)										// parsed: ["scheme"], ["host"], ["path"], ["query"]
 	);
@@ -179,7 +179,7 @@ public function output(string $include = '') : void {
 		if ($this->_ABCMS['clif']) {
 			echo "Nothing for me to do.";
 		}
-		else if ('settings'===$this->_ABCMS['purl']['path']) {
+		else if ('/settings'===$this->_ABCMS['purl']['path']) {
 			$this->settings();
 		}
 		else {
@@ -210,17 +210,20 @@ EOF;
 }
 
 // Default settings
-private function settings() : void {
-echo <<< EOF
+private function settings(string $path = NULL) : void {
+	if (NULL===$path) { $path = $this->_ABCMS['base']; }
+	$display = "./".preg_replace("/^{$this->_ABCMS['base']}/", "", $path);
+	echo <<< EOF
 <br>
 <br>
-&nbsp;&nbsp;Filename<br>
+&nbsp;&nbsp;Filename: {$display}<br>
 <br>
 EOF;
-$files = array_diff(scandir($this->_ABCMS['purl']['path']), array('.', '..')); // DO ALL
-foreach($files as $file) {
-	echo "&nbsp;&nbsp;".$file."<br>";
-}
+	if ("./"!==$display) { echo "&nbsp;&nbsp;..<br>"; }
+	$files = array_diff(scandir($path), array('.', '..'));
+	foreach($files as $file) {
+		echo "&nbsp;&nbsp;".$file."<br>";
+	}
 }
 
 // end object
