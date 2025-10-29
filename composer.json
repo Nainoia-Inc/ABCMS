@@ -1,0 +1,20 @@
+{
+    "name": "nainoiainc/abcms",
+    "description": "A Basic Content Management System",
+    "type": "project",
+    "license": "CC-BY-4.0",
+    "autoload": {
+        "psr-4": {
+            "Nainoiainc\\Abcms\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "NainoiaInc"
+        }
+    ],
+    "minimum-stability": "stable",
+    "require": {
+		"php": ">=8.2"
+	}
+}
