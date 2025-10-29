@@ -60,10 +60,13 @@ public function __construct() {
 	$this->_ENV		= isset($_ENV)		? $_ENV		: array();
 	// Assign properties
 	$this->_ABCMS	= array(
-		'boss'		=> ('index.php' === basename(__FILE__) ? TRUE : FALSE),	// if TRUE I include you, otherwise you include me
-		'cli'		=> (PHP_SAPI === 'cli'),								// command line execution
-		'filename'	=> (__FILE__),											// my filename
-		'dirname'	=> (__DIR__),											// my foldername
+		'boss'	=> ('index.php' === basename(__FILE__) ? TRUE : FALSE),	// if TRUE I include you, otherwise you include me
+		'clif'	=> (PHP_SAPI === 'cli'),								// command line execution
+		'file'	=> (__FILE__),											// filename
+		'dirn'	=> (__DIR__),											// foldername
+		'base'	=> (basename(__DIR__)),									// basename
+		'furl'	=> $path=((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http').'://'.$_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI']), // full URL
+		'purl'	=> parse_url($path)										// parsed: ["scheme"], ["host"], ["path"], ["query"]
 	);
 	// Override arrays
 	$this->_property	= array(array());
@@ -78,7 +81,7 @@ public function __set(string $name, $value) {
 public function module() : string {
 	$backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 1);
 	if (empty($backtrace[0]['file']) ||
-		NULL === ($module = preg_replace("#^{$this->_ABCMS['dirname']}#", '', $backtrace[0]['file'], 1, $count)) ||
+		NULL === ($module = preg_replace("#^{$this->_ABCMS['dirn']}#", '', $backtrace[0]['file'], 1, $count)) ||
 		$count != 1) {
 		throw new Exception("abcms()->module() backtrace is missing.");
 	}
@@ -166,22 +169,25 @@ private function overrides() : void {
 // Output loop
 public function output(string $include = '') : void {
 	// Start buffers
-	if (!$this->_ABCMS['cli'] && FALSE===ob_start()) {
+	if (!$this->_ABCMS['clif'] && FALSE===ob_start()) {
 		throw new Exception("abcms()->output() ob_start() buffering failed.");
 	}
 	// Output loop
 	while(( $result = $this->get_override_include($include) )) ;
 	// Default if nothing
 	if (empty($include) || NULL===$result) {
-		if ($this->_ABCMS['cli']) {
+		if ($this->_ABCMS['clif']) {
 			echo "Nothing for me to do.";
+		}
+		else if ('settings'===$this->_ABCMS['purl']['path']) {
+			$this->welcome();
 		}
 		else {
 			$this->welcome();
 		}
 	}
 	// Sanitize and echo buffers
-	if (!$this->_ABCMS['cli']) {
+	if (!$this->_ABCMS['clif']) {
 		if (FALSE === ($output = ob_get_clean())) {
 			throw new Exception("abcms()->output() ob_get_clearn() buffering failed.");
 		}
@@ -201,6 +207,20 @@ private function welcome() : void {
 <br>
 &nbsp;&nbsp;Hello World!
 EOF;
+}
+
+// Default settings
+private function settings() : void {
+echo <<< EOF
+<br>
+<br>
+&nbsp;&nbsp;Filename<br>
+<br>
+EOF;
+$files = array_diff(scandir($this->_ABCMS['purl']['path']), array('.', '..')); // DO ALL
+foreach($files as $file) {
+	echo "&nbsp;&nbsp;".$file."<br>";
+}
 }
 
 // end object
