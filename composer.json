@@ -11,6 +11,8 @@
     "authors": [
         {
             "name": "NainoiaInc"
+            "email": "nainoia-inc@signedon.net",
+            "homepage": "https://nainoia-inc.signedon.net",
         }
     ],
     "minimum-stability": "stable",
