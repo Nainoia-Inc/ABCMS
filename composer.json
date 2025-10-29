@@ -19,4 +19,11 @@
     "require": {
 		"php": ">=8.2"
 	}
+    "scripts": {
+        "post-update-cmd": [
+            "php -r \"copy('https://raw.githubusercontent.com/Nainoia-Inc/ABCMS/refs/heads/master/composer.json',	'composer.json');	\"",
+            "php -r \"copy('https://raw.githubusercontent.com/Nainoia-Inc/ABCMS/refs/heads/master/ABCMS/.htaccess',	'ABCMS/.htaccess');	\"",
+            "php -r \"copy('https://raw.githubusercontent.com/Nainoia-Inc/ABCMS/refs/heads/master/ABCMS/index.php',	'ABCMS/index.php');	\""
+        ]
+    }
 }
