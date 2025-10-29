@@ -2,6 +2,7 @@
 /*
 
 ABCMS - A Basic Content Management System
+
 The abcms() function returns the abcms object with its properties and methods.
 When named 'index.php' I am the boss and will include index.* found at ../folder(s) according to my rules.
 When named !'index.php' I do not do anything and you are the boss and can use abcms() according to your rules.
