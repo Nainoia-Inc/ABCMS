@@ -180,7 +180,7 @@ public function output(string $include = '') : void {
 			echo "Nothing for me to do.";
 		}
 		else if ('settings'===$this->_ABCMS['purl']['path']) {
-			$this->welcome();
+			$this->settings();
 		}
 		else {
 			$this->welcome();
