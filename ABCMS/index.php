@@ -1,144 +1,25 @@
 <?php
 /*
-
 ABCMS - A Basic Content Management System
 
 The abcms() function returns the abcms object with its properties and methods.
 When named 'index.php' I am the boss and will include index.* found at ../folder(s) according to my rules.
 When named !'index.php' I do not do anything and you are the boss and can use abcms() according to your rules.
 And let's not trust each other or share data constructs, but I will process all your output.
-
-NEXT:
-Decide about Composer
-https://12factor.net/
-https://getcomposer.org/doc/
-https://www.smashingmagazine.com/2019/03/composer-wordpress/
-
-
-
-abcms->sanitize()
-abcms->overrides()
-abcms->get_includes....()
-abcms->path...()
-abcms_unitests
-abcms_core
-	/programmer-help
-self update and composer
-
-how to atomically copy entire website to stage or back again?
-Where to store the data associated with a plugin?
-multiple websites in one installation and one session?
-Where to store the session?
-
-https://www.reddit.com/r/PHP/comments/6dtoci/given_a_key_whats_the_most_elegant_way_to_get_the/?rdt=49017
-
-https://docs.php.earth/faq/misc/structure/
-https://laravel.com/docs/11.x/structure
-
-./html/vendor
-./html/index.php
-./html/drupal
-./html/wordpress
-
-./html/abcms/source/abcms
-./html/abcms/source/abcms_core
-./html/abcms/source/abcms_webservant
-
-./html/abcms/public/abcms
-./html/abcms/public/abcms_core
-./html/abcms/public/abcms_webservant
-
-./abcms/private/abcms
-./abcms/private/abcms_core
-./abcms/private/abcms_webservant
-
-
-CLI -help output
-
-CLI post!
-if (!isset($_SERVER["HTTP_HOST"])) {
-  parse_str($argv[1], $_GET);
-  parse_str($argv[1], $_POST);
-}
-
-
-TODO:
-* Parse /path/variables=cool/api?with=querystring, unreserved = ALPHA/DIGIT/-/./_/~
-* Update self
-* Add and update ../apps from currated list or manually and then also disable or delete, along with their data!
-* Allow composer and npm
-* Public data at ./public
-* Default creation of .htaccess, ../app-folders, ./public, and also ../session and ../log or prefer system log
-* index.php injects form security in front of every </form> tag
-* Manage rsync, and symbolic links for ../../production and ../../backup
-* Radical security with login key and unique password combo
-* define php templates with overrideable function and function return
-	abcms()->override_function('overridable_function', $args) // find registered override function with highest priority or just call app function
-	return(abcms()->override_return($return_value)); // find registered override returns to PREPEND, APPEND, or MODIFY considering priority or just return
-	return(abcms()->override_return($return_value)); // find registered override returns to PREPEND, APPEND, or MODIFY considering priority or just return
-	and override entire php file!!
-	Override functions need to be in global space, and require the function name prefixed with app name
-	$priority options
-		WHO: exclusive, with-original, with-everyone
-		WHA: replace, prepend, append
-		HOW: fail, warn, silent
-* return HTML via captured echo -AND- also abcms()->property or abcms()->method()
-* Debugger, HTML and PHP validation, and use the PHP html DOM object
-* Command line execution as well for administration and cron
-* File and json API to open/read files only once, create data contructs only once
-* Self discover and publish use of abcms()->override so other apps can override, ie abcms_template defines override regions, path/content/region map links them together
-* upload files and content without an editor or with FTP client
-* Also provide editors for text, json, csv table, html blocks
-	data definition webform builder? doesn't that defeat the purpose of php simplicity?
-	https://github.com/json-editor/json-editor
-* Serve my publication needs for data, text, HTML, ePub, and PDF with Speedata
-* Only one login and user by default
-* file system database API, whole files, json files, tables files with index, multiple indexes? 
-* CLI cron
-* list on composer - https://www.w3resource.com/php/composer/create-publish-and-use-your-first-composer-package.php
-
-HELP:
-https://php.watch/versions/8.1/readonly
-https://softwareengineering.stackexchange.com/questions/76406/directly-modifying-superglobals
-https://stackoverflow.com/questions/2343790/how-to-implement-a-read-only-member-variable-in-php
-https://beamtic.com/avoid-superglobals-oop-php
-
-TYPES:
-int | string | float | bool | array | void | mixed | callable | resource | class | object (any class) | ?TYPE (allows null)
-
 */
 
 
 
-// Try catch
-try {
-// Initialize
-if (empty(abcms()->_ABCMS['boss'])) { return TRUE; }
-// Tests
-echo abcms()->_SERVER['SERVER_ADDR'] . '<br>';
-abcms()->set_property('test','this is a test');
-echo abcms()->get_property('/','test') . '<br><br>';
-function test2() { echo "yeah boy<br>"; }
-abcms()->set_method('test2');
-abcms()->get_method('/','test2')();
-abcms()->get_method('//','test2')();
-abcms()->hello('echo one string', ' ', 'echo two string', '<br>');
-abcms()->print('print one string<br>');
-
-abcms()->output();
-
-abcms()->module();
-
-abcms();
+try { // Try catch
+	// Initialize
+	if (empty(abcms()->_ABCMS['boss'])) { return TRUE; }
+	// Output
+	while (abcms()->output());
 }
-
-// Try exception
-catch (Exception $e) {
+catch (Exception $e) { // Try exception
 	echo $e->getMessage();
 }
-
-// Try always
-finally {
+finally { // Try always
 }
 return TRUE;
 
@@ -181,7 +62,8 @@ public function __construct() {
 	$this->_ABCMS	= array(
 		'boss'		=> ('index.php' === basename(__FILE__) ? TRUE : FALSE),	// if TRUE I include you, otherwise you include me
 		'cli'		=> (PHP_SAPI === 'cli'),								// command line execution
-		'dirname'	=> (dirname(__FILE__)),									// my foldername
+		'filename'	=> (__FILE__),											// my filename
+		'dirname'	=> (__DIR__),											// my foldername
 	);
 	// Override arrays
 	$this->_property	= array(array());
@@ -250,13 +132,13 @@ public function set_override_include(		string $module, string $original, string 
 public function set_override_include_once(	string $module, string $original, string $override, int $mixed=NULL) : ?bool { return TRUE; }
 public function set_override_require(		string $module, string $original, string $override, int $mixed=NULL) : ?bool { return TRUE; }
 public function set_override_require_once(	string $module, string $original, string $override, int $mixed=NULL) : ?bool { return TRUE; }
-public function set_override_return(		string $module, string $function, string $include, int $mixed=NULL) : ?bool {  return TRUE; }
+public function set_override_return(		string $module, string $function, string $include,  int $mixed=NULL) : ?bool { return TRUE; }
 
 public function get_override_include(		string $original, mixed $priority_allowed=NULL) : ?bool { return NULL; } // rank (by module or request)
-public function get_override_include_once(	string $original, mixed $priority_allowed=NULL) : ?bool { return NULL; }	// exclusive(first or highest)
-public function get_override_require(		string $original, mixed $priority_allowed=NULL) : ?bool { return NULL; }	// rank (by module or request)
-public function get_override_require_once(	string $original, mixed $priority_allowed=NULL) : ?bool { return NULL; }	// exclusive(first or highest)
-public function get_override_return(		string $return,   mixed $priority_allowed=NULL) : ?bool { return NULL; }	// exclusive(first or highest) or rank (by module or request)
+public function get_override_include_once(	string $original, mixed $priority_allowed=NULL) : ?bool { return NULL; } // exclusive(first or highest)
+public function get_override_require(		string $original, mixed $priority_allowed=NULL) : ?bool { return NULL; } // rank (by module or request)
+public function get_override_require_once(	string $original, mixed $priority_allowed=NULL) : ?bool { return NULL; } // exclusive(first or highest)
+public function get_override_return(		string $return,   mixed $priority_allowed=NULL) : ?bool { return NULL; } // exclusive(first or highest) or rank (by module or request)
 
 // Non-function to function wrappers
 public function hello(string ...$strings) : void {
@@ -288,7 +170,7 @@ public function output(string $include = '') : void {
 		throw new Exception("abcms()->output() ob_start() buffering failed.");
 	}
 	// Output loop
-	while(($result=$this->get_override_include($include))) ;
+	while(( $result = $this->get_override_include($include) )) ;
 	// Default if nothing
 	if (empty($include) || NULL===$result) {
 		if ($this->_ABCMS['cli']) {
