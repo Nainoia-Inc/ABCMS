@@ -3,11 +3,6 @@
     "description": "A Basic Content Management System",
     "type": "project",
     "license": "CC-BY-4.0",
-    "autoload": {
-        "psr-4": {
-            "Nainoiainc\\Abcms\\": "src/"
-        }
-    },
     "authors": [
         {
             "name": "NainoiaInc",
@@ -17,19 +12,10 @@
     ],
     "minimum-stability": "dev",
     "require": {
-		"php": ">=8.2",
-		"composer/installers": "~2.0"
+		"php": ">=8.2"
 	},
-	"extra": {
-		"installer-paths": {
-			"custom-plugins/{$name}/": ["type:abcms-plugin"]
-		}
-	}
     "scripts": {
         "post-update-cmd": [
-			"wget -N 'https://raw.githubusercontent.com/Nainoia-Inc/ABCMS/refs/heads/master/composer.json'",
-			"cd ABCMS; wget -N 'https://raw.githubusercontent.com/Nainoia-Inc/ABCMS/refs/heads/master/ABCMS/.htaccess'",
-			"cd ABCMS; wget -N 'https://raw.githubusercontent.com/Nainoia-Inc/ABCMS/refs/heads/master/ABCMS/index.php'"
 		]
     }
 }
