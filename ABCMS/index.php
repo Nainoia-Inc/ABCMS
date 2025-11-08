@@ -74,25 +74,25 @@ public function __construct() {
 	// Assign properties
 	$this->_ABCMS	= array(
 		'boss'	=> ('index.php' === basename(__FILE__) ? TRUE : FALSE),	// If TRUE I include you, otherwise you include me
-		'clif'	=> (PHP_SAPI === 'cli'),								// Command line execution
 		'file'	=> (__FILE__),											// Filename
 		'dirn'	=> (__DIR__),											// Foldername
 		'base'	=> (dirname(__DIR__)),									// Basename
-		'furl'	=> $path = ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http').'://'.$_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI']), // Full URL
+		'furl'	=> $path =	(PHP_SAPI === 'cli' ? NULL :				// Full URI
+							((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http').'://'.
+							(isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '').
+							(isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : ''))),
 		'purl'	=> parse_url($path),									// Parsed URL: ["scheme"], ["host"], ["path"], ["query"]
+		'clif'	=> (PHP_SAPI === 'cli'),								// Command line execution
+		'argv'	=> $argv,												// CLI arguments
+		'argc'	=> $argc,												// CLI argument count
+		'auto'	=> (file_exists(($tmp=(__DIR__ . '/../vendor/autoload.php'))) ? $tmp : NULL);	// auto-loader present
 	);
 	// Override arrays
 	$this->_property	= array(array());
 	$this->_method		= array(array());
 	$this->_function	= array(array());
 	// autoload
-	if (file_exists(($tmp=(__DIR__ . '/../vendor/autoload.php')))) {
-		require_once($tmp);
-		$this->_ABCMS['auto'] = TRUE;									// Yes Composer autoload
-	}
-	else {
-		$this->_ABCMS['auto'] = FALSE;
-	}
+	if ($this->_ABCMS['auto']) { require_once($this->_ABCMS['auto']); }	// autoload
 }
 // Dynamic properties not allowed
 public function __set(string $name, $value) {
@@ -198,7 +198,7 @@ public function output(string $include = '') : void {
 	// Default if nothing
 	if (empty($include) || NULL===$result) {
 		if ($this->_ABCMS['clif']) {
-			echo "Nothing for me to do.";
+			echo "\nNothing for me to do.\n\n";
 		}
 		else if ('/settings'===$this->_ABCMS['purl']['path']) {
 			$this->settings();
