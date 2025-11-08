@@ -15,10 +15,16 @@
             "homepage": "https://nainoia-inc.signedon.net"
         }
     ],
-    "minimum-stability": "stable",
+    "minimum-stability": "dev",
     "require": {
-		"php": ">=8.2"
+		"php": ">=8.2",
+		"composer/installers": "~2.0"
 	},
+	"extra": {
+		"installer-paths": {
+			"custom-plugins/{$name}/": ["type:abcms-plugin"]
+		}
+	}
     "scripts": {
         "post-update-cmd": [
 			"wget -N 'https://raw.githubusercontent.com/Nainoia-Inc/ABCMS/refs/heads/master/composer.json'",

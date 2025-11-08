@@ -1,30 +1,50 @@
 <?php
 /*
 ABCMS - A Basic Content Management System
+The abcms() function defined here and returns the abcms object
+What with all these crazy template engines? PHP is the best
+And pal by the way, let's not trust each other
+Trust Jesus
 
-The abcms() function returns the abcms object with its properties and methods.
-When named 'index.php' I am the boss and will include index.* found at ../folder(s) according to my rules.
-When named !'index.php' I do not do anything and you are the boss and can use abcms() according to your rules.
-And let's not trust each other or share data constructs, but I will process all your output.
+STRUCTURE
+/project-root/ABCMS/.htaccess
+/project-root/ABCMS/index.php
+/project-root/ABCMS/public
+/project-root/src
+/project-root/src/ABCMS_webservant316
+/project-root/src/ABCMS_indexes
+/project-root/src/ABCMS_website
+/project-root/src/ABCMS_bible
+/project-root/src/ABCMS_business
+/project-root/src/ABCMS_content
+/project-root/vendor
+/project-root/composer.json
+/project-root/composer.lock
+
+INSTALLATION
+Google this "php composer list all packages of type"
+
 */
 
 
 
-try { // Try catch
-	// Initialize
-	if (empty(abcms()->_ABCMS['boss'])) { return TRUE; }
-	// Output
-	while (abcms()->output());
+// Run ABCMS
+try {
+	if (empty(abcms()->_ABCMS['boss'])) { return TRUE; }	// If filename != 'index.php' I do nada, use abcms() as you please
+	if (!empty(abcms()->_ABCMS['auto'])) { require __DIR__ . '/../vendor/autoload.php'; } // Autoload if needed
+	abcms()->output();										// If filename == 'index.php' I am da boss and do what I please 
 }
-catch (Exception $e) { // Try exception
-	echo $e->getMessage();
+catch (Exception $e) {
+	echo $e->getMessage();									// Report exceptions
 }
-finally { // Try always
+finally {
+	;														// Remove all locks
 }
 return TRUE;
 
 
-// ABCMS
+
+// Define ABCMS
 function abcms() : object {
 // Initialize
 static $_abcms = NULL;
@@ -47,7 +67,7 @@ private array $_function;
 // Construct
 public function __construct() {
 	// Check requirements
-	if (PHP_VERSION<'8.2.0') { throw new Exception("abcms()->__construct() PHP82 or greater is required. Got ".PHP_VERSION); }
+	if (PHP_VERSION < '8.2.0') { throw new Exception("abcms()->__construct() PHP82 or greater is required. Got ".PHP_VERSION); }
 	// Protect GLOBALS
 	$this->GLOBALS	= isset($GLOBALS)	? $GLOBALS	: array();
 	$this->_SERVER	= isset($_SERVER)	? $_SERVER	: array();
@@ -60,13 +80,14 @@ public function __construct() {
 	$this->_ENV		= isset($_ENV)		? $_ENV		: array();
 	// Assign properties
 	$this->_ABCMS	= array(
-		'boss'	=> ('index.php' === basename(__FILE__) ? TRUE : FALSE),	// if TRUE I include you, otherwise you include me
-		'clif'	=> (PHP_SAPI === 'cli'),								// command line execution
-		'file'	=> (__FILE__),											// filename
-		'dirn'	=> (__DIR__),											// foldername
-		'base'	=> (dirname(__DIR__)),									// basename
-		'furl'	=> $path=((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http').'://'.$_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI']), // full URL
-		'purl'	=> parse_url($path)										// parsed: ["scheme"], ["host"], ["path"], ["query"]
+		'boss'	=> ('index.php' === basename(__FILE__) ? TRUE : FALSE),	// If TRUE I include you, otherwise you include me
+		'clif'	=> (PHP_SAPI === 'cli'),								// Command line execution
+		'file'	=> (__FILE__),											// Filename
+		'dirn'	=> (__DIR__),											// Foldername
+		'base'	=> (dirname(__DIR__)),									// Basename
+		'furl'	=> $path = ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http').'://'.$_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI']), // Full URL
+		'purl'	=> parse_url($path),									// Parsed URL: ["scheme"], ["host"], ["path"], ["query"]
+		'auto'	=> TRUE													// Yes Composer autoload
 	);
 	// Override arrays
 	$this->_property	= array(array());
