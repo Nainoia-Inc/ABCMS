@@ -85,7 +85,7 @@ public function __construct() {
 		'clif'	=> (PHP_SAPI === 'cli'),								// Command line execution
 		'argv'	=> $argv,												// CLI arguments
 		'argc'	=> $argc,												// CLI argument count
-		'auto'	=> (file_exists(($tmp=(__DIR__ . '/../vendor/autoload.php'))) ? $tmp : NULL);	// auto-loader present
+		'auto'	=> (file_exists(($tmp=(__DIR__ . '/../vendor/autoload.php'))) ? $tmp : NULL), // auto-loader
 	);
 	// Override arrays
 	$this->_property	= array(array());
