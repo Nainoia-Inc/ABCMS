@@ -236,9 +236,8 @@ if ($this->_ABCMS['auto']) {
 <br>
 &nbsp;&nbsp;ABCMS package!
 EOF;
-	use Composer\InstalledVersions;
-	foreach (($packages = InstalledVersions::getInstalledPackagesByType('abcms-package')) as $name) { // get 'abcms-package'
-		echo "<br>{$name} : ".InstalledVersions::getInstallPath($name);
+	foreach (($packages = Composer\InstalledVersions::getInstalledPackagesByType('abcms-package')) as $name) { // get 'abcms-package'
+		echo "<br>{$name} : " . Composer\InstalledVersions::getInstallPath($name);
 	}
 }
 }
