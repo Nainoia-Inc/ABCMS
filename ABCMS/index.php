@@ -86,7 +86,7 @@ public function __construct() {
 	$this->_method		= array(array());
 	$this->_function	= array(array());
 	// autoload
-	if (file_exists(($tmp=(__DIR__ . '/../vendor/autoload.php'))) {
+	if (file_exists(($tmp=(__DIR__ . '/../vendor/autoload.php')))) {
 		require_once($tmp);
 		$this->_ABCMS['auto'] = TRUE;									// Yes Composer autoload
 	}
