@@ -2,18 +2,19 @@
 /*
 ABCMS - A Basic Content Management System
 The abcms() function defined here and returns the abcms object
-What with all these crazy template engines? PHP is the best
-And pal by the way, let's not trust each other
-Trust Jesus
+What is with all these crazy PHP template engines? PHP is the template
+And pal by the way, let's not trust each other, trust Jesus
 
 STRUCTURE
-/project-root/ABCMS/.htaccess
-/project-root/ABCMS/index.php
-/project-root/ABCMS/public
-/project-root/src
-/project-root/vendor
 /project-root/composer.json
 /project-root/composer.lock
+/project-root/ABCMS/.htaccess
+/project-root/ABCMS/index.php
+/project-root/ABCMS/public/[vendor]/[project]/[public-user-data]
+/project-root/src
+/project-root/private/[vendor]/[project]/[private-user-data]
+/project-root/vendor/*
+
 
 INSTALLATION
 Google this "php composer list all packages of type"
@@ -59,8 +60,8 @@ private array $_method;
 private array $_function;
 // Construct
 public function __construct() {
-	// Check requirements
-	if (PHP_VERSION < '8.2.0') { throw new Exception("abcms()->__construct() PHP82 or greater is required. Got ".PHP_VERSION); }
+	// Validation
+	if (PHP_VERSION < '8.2.0') {	throw new Exception("abcms()->__construct() PHP82 or greater is required. Got ".PHP_VERSION); }
 	// Protect GLOBALS
 	$this->GLOBALS	= isset($GLOBALS)	? $GLOBALS	: array();
 	$this->_SERVER	= isset($_SERVER)	? $_SERVER	: array();
@@ -72,20 +73,25 @@ public function __construct() {
 	$this->_REQUEST	= isset($_REQUEST)	? $_REQUEST	: array();
 	$this->_ENV		= isset($_ENV)		? $_ENV		: array();
 	// Assign properties
+	$regex = "/\/([[:alnum:]\-._~%]+)=([[:alnum:]\-._~%]+)[\/]*/u";
 	$this->_ABCMS	= array(
-		'boss'	=> ('index.php' === basename(__FILE__) ? TRUE : FALSE),	// If TRUE I include you, otherwise you include me
-		'file'	=> (__FILE__),											// Filename
-		'dirn'	=> (__DIR__),											// Foldername
-		'base'	=> (dirname(__DIR__)),									// Basename
-		'furl'	=> $path =	(PHP_SAPI === 'cli' ? NULL :				// Full URI
+		'boss'			=> ('index.php' === basename(__FILE__) ? TRUE : FALSE),								// If TRUE I include you, otherwise you include me
+		'filename'		=> (__FILE__),																		// Me filename
+		'documentroot'	=> (__DIR__),																		// Documentroot folder
+		'projectroot'	=> (dirname(__DIR__)),																// Project folder
+		'project'		=> (basename(dirname(__DIR__))),													// Project name
+		'urlfull'		=> ($urlfull = ('cli' === PHP_SAPI ? ('cli://localhost' . ($_SERVER['argc']!=2 || empty($_SERVER['argv'][1]) || '/' !== $_SERVER['argv'][1][0] ? '/help' : $_SERVER['argv'][1])) :
 							((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http').'://'.
-							(isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '').
-							(isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : ''))),
-		'purl'	=> parse_url($path),									// Parsed URL: ["scheme"], ["host"], ["path"], ["query"]
-		'clif'	=> (PHP_SAPI === 'cli'),								// Command line execution
-		'argv'	=> $argv,												// CLI arguments
-		'argc'	=> $argc,												// CLI argument count
-		'auto'	=> (file_exists(($tmp=(__DIR__ . '/../vendor/autoload.php'))) ? $tmp : NULL), // auto-loader
+							(isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'unknown').
+							(isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '/unknown')))),		// URL full
+		'urlparsed'		=> ($urlparsed = parse_url($urlfull)),												// URL parsed: ["scheme"], ["host"], ["path"], ["query"]
+		'urlvars'		=> (FALSE === preg_match_all($regex,$urlparsed['path'],$matches,PREG_PATTERN_ORDER) ? NULL : array_combine(array_map('urldecode', $matches[1]), array_map('urldecode', $matches[2]))), // URL path variables
+		'urlstrip'		=> '/'.(urldecode(trim(preg_replace($regex,'/',$urlparsed['path']),'/'))),			// URL stripped of variables and urldecoded with no trailing slash unless '/' or urlencoded slash
+		'urlquery'		=> (($urlquery = array()) || parse_str($urlparsed['query'],$urlquery) ?: $urlquery),// URL query variables
+		'cli'			=> ('cli' === PHP_SAPI ? TRUE : FALSE),												// CLI command line execution
+		'argv'			=> $_SERVER['argv'],																// CLI arguments
+		'argc'			=> $_SERVER['argc'],																// CLI argument count
+		'auto'			=> (file_exists(($auto = (__DIR__ . '/../vendor/autoload.php'))) ? $auto : NULL),	// Auto-loader present
 	);
 	// Override arrays
 	$this->_property	= array(array());
@@ -101,8 +107,8 @@ public function __set(string $name, $value) {
 // Auto associate with calling module
 public function module() : string {
 	$backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 1);
-	if (empty($backtrace[0]['file']) ||
-		NULL === ($module = preg_replace("#^{$this->_ABCMS['dirn']}#", '', $backtrace[0]['file'], 1, $count)) ||
+	if (empty($backtrace[0]['filename']) ||
+		NULL === ($module = preg_replace("#^{$this->_ABCMS['documentroot']}#", '', $backtrace[0]['filename'], 1, $count)) ||
 		$count != 1) {
 		throw new Exception("abcms()->module() backtrace is missing.");
 	}
@@ -190,15 +196,17 @@ private function overrides() : void {
 // Output loop
 public function output(string $include = '') : void {
 	// Start buffers
-	if (!$this->_ABCMS['clif'] && FALSE===ob_start()) {
+	if (!$this->_ABCMS['cli'] && FALSE===ob_start()) {
 		throw new Exception("abcms()->output() ob_start() buffering failed.");
 	}
 	// Output loop
 	while(( $result = $this->get_override_include($include) )) ;
 	// Default if nothing
 	if (empty($include) || NULL===$result) {
-		if ($this->_ABCMS['clif']) {
+		if ($this->_ABCMS['cli']) {
 			echo "\nNothing for me to do.\n\n";
+			print_r($this->_ABCMS);
+			//echo print_r($this,TRUE);
 		}
 		else if ('/settings'===$this->_ABCMS['purl']['path']) {
 			$this->settings();
@@ -208,7 +216,7 @@ public function output(string $include = '') : void {
 		}
 	}
 	// Sanitize and echo buffers
-	if (!$this->_ABCMS['clif']) {
+	if (!$this->_ABCMS['cli']) {
 		if (FALSE === ($output = ob_get_clean())) {
 			throw new Exception("abcms()->output() ob_get_clearn() buffering failed.");
 		}
@@ -226,7 +234,7 @@ private function welcome() : void {
 	echo <<< EOF
 <br>
 <br>
-&nbsp;&nbsp;Hello World!
+&nbsp;&nbsp;Hello World!<br>
 EOF;
 
 // test auto-loader
@@ -234,18 +242,28 @@ if ($this->_ABCMS['auto']) {
 	echo <<< EOF
 <br>
 <br>
-&nbsp;&nbsp;ABCMS package!
+&nbsp;&nbsp;ABCMS package!<br>
 EOF;
 	foreach (($packages = Composer\InstalledVersions::getInstalledPackagesByType('abcms-package')) as $name) { // get 'abcms-package'
 		echo "<br>{$name} : " . Composer\InstalledVersions::getInstallPath($name);
 	}
 }
+
+// dump all
+	echo <<< EOF
+<br>
+<br>
+&nbsp;&nbsp;ABCMS object!<br>
+EOF;
+echo '<pre>';
+print_r($this->_ABCMS);
+echo '</pre>';
 }
 
 // Default settings
 private function settings(string $path = NULL) : void {
-	if (NULL===$path) { $path = $this->_ABCMS['base']; }
-	$display = "./".preg_replace("/^{$this->_ABCMS['base']}/", "", $path);
+	if (NULL===$path) { $path = $this->_ABCMS['project']; }
+	$display = "./".preg_replace("/^{$this->_ABCMS['project']}/", "", $path);
 	echo <<< EOF
 <br>
 <br>
