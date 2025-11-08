@@ -16,6 +16,9 @@
 	},
     "scripts": {
         "post-update-cmd": [
+			"wget -N 'https://raw.githubusercontent.com/Nainoia-Inc/ABCMS/refs/heads/master/composer.json'",
+			"cd ABCMS; wget -N 'https://raw.githubusercontent.com/Nainoia-Inc/ABCMS/refs/heads/master/ABCMS/.htaccess'",
+			"cd ABCMS; wget -N 'https://raw.githubusercontent.com/Nainoia-Inc/ABCMS/refs/heads/master/ABCMS/index.php'"
 		]
     }
 }

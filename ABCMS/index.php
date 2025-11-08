@@ -11,12 +11,6 @@ STRUCTURE
 /project-root/ABCMS/index.php
 /project-root/ABCMS/public
 /project-root/src
-/project-root/src/ABCMS_webservant316
-/project-root/src/ABCMS_indexes
-/project-root/src/ABCMS_website
-/project-root/src/ABCMS_bible
-/project-root/src/ABCMS_business
-/project-root/src/ABCMS_content
 /project-root/vendor
 /project-root/composer.json
 /project-root/composer.lock
@@ -31,7 +25,6 @@ Google this "php composer list all packages of type"
 // Run ABCMS
 try {
 	if (empty(abcms()->_ABCMS['boss'])) { return TRUE; }	// If filename != 'index.php' I do nada, use abcms() as you please
-	if (!empty(abcms()->_ABCMS['auto'])) { require __DIR__ . '/../vendor/autoload.php'; } // Autoload if needed
 	abcms()->output();										// If filename == 'index.php' I am da boss and do what I please 
 }
 catch (Exception $e) {
@@ -87,12 +80,19 @@ public function __construct() {
 		'base'	=> (dirname(__DIR__)),									// Basename
 		'furl'	=> $path = ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http').'://'.$_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI']), // Full URL
 		'purl'	=> parse_url($path),									// Parsed URL: ["scheme"], ["host"], ["path"], ["query"]
-		'auto'	=> TRUE													// Yes Composer autoload
 	);
 	// Override arrays
 	$this->_property	= array(array());
 	$this->_method		= array(array());
 	$this->_function	= array(array());
+	// autoload
+	if (file_exists(($tmp=(__DIR__ . '/../vendor/autoload.php'))) {
+		require_once($tmp);
+		$this->_ABCMS['auto'] = TRUE;									// Yes Composer autoload
+	}
+	else {
+		$this->_ABCMS['auto'] = FALSE;
+	}
 }
 // Dynamic properties not allowed
 public function __set(string $name, $value) {
@@ -228,6 +228,19 @@ private function welcome() : void {
 <br>
 &nbsp;&nbsp;Hello World!
 EOF;
+
+// test auto-loader
+if ($this->_ABCMS['auto']) {
+	echo <<< EOF
+<br>
+<br>
+&nbsp;&nbsp;ABCMS package!
+EOF;
+	use Composer\InstalledVersions;
+	foreach (($packages = InstalledVersions::getInstalledPackagesByType('abcms-package')) as $name) { // get 'abcms-package'
+		echo "<br>{$name} : ".InstalledVersions::getInstallPath($name);
+	}
+}
 }
 
 // Default settings
