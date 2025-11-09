@@ -85,9 +85,9 @@ public function __construct() {
 							(isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'unknown').
 							(isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '/unknown')))),		// URL full
 		'urlparsed'		=> ($urlparsed = parse_url($urlfull)),												// URL parsed: ["scheme"], ["host"], ["path"], ["query"]
-		'urlvars'		=> (FALSE === preg_match_all($regex,$urlparsed['path'],$matches,PREG_PATTERN_ORDER) ? NULL : array_combine(array_map('urldecode', $matches[1]), array_map('urldecode', $matches[2]))), // URL path variables
+		'urlvars'		=> (FALSE === preg_match_all($regex,$urlparsed['path'],$matches,PREG_PATTERN_ORDER) ? NULL : array_combine(array_map('urldecode', $matches[1]), array_map('urldecode', $matches[2]))), // URL path vars
 		'urlstrip'		=> '/'.(urldecode(trim(preg_replace($regex,'/',$urlparsed['path']),'/'))),			// URL stripped of variables and urldecoded with no trailing slash unless '/' or urlencoded slash
-		'urlquery'		=> (($urlquery = array()) || parse_str($urlparsed['query'],$urlquery) ?: $urlquery),// URL query variables
+		'urlquery'		=> (($urlquery = NULL) || parse_str($urlparsed['query'],$urlquery) ?: $urlquery),	// URL query variables for CLI and HTTP, $_GET only HTTP
 		'cli'			=> ('cli' === PHP_SAPI ? TRUE : FALSE),												// CLI command line execution
 		'argv'			=> $_SERVER['argv'],																// CLI arguments
 		'argc'			=> $_SERVER['argc'],																// CLI argument count
@@ -206,7 +206,7 @@ public function output(string $include = '') : void {
 		if ($this->_ABCMS['cli']) {
 			echo "\nNothing for me to do.\n\n";
 			print_r($this->_ABCMS);
-			//echo print_r($this,TRUE);
+			print_r($_GET);
 		}
 		else if ('/settings'===$this->_ABCMS['purl']['path']) {
 			$this->settings();
@@ -257,6 +257,7 @@ EOF;
 EOF;
 echo '<pre>';
 print_r($this->_ABCMS);
+print_r($_GET);
 echo '</pre>';
 }
 
