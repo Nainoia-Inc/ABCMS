@@ -396,7 +396,7 @@ public function set_json(string $filename, mixed $value) : void {
 	if (FALSE === ($value = json_encode($value, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE))) {
 		throw new Exception("System call failure, json_encode({$filename}).");
 	}
-	if (FALSE === file_put_contents(string $filename, mixed $value)) {
+	if (FALSE === file_put_contents($filename, mixed $value)) {
 		throw new Exception("System call failure, file_put_contents({$filename}).");
 	}
 }
