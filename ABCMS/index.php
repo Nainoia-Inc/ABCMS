@@ -89,6 +89,8 @@ private array $_method;
 private array $_function;
 // Construct
 public function __construct() {
+	// TODO TEMP JUNK
+	$this->set_settings("../private/nainoiainc/abcms/ABCMS.json");
 	// Validate system
 	if (PHP_VERSION < '8.2.0') {
 		throw new Exception("Invalid configuration, PHP82 or greater is required.");
@@ -124,7 +126,7 @@ public function __construct() {
 		'argv'			=> $_SERVER['argv'],																// CLI arguments
 		'argc'			=> $_SERVER['argc'],																// CLI argument count
 		'auto'			=> (file_exists(($auto = (__DIR__ . '/../vendor/autoload.php'))) ? $auto : NULL),	// Auto-loader present
-		'settings'		=> $this->get_settings(),															// Load my settings json
+		'settings'		=> $this->get_json("../private/nainoiainc/abcms/ABCMS.json"),						// Load my settings json
 	);
 	// Validate input
 	if (!preg_match("#^{$this->_ABCMS['urlcommand']}#u",urldecode($urlparsed['path']))) {
@@ -330,7 +332,7 @@ echo '</pre>';
 }
 
 // Settings output
-private function set_settings() : void {
+private function set_settings($filename) : void {
 	// settings
 	$settings = array(
 		'preference'=> true,
@@ -358,7 +360,7 @@ private function set_settings() : void {
 		}
 		$methods = $newArray;
     }
-	file_put_contents("ABCMS.json",json_encode($settings,JSON_PRETTY_PRINT));
+	$this->set_json($filename, $settings);
 }
 private function browser(string $path = NULL) : void {
 	if (NULL===$path) { $path = $this->_ABCMS['project']; }
@@ -396,7 +398,7 @@ public function set_json(string $filename, mixed $value) : void {
 	if (FALSE === ($value = json_encode($value, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE))) {
 		throw new Exception("System call failure, json_encode({$filename}).");
 	}
-	if (FALSE === file_put_contents($filename, mixed $value)) {
+	if (FALSE === file_put_contents($filename, $value)) {
 		throw new Exception("System call failure, file_put_contents({$filename}).");
 	}
 }
