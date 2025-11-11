@@ -380,27 +380,27 @@ EOF;
 
 // set and get file types
 // TODO error check that reading and writing in my own directory!!
-public function set_file($filename string, $value) : void {
+public function set_file(string $filename, mixed $value) : void {
 	if (FALSE === file_put_contents($filename, $value)) {
 		throw new Exception("System call failure, file_put_contents({$filename}).");
 	}
 }
-public function get_file($filename string) : mixed {
+public function get_file(string $filename) : mixed {
 	if (FALSE === ($data = file_get_contents($filename))) {
 		throw new Exception("System call failure, file_get_contents({$filename}).");
 	}
 	return($data);
 }
 
-public function set_json($filename string, $value mixed) : void {
+public function set_json(string $filename, mixed $value) : void {
 	if (FALSE === ($value = json_encode($value, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE))) {
 		throw new Exception("System call failure, json_encode({$filename}).");
 	}
-	if (FALSE === file_put_contents($filename, $value)) {
+	if (FALSE === file_put_contents(string $filename, mixed $value)) {
 		throw new Exception("System call failure, file_put_contents({$filename}).");
 	}
 }
-public function get_json($filename string) : mixed {
+public function get_json(string $filename) : mixed {
 	if (FALSE === ($json = file_get_contents($filename))) {
 		throw new Exception("System call failure, file_get_contents({$filename}).");
 	}
