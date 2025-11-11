@@ -90,7 +90,9 @@ private array $_function;
 // Construct
 public function __construct() {
 	// Validate system
-	if (PHP_VERSION < '8.2.0') { throw new Exception("Invalid configuration, PHP82 or greater is required."); }
+	if (PHP_VERSION < '8.2.0') {
+		throw new Exception("Invalid configuration, PHP82 or greater is required.");
+	}
 	// Protect GLOBALS
 	$this->GLOBALS	= isset($GLOBALS)	? $GLOBALS	: array();
 	$this->_SERVER	= isset($_SERVER)	? $_SERVER	: array();
@@ -378,7 +380,7 @@ EOF;
 
 // set and get file types
 // TODO error check that reading and writing in my own directory!!
-public function set_file($filename string, $value mixed) : void {
+public function set_file($filename string, $value) : void {
 	if (FALSE === file_put_contents($filename, $value)) {
 		throw new Exception("System call failure, file_put_contents({$filename}).");
 	}
