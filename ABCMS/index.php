@@ -25,21 +25,8 @@ try {
 	abcms()->output(abcms()->_ABCMS['urlcommand']);				// I am da boss and do what I please 
 }
 catch (Exception $e) {
+	// screen
 	$message = "\nUser: ".$e->getMessage()."\n";
-	$coredump =
-		"\n\n\n_ABCMS:\n".print_r($this->_ABCMS,TRUE) .
-		"\n\n\nGLOBALS:\n".print_r($this->GLOBALS) .
-		"\n\n\n_SERVER:\n".print_r($this->_SERVER) .
-		"\n\n\n_GET:\n".print_r($this->_GET) .
-		"\n\n\n_POST:\n".print_r($this->_POST) .
-		"\n\n\n_FILES:\n".print_r($this->_FILES) .
-		"\n\n\n_COOKIE:\n".print_r($this->_COOKIE) .
-		"\n\n\n_SESSION:\n".print_r($this->_SESSION) .
-		"\n\n\n_REQUEST:\n".print_r($this->_REQUEST) .
-		"\n\n\n_ENV:\n".print_r($this->_ENV) .
-		"\n\n\nStack:\n".print_r(debug_backtrace(DEBUG_BACKTRACE_PROVIDE_OBJECT));
-	$corefile = "../private/nainoiainc/abcms/.coredump";
-	set_file($corefile, $$coredump);
 	if (($error = error_get_last())) {
 	$message .= <<< EOF
 Type: {$error['type']}
@@ -50,8 +37,15 @@ Dump: {$corefile}
 
 EOF;
 	}
-	if ($this->_ABCMS['cli']) { echo $message; }				// CLI
+	if ('cli' === PHP_SAPI) {	echo $message; }				// CLI
 	else {						echo nl2br($message, FALSE); }	// HTML
+	// corefile
+	$corefile = "../private/nainoiainc/abcms/.coredump";
+	$coredump =
+		$message .
+		"\n\n\nGLOBALS:\n"	. print_r((isset($GLOBALS)	? $GLOBALS	: array()), TRUE) .
+		"\n\n\nStack:\n"	. print_r(debug_backtrace(DEBUG_BACKTRACE_PROVIDE_OBJECT));
+	file_put_contents($corefile, $coredump);
 }
 // Always
 finally {
@@ -75,36 +69,23 @@ if (NULL===$_abcms) {
 $_abcms = new class {
 // Properties
 public readonly array $GLOBALS;
-public readonly array $_SERVER;
-public readonly array $_GET;
-public readonly array $_POST;
-public readonly array $_FILES;
-public readonly array $_COOKIE;
-public readonly array $_SESSION;
-public readonly array $_REQUEST;
-public readonly array $_ENV;
 public readonly array $_ABCMS;
 private array $_property;
 private array $_method;
 private array $_function;
 // Construct
 public function __construct() {
-	// TODO TEMP JUNK
-	$this->set_settings("../private/nainoiainc/abcms/ABCMS.json");
 	// Validate system
 	if (PHP_VERSION < '8.2.0') {
 		throw new Exception("Invalid configuration, PHP82 or greater is required.");
 	}
+	if (!chdir(__DIR__)) {
+		throw new Exception("System call failure, chdir(".__DIR__.")");
+	}
+	// TODO TEMP JUNK
+	$this->set_settings("../private/nainoiainc/abcms/ABCMS.json");
 	// Protect GLOBALS
 	$this->GLOBALS	= isset($GLOBALS)	? $GLOBALS	: array();
-	$this->_SERVER	= isset($_SERVER)	? $_SERVER	: array();
-	$this->_GET		= isset($_GET)		? $_GET		: array();
-	$this->_POST	= isset($_POST)		? $_POST	: array();
-	$this->_FILES	= isset($_FILES)	? $_FILES	: array();
-	$this->_COOKIE	= isset($_COOKIE)	? $_COOKIE	: array();
-	$this->_SESSION	= isset($_SESSION)	? $_SESSION	: array();
-	$this->_REQUEST	= isset($_REQUEST)	? $_REQUEST	: array();
-	$this->_ENV		= isset($_ENV)		? $_ENV		: array();
 	// Assign properties
 	$regex = "/\/([[:alnum:]\-._~%]+)=([[:alnum:]\-._~%]+)/u";
 	$this->_ABCMS	= array(
@@ -148,6 +129,59 @@ public function __construct() {
 	// autoload
 	if ($this->_ABCMS['auto']) { require_once($this->_ABCMS['auto']); }	// autoload
 }
+// Output loop
+public function output(string $command) : void {
+	while($this->output_recursion($command)) ;
+}
+private function output_recursion(string $command) : bool {
+	// Start buffers
+	if (FALSE===ob_start()) {
+		throw new Exception("System call failure, ob_start() with command = {$command}");
+	}
+	// Router lookup
+	static $recursion = 0; ++$recursion;
+	if (!empty($this->_ABCMS['settings']['router'][$this->_ABCMS['urlmethod']][$this->_ABCMS['urlcommand']])) {
+			$route = array('level' => 1, 'include' => 'include_once', 'filename' => 'ABCMS', 'class' => 'ABCMS', 'function' => 'unknown');
+	}
+	else if (('GET'===$this->_ABCMS['urlmethod'] || 'POST'===$this->_ABCMS['urlmethod']) && !empty($this->_ABCMS['settings']['router']['GETPOST'][$this->_ABCMS['urlcommand']])) {
+			$route = array('level' => 1, 'include' => 'include_once', 'filename' => 'ABCMS', 'class' => 'ABCMS', 'function' => 'unknown');
+	}
+	else if (!empty($this->_ABCMS['settings']['router'][NULL][$this->_ABCMS['urlcommand']])) {
+			$route = array('level' => 1, 'include' => 'include_once', 'filename' => 'ABCMS', 'class' => 'ABCMS', 'function' => 'unknown');
+	}
+	else {
+			$route = array('level' => 1, 'include' => 'include_once', 'filename' => 'ABCMS', 'class' => 'ABCMS', 'function' => 'unknown');
+	}
+	//get_override_include(		string $original, mixed $priority_allowed=NULL)
+	//get_override_include_once(	string $original, mixed $priority_allowed=NULL)
+	//get_override_require(		string $original, mixed $priority_allowed=NULL)
+	//get_override_require_once(	string $original, mixed $priority_allowed=NULL)
+	//get_override_return(		string $return,   mixed $priority_allowed=NULL)
+	$result = FALSE;
+
+	// Default if nothing
+	if (empty($command) || !$result) {
+		if ('/settings'===$this->_ABCMS['urlcommand']) {
+			$this->settings();
+		}
+		else if ('/browser'===$this->_ABCMS['urlcommand']) {
+			$this->browser();
+		}
+		else {
+			$this->welcome();
+		}
+	}
+	// Sanitize and echo buffers
+	if (FALSE === ($output = ob_get_clean())) {
+		throw new Exception("System call failure, ob_get_clean() with command = {$command}");
+	}
+	echo $this->sanitize($output);
+	// return
+	return $result;
+}
+
+
+
 // Dynamic properties not allowed
 public function __set(string $name, $value) {
 	throw new Exception("Invalid programming, dynamic property creation not allowed for name = {$name}");
@@ -241,58 +275,6 @@ public function get_path(string $path = NULL) : ?string {
 private function overrides() : void {
 }
 
-// Output loop
-public function output(string $command) : void {
-	while($this->output_recursion($command)) ;
-}
-private function output_recursion(string $command) : bool {
-	// Start buffers
-	if (FALSE===ob_start()) {
-		throw new Exception("System call failure, ob_start() with command = {$command}");
-	}
-	// Router lookup
-	static $recursion = 0; ++$recursion;
-	if (!empty($this->_ABCMS['settings']['router'][$this->_ABCMS['urlmethod']][$this->_ABCMS['urlcommand']])) {
-			$route = array('level' => 1, 'include' => 'include_once', 'filename' => 'ABCMS', 'class' => 'ABCMS', 'function' => 'unknown');
-	}
-	else if (('GET'===$this->_ABCMS['urlmethod'] || 'POST'===$this->_ABCMS['urlmethod']) && !empty($this->_ABCMS['settings']['router']['GETPOST'][$this->_ABCMS['urlcommand']])) {
-			$route = array('level' => 1, 'include' => 'include_once', 'filename' => 'ABCMS', 'class' => 'ABCMS', 'function' => 'unknown');
-	}
-	else if (!empty($this->_ABCMS['settings']['router'][NULL][$this->_ABCMS['urlcommand']])) {
-			$route = array('level' => 1, 'include' => 'include_once', 'filename' => 'ABCMS', 'class' => 'ABCMS', 'function' => 'unknown');
-	}
-	else {
-			$route = array('level' => 1, 'include' => 'include_once', 'filename' => 'ABCMS', 'class' => 'ABCMS', 'function' => 'unknown');
-	}
-	//get_override_include(		string $original, mixed $priority_allowed=NULL)
-	//get_override_include_once(	string $original, mixed $priority_allowed=NULL)
-	//get_override_require(		string $original, mixed $priority_allowed=NULL)
-	//get_override_require_once(	string $original, mixed $priority_allowed=NULL)
-	//get_override_return(		string $return,   mixed $priority_allowed=NULL)
-	$result = FALSE;
-
-	// Default if nothing
-	if (empty($command) || !$result) {
-		if ($this->_ABCMS['cli']) {
-			echo "\nNothing for me to do.\n\n";
-			print_r($this->_ABCMS);
-			print_r($_GET);
-		}
-		else if ('/settings'===$this->_ABCMS['urlcommand']) {
-			$this->browser();
-		}
-		else {
-			$this->welcome();
-		}
-	}
-	// Sanitize and echo buffers
-	if (FALSE === ($output = ob_get_clean())) {
-		throw new Exception("System call failure, ob_get_clean() with command = {$command}");
-	}
-	echo $this->sanitize($output);
-	// return
-	return $result;
-}
 
 // Sanitize string
 private function sanitize(string $output) : string {
@@ -302,33 +284,24 @@ private function sanitize(string $output) : string {
 // Default welcome
 private function welcome() : void {
 	echo <<< EOF
-<br>
-<br>
-&nbsp;&nbsp;Hello World!<br>
-EOF;
+Hello World!
 
-// test auto-loader
-if ($this->_ABCMS['auto']) {
-	echo <<< EOF
-<br>
-<br>
-&nbsp;&nbsp;ABCMS package!<br>
 EOF;
-	foreach (($packages = Composer\InstalledVersions::getInstalledPackagesByType('abcms-package')) as $name) { // get 'abcms-package'
-		echo "<br>{$name} : " . Composer\InstalledVersions::getInstallPath($name);
-	}
 }
 
-// dump all
-	echo <<< EOF
-<br>
-<br>
-&nbsp;&nbsp;ABCMS object!<br>
-EOF;
-echo '<pre>';
-print_r($this->_ABCMS);
-print_r($_GET);
-echo '</pre>';
+// Default welcome
+private function settings() : void {
+	// test auto-loader
+	$settings = "ABCMS packages:\n";
+	if ($this->_ABCMS['auto']) {
+		foreach (($packages = Composer\InstalledVersions::getInstalledPackagesByType('abcms-package')) as $name) { // get 'abcms-package'
+			$settings .= "{$name} : " . Composer\InstalledVersions::getInstallPath($name) . "\n";
+		}
+	}
+	$settings .= "\nABCMS Settings\n\n";
+	$settings .= print_r($this->_ABCMS,TRUE);
+	if ($this->_ABCMS['cli']) { echo $settings; }
+	else {						echo nl2br($settings); }
 }
 
 // Settings output
@@ -363,19 +336,17 @@ private function set_settings($filename) : void {
 	$this->set_json($filename, $settings);
 }
 private function browser(string $path = NULL) : void {
-	if (NULL===$path) { $path = $this->_ABCMS['project']; }
-	$display = "./".preg_replace("/^{$this->_ABCMS['project']}/", "", $path);
-	echo <<< EOF
-<br>
-<br>
-&nbsp;&nbsp;Filename: {$display}<br>
-<br>
+	if (NULL===$path) { $path = $this->_ABCMS['projectroot']; }
+	$display = <<< EOF
+Filename: {$path}
+
 EOF;
-	if ("./"!==$display) { echo "&nbsp;&nbsp;..<br>"; }
-	$files = array_diff(scandir($path), array('.', '..'));
+	$files = array_diff(scandir($path), array('..'));
 	foreach($files as $file) {
-		echo "&nbsp;&nbsp;".$file."<br>";
+		$display .= $file."\n";
 	}
+	if ($this->_ABCMS['cli']) { echo $display; }
+	else {						echo nl2br($display); }
 }
 
 
