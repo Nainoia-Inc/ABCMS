@@ -284,7 +284,8 @@ private function sanitize(string $output) : string {
 // Default welcome
 private function welcome() : void {
 	echo <<< EOF
-Hello World!
+Hello World! 
+I am A Basic Content Management System :-)
 
 EOF;
 }
