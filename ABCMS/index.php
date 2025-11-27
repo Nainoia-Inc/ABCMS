@@ -1,63 +1,132 @@
 <?php
 /*
-ABCMS - A Basic Content Management System
-The abcms() function is defined here and returns the abcms object.
-What is with all these crazy PHP template engines? People. PHP is the template!
-And pal by the way, let's not trust each other, trust Jesus and write good code.
+ * SECTION: OVERVIEW
+ *
+ * "A Basic Content Management System" (ABCMS)
+ * Created for AKA "Aionian Bible Content Management System"
+ * A PHP web developer toolkit and CMS in a single file
+ * Install with Composer or copy this file to your document root
+ * With the abcms() router engine EVERYTHING is a hook or extension
+ * Run https://domain.com/abcms/help or "php index.php /abcms/help"
+ *
+ *
+ * 
+ * SECTION: NOTES
+ *
+ * 1. Use of https://phpdoc.org/ is too restrictive.
+ * 2. Beautiful file conversion with "libreoffice" to keep PHP tight.
+ *		yum install libreoffice
+ *		input and output filters: https://help.libreoffice.org/25.8/en-US/text/shared/guide/convertfilters.html?&DbPAR=SHARED&System=WIN
+ *		filter options: https://help.libreoffice.org/25.8/en-US/text/shared/guide/csv_params.html?&DbPAR=SHARED&System=WIN
+ *		beware TRUE and FALSE: https://ask.libreoffice.org/t/entering-true-or-false-as-text-into-any-cell-is-interpreted-as-true-or-false/104905
+ *		working example: libreoffice --convert-to "csv:Text - txt - csv (StarCalc):9,,UTF-8,1" --infilter="MS Excel 97" --outdir ./ input.xls
+ * 3. 
+ *
+ */
 
-CODE NOTES:
-File conversion with "libreoffice"
-yum install libreoffice
-input and output filters: https://help.libreoffice.org/25.8/en-US/text/shared/guide/convertfilters.html?&DbPAR=SHARED&System=WIN
-filter options: https://help.libreoffice.org/25.8/en-US/text/shared/guide/csv_params.html?&DbPAR=SHARED&System=WIN
-beware TRUE and FALSE: https://ask.libreoffice.org/t/entering-true-or-false-as-text-into-any-cell-is-interpreted-as-true-or-false/104905
-working example: libreoffice --convert-to "csv:Text - txt - csv (StarCalc):9,,UTF-8,1" --infilter="MS Excel 97" --outdir ./ input.xls
-
-*/
 
 
+/*
+ * SECTION: CONSTANTS
+ *
+ */
+const ABCMS_CHECK	= "\u{2611}";													// Success check mark
+const ABCMS_BALLOT	= "\u{2612}";													// Failure X mark
 
-/**********
-Run ABCMS
-***********/
-try {
-	if (empty(abcms()->_ABCMS['boss'])) { return TRUE; }		// I do nada, use abcms() as you please
-	abcms()->output(abcms()->_ABCMS['urlcommand']);				// I am da boss and do what I please 
+
+
+/*
+ * SECTION: RUN ABCMS
+ *
+ * If named 'index.php' in your document root then I do as I pleasae
+ * If named anything else you include me and reference abcms() as you please
+ *
+ */
+try {																				// Try to run ABCMS
+	$abcms_object = NULL;															// Not constructed yet
+	$abcms_object = abcms();														// Object pointer for catch() block
+	if (empty(abcms()->ABCMS['boss'])) { return TRUE; }								// I do nada and you do as you please with me
+	$args[] = "Hello World! ".ABCMS_CHECK."<br>\n";									// Say hello if nothing else
+	$args[] = "I am alive! ".ABCMS_CHECK."<br>\n";									// Be happy about it
+	abcms()->output(																// I am boss and I do as I please with you
+		'/nainoiainc/abcms/begin',													// Name of the entry hook and everything is a hook
+		'abcms()->echo',															// Default function if not extended
+		...$args,																	// Default arguments to output() by reference
+	);
 }
-catch (Exception $e) {
-	// screen
-	$message = "\nUser: ".$e->getMessage()."\n";
-	if (($error = error_get_last())) {
-	$message .= <<< EOF
-Type: {$error['type']}
-Mess: {$error['message']}
-File: {$error['file']}
-Line: {$error['line']}
-Dump: {$corefile}
+catch (Exception $e) {																// Oops, ungraceful error, coredump, and WSOD
+	$corefile = "../private/nainoiainc/abcms/ABCMS.coredump";						// Coredump location
+	echo "Hello World! ".ABCMS_CHECK."<br>\n";										// Try to be friendly
+	echo "I am wounded! ".ABCMS_BALLOT." See {$corefile}<br>\n";					// Now call for help
+	$error = ($e->getMessage() ?: 'NA');											// Get the exception error
+	$sys = (($sys = error_get_last()) ? print_r($sys,TRUE) : 'System Error: NA');	// Get the system error
+	$globals = print_r((isset($GLOBALS) ? $GLOBALS : array()), TRUE);				// Get $GLOBALS
+	$abcms = $settings = $debugs = $packages = 'NA';								// Initialize NA also
+	if (is_object($abcms_object)) {													// If ABCMS contructed, grab more info
+		$abcms = print_r($abcms_object->ABCMS,TRUE);								// ABCMS settings
+		$settings = print_r($abcms_object->get_settings(),TRUE);					// Dynamic settings
+		$debugs = print_r($abcms_object->get_debugs(),TRUE);						// Debug info
+		if (abcms()->ABCMS['auto']) {												// If Composer list packages
+			$packages = NULL;
+			foreach (Composer\InstalledVersions::getInstalledPackagesByType('abcms-extension') as $name) {
+				$packages .= "{$name} : " . Composer\InstalledVersions::getInstallPath($name) . "\n";
+			}
+		}
+	}
+	else {
+		ini_set('error_log', '../private/nainoiainc/abcms/ABCMS.errorlog');			// Constructor failed, so set this
+	}
+	// Report to the error_log
+	error_log("ABCMS Exception: Error = {$error}");
+	error_log("ABCMS Exception: System = {$sys}");
+	// Dump the corefile
+	$coredump = <<< EOF
+ABCMS COREDUMP BEGIN
+
+
+ABCMS COREDUMP Error message:
+$error
+
+
+ABCMS COREDUMP System error:
+$sys
+
+
+ABCMS COREDUMP GLOBALS:
+$globals
+
+
+ABCMS COREDUMP ABCMS:
+$abcms
+
+
+ABCMS COREDUMP Settings:
+$settings
+
+
+ABCMS COREDUMP Debugs:
+$debugs
+
+
+ABCMS COREDUMP Packages:
+$packages
+
+ABCMS COREDUMP End
 
 EOF;
-	}
-	if ('cli' === PHP_SAPI) {	echo $message; }				// CLI
-	else {						echo nl2br($message, FALSE); }	// HTML
-	// corefile
-	$corefile = "../private/nainoiainc/abcms/.coredump";
-	$coredump =
-		$message .
-		"\n\n\nGLOBALS:\n"	. print_r((isset($GLOBALS)	? $GLOBALS	: array()), TRUE) .
-		"\n\n\nStack:\n"	. print_r(debug_backtrace(DEBUG_BACKTRACE_PROVIDE_OBJECT));
 	file_put_contents($corefile, $coredump);
 }
-// Always
-finally {
+finally {														// End well if possible
 	;															// Remove all locks
 }
-return TRUE;
+return TRUE;													// Function definitions only beyond this point
 
 
 
-/**********
-Define ABCMS function and class / object
-**********/
+/*
+ * SECTION: DEFINE ABCMS CLASS AND CORE
+ *
+ */
 function abcms() : object {
 // Initialize
 static $_abcms = NULL;
@@ -68,27 +137,24 @@ if (NULL===$_abcms) {
 // New class
 $_abcms = new class {
 // Properties
-public readonly array $GLOBALS;
-public readonly array $_ABCMS;
-private array $_property;
-private array $_method;
-private array $_function;
+readonly array $GLOBALS;
+readonly array $ABCMS;
+private array $ABCMS_settings = array();
+private array $ABCMS_debugs = array();
 // Construct
-public function __construct() {
+function __construct() {
 	// Validate system
-	if (PHP_VERSION < '8.2.0') {
-		throw new Exception("Invalid configuration, PHP82 or greater is required.");
-	}
-	if (!chdir(__DIR__)) {
-		throw new Exception("System call failure, chdir(".__DIR__.")");
-	}
-	// TODO TEMP JUNK
-	$this->set_settings("../private/nainoiainc/abcms/ABCMS.json");
+	if (PHP_VERSION < '8.2.0') {														$this->throw_debugs("Invalid configuration, PHP82 or greater is required."); }
+	if (!chdir(__DIR__)) {																$this->throw_debugs("System call failure, chdir(".__DIR__.")");	}
+	if (!ini_set('error_log', ($tmp='../private/nainoiainc/abcms/ABCMS.errorlog'))) {	$this->throw_debugs("System call failure, ini_set(error_log, {$tmp})"); }
+
+	// TODO TEMP
+	$this->set_settings();
 	// Protect GLOBALS
 	$this->GLOBALS	= isset($GLOBALS)	? $GLOBALS	: array();
 	// Assign properties
 	$regex = "/\/([[:alnum:]\-._~%]+)=([[:alnum:]\-._~%]+)/u";
-	$this->_ABCMS	= array(
+	$this->ABCMS	= array(
 		'boss'			=> ('index.php' === basename(__FILE__) ? TRUE : FALSE),								// If TRUE I include you, otherwise you include me
 		'filename'		=> (__FILE__),																		// Me filename
 		'documentroot'	=> (__DIR__),																		// Documentroot folder
@@ -107,283 +173,439 @@ public function __construct() {
 		'argv'			=> $_SERVER['argv'],																// CLI arguments
 		'argc'			=> $_SERVER['argc'],																// CLI argument count
 		'auto'			=> (file_exists(($auto = (__DIR__ . '/../vendor/autoload.php'))) ? $auto : NULL),	// Auto-loader present
-		'settings'		=> $this->get_json("../private/nainoiainc/abcms/ABCMS.json"),						// Load my settings json
+		'settings'		=> $this->get_json("../private/nainoiainc/abcms/ABCMS.json"),						// Load all settings
 	);
 	// Validate input
-	if (!preg_match("#^{$this->_ABCMS['urlcommand']}#u",urldecode($urlparsed['path']))) {
-		throw new Exception("Invalid URL, path variables found before path command in {$this->_ABCMS['urlfull']}");
+	if (!preg_match("#^{$this->ABCMS['urlcommand']}#u",urldecode($urlparsed['path']))) {
+		$this->throw_debugs("Invalid URL, path variables found before path command in {$this->ABCMS['urlfull']}");
 	}
 	if (!TRUE) { // TODO add path variable and query variable check here
-		throw new Exception("Invalid URL, unknown path variables and query variables found in {$this->_ABCMS['urlfull']}");
+		$this->throw_debugs("Invalid URL, unknown path variables and query variables found in {$this->ABCMS['urlfull']}");
 	}
-	if (($sorted = $this->_ABCMS['urlvars']) && ksort($sorted) && $sorted !== $this->_ABCMS['urlvars']) {
-		throw new Exception("Invalid URL, path variables not alphbetical in {$this->_ABCMS['urlfull']}");
+	if (($sorted = $this->ABCMS['urlvars']) && ksort($sorted) && $sorted !== $this->ABCMS['urlvars']) {
+		$this->throw_debugs("Invalid URL, path variables not alphbetical in {$this->ABCMS['urlfull']}");
 	}
-	if (($sorted = $this->_ABCMS['urlquery']) && ksort($sorted) && $sorted !== $this->_ABCMS['urlquery']) {
-		throw new Exception("Invalid URL, query variables not alphbetical in {$this->_ABCMS['urlfull']}");
+	if (($sorted = $this->ABCMS['urlquery']) && ksort($sorted) && $sorted !== $this->ABCMS['urlquery']) {
+		$this->throw_debugs("Invalid URL, query variables not alphbetical in {$this->ABCMS['urlfull']}");
 	}
-	// Override arrays
-	$this->_property	= array(array());
-	$this->_method		= array(array());
-	$this->_function	= array(array());
 	// autoload
-	if ($this->_ABCMS['auto']) { require_once($this->_ABCMS['auto']); }	// autoload
+	if ($this->ABCMS['auto']) { require_once($this->ABCMS['auto']); }	// autoload
 }
-// Output loop
-public function output(string $command) : void {
-	while($this->output_recursion($command)) ;
-}
-private function output_recursion(string $command) : bool {
+
+
+
+// Output with extensions
+public function output(
+	string $hook,		// name of this hook
+	string $default,	// default function
+	mixed &...$args,	// default arguments
+) {
+	// let programmers know this hook is exposed
+	$this->set_debugs(func_get_args());
 	// Start buffers
 	if (FALSE===ob_start()) {
-		throw new Exception("System call failure, ob_start() with command = {$command}");
+		$this->throw_debugs("System call failure, ob_start() with command = {$command}");
 	}
-	// Router lookup
-	static $recursion = 0; ++$recursion;
-	if (!empty($this->_ABCMS['settings']['router'][$this->_ABCMS['urlmethod']][$this->_ABCMS['urlcommand']])) {
-			$route = array('level' => 1, 'include' => 'include_once', 'filename' => 'ABCMS', 'class' => 'ABCMS', 'function' => 'unknown');
+	// loop through registered pre-extensions
+	$dodefault = TRUE;
+	if (isset($this->ABCMS['settings']['route'][$hook]['pre'])) {
+	foreach($this->ABCMS['settings']['route'][$hook]['pre'] as $ext) { // multiple extensions extend same hook for 'pre' and 'only'
+		if (empty($ext['meth']) && empty($ext['ext'])) { ; }																	// run extension if no method or name
+		else if (empty($ext['ext']) && preg_match("#{$this->ABCMS['urlmethod']}#", $ext['meth'])) { ; }							// run extension if no name and method matches
+		else if (empty($ext['meth']) && $this->ABCMS['settings']['equate']["{$this->ABCMS['urlcommand']}{$hook}{$ext['ext']}"]) { ; }	// run extension if no method and "path,hook,ext" matches
+		else if ($ext['meth'] && preg_match("#{$this->ABCMS['urlmethod']}#", $ext['meth']) &&
+				 $ext['ext'] && !empty($this->ABCMS['settings']['equate']["{$this->ABCMS['urlcommand']}{$hook}{$ext['ext']}"])) { ; }	// run extension if method and path,hook,ext match
+		else { continue; }
+		if ($ext['only']) { $dodefault = FALSE; }
+		$this->set_debugs($ext);
+		while($this->output_call($ext['fun'], ...$args)) ;																		// call pre-extension until done
+	}}
+	// loop through default function
+	if ($dodefault) {
+		$this->set_debugs($default);
+		while($this->output_call($default, ...$args)) ;																			// call default until done
 	}
-	else if (('GET'===$this->_ABCMS['urlmethod'] || 'POST'===$this->_ABCMS['urlmethod']) && !empty($this->_ABCMS['settings']['router']['GETPOST'][$this->_ABCMS['urlcommand']])) {
-			$route = array('level' => 1, 'include' => 'include_once', 'filename' => 'ABCMS', 'class' => 'ABCMS', 'function' => 'unknown');
-	}
-	else if (!empty($this->_ABCMS['settings']['router'][NULL][$this->_ABCMS['urlcommand']])) {
-			$route = array('level' => 1, 'include' => 'include_once', 'filename' => 'ABCMS', 'class' => 'ABCMS', 'function' => 'unknown');
-	}
-	else {
-			$route = array('level' => 1, 'include' => 'include_once', 'filename' => 'ABCMS', 'class' => 'ABCMS', 'function' => 'unknown');
-	}
-	//get_override_include(		string $original, mixed $priority_allowed=NULL)
-	//get_override_include_once(	string $original, mixed $priority_allowed=NULL)
-	//get_override_require(		string $original, mixed $priority_allowed=NULL)
-	//get_override_require_once(	string $original, mixed $priority_allowed=NULL)
-	//get_override_return(		string $return,   mixed $priority_allowed=NULL)
-	$result = FALSE;
+	// loop through registered post-extensions
+	if (isset($this->ABCMS['settings']['route'][$hook]['post'])) {
+	foreach($this->ABCMS['settings']['route'][$hook]['post'] as $ext) { // multiple extensions extend same hook for 'post'
+		if (empty($ext['meth']) && empty($ext['ext'])) { ; }																	// run extension if no method or name
+		else if (empty($ext['ext']) && preg_match("#{$this->ABCMS['urlmethod']}#", $ext['meth'])) { ; }							// run extension if no name and method matches
+		else if (empty($ext['meth']) && $this->ABCMS['settings']['equate']["{$this->ABCMS['urlcommand']}{$hook}{$ext['ext']}"]) { ; }	// run extension if no method and "path,hook,ext" matches
+		else if ($ext['meth'] && preg_match("#{$this->ABCMS['urlmethod']}#", $ext['meth']) &&
+				 $ext['ext'] && !empty($this->ABCMS['settings']['equate']["{$this->ABCMS['urlcommand']}{$hook}{$ext['ext']}"])) { ; }	// run extension if method and path,hook,ext match
+		else { continue; }
+		while($this->output_call($ext['fun'], ...$args)) ;																			// call post-extension until done
+	}}
 
-	// Default if nothing
-	if (empty($command) || !$result) {
-		if ('/settings'===$this->_ABCMS['urlcommand']) {
-			$this->settings();
-		}
-		else if ('/browser'===$this->_ABCMS['urlcommand']) {
-			$this->browser();
-		}
-		else {
-			$this->welcome();
-		}
-	}
 	// Sanitize and echo buffers
 	if (FALSE === ($output = ob_get_clean())) {
-		throw new Exception("System call failure, ob_get_clean() with command = {$command}");
+		$this->throw_debugs("System call failure, ob_get_clean() with command = {$command}");
 	}
 	echo $this->sanitize($output);
-	// return
-	return $result;
+	return;
 }
 
 
 
-// Dynamic properties not allowed
-public function __set(string $name, $value) {
-	throw new Exception("Invalid programming, dynamic property creation not allowed for name = {$name}");
-}
-// Auto associate with calling module
-public function module() : string {
-	$backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 1);
-	if (empty($backtrace[0]['filename']) ||
-		NULL === ($module = preg_replace("#^{$this->_ABCMS['documentroot']}#", '', $backtrace[0]['filename'], 1, $count)) ||
-		$count != 1) {
-		throw new Exception("Invalid configuration, backtrace is missing.");
+// Call the functions
+private function output_call($filefunction, &...$args) : mixed {
+	$this->set_debugs(func_get_args());
+	// default hello
+	$return = FALSE;
+	// parse call #^(|/vendor/package/filepath)(|?(|classobject(::|->|()->))methodfunction)#
+	if (!preg_match("#^((/[^?]+)\?)?((([a-zA-Z_\x7f-\xff][a-zA-Z0-9_\x7f-\xff]*)(::|\->|\(\)\->))?([a-zA-Z_\x7f-\xff][a-zA-Z0-9_\x7f-\xff]*))?$#", $filefunction, $match)) {
+		$this->throw_debugs("output_call() preg_match({$filefunction}) invalid");
 	}
-	return dirname($module);
+	$this->set_debugs($match);
+	$filepath		= $match[2];
+	$classobject	= $match[5];
+	$operator		= $match[6];
+	$methodfunction	= $match[7];
+	// include filepath
+	if ($filepath) {
+		if ($methodfunction) {
+			$return = ABCMS()->include_once($filepath, ...$args);
+		}
+		else {
+			$return = ABCMS()->include($filepath, ...$args);
+		}
+	}
+	// call function, maybe $check = new Reflection(Class|Method|Function)($methodfunction); to confirm zero arguments
+	if ($methodfunction) {
+		if ($classobject) {
+			if ("::" === $operator) {
+				if (!class_exists($classobject) || !method_exists($classobject, $methodfunction)) {
+					$this->throw_debugs("output_call() class method invalid {$filefunction}");
+				}
+				$return = $classobject::$methodfunction(...$args);
+			}
+			else if ("->" === $operator) {
+				if (!is_object($classobject) || !method_exists($classobject, $methodfunction)) {
+					$this->throw_debugs("output_call() object method invalid {$filefunction}");
+				}
+				$return = $classobject->$methodfunction(...$args);
+			}
+			else if ("()->" === $operator) {
+				if (!function_exists($classobject)) {
+					$this->throw_debugs("output_call() function invalid {$filefunction}");					
+				}
+				if (!is_object(($newobject = $classobject()))) {
+					$this->throw_debugs("output_call() function object invalid {$filefunction}");					
+				}
+				if (!method_exists($newobject, $methodfunction)) {
+					$this->throw_debugs("output_call() function object method invalid {$filefunction}");					
+				}
+				$return = $newobject->$methodfunction(...$args);
+			}
+			else {
+				$this->throw_debugs("output_call() invalid operator {$filefunction}");
+			}
+		}
+		else {
+			if (!is_function($methodfunction)) {
+				$this->throw_debugs("output_call() function invalid {$filefunction}");
+			}
+			$return = $methodfunction(...$args);
+		}
+	}
+	return $return;
 }
-// Set psuedo property
-public function set_property(string $name, $value=NULL) : mixed {
-	if(empty($name)) { throw new Exception("Invalid programming, empty name invalid."); }
-	$this->_property[$this->module()][$name] = $value;
-	return $value;
+
+
+
+/*
+ * SECTION: DEFINE DEBUGS
+ *
+ */
+public function throw_debugs(				// Throw exception now
+	string &...$info,						// Exception info
+) : void {
+	//$this->set_debugs(debug_backtrace(DEBUG_BACKTRACE_PROVIDE_OBJECT));
+	$this->set_debugs($info);
+	throw new Exception("Exception thrown\n".implode("\n", $info));
+	return;
 }
-// Get pseudo property
-public function get_property(string $module, string $name) : mixed  {
-	if (!isset($this->_property[$module][$name])) { return NULL; } // graceful fail when check if set
-	return($this->_property[$module][$name]);
+public function set_debugs(					// Set a debug info
+	mixed $info,							// Debug info
+) : void {
+	$this->ABCMS_debugs[] = $info;
+	return;
 }
-// Set pseudo method
-public function set_method(string $name) : callable {
-	if(!function_exists($name)) { throw new Exception("Invalid code, method name invalid for name = {$name}"); }
-	$this->_method[$this->module()][$name] = $name;
-	return $name;
+public function get_debugs() : array {		// Get private debugs array for public
+	return $this->ABCMS_debugs;
 }
-// Get pseudo method
-public function get_method(string $module, string $name) : ?callable  {
-	if (!isset($this->_method[$module][$name])) { return 'abcms_noop'; }
-	return($this->_method[$module][$name]);
+public function get_settings() : array {	// Get private debugs array for public
+	return $this->ABCMS_settings;
 }
-// Set function override
-public function set_override_function(string $include, int $priority_requested, string $function_replace, string $function_new, string $parameter1) : bool {
-	$this->_function[$this->module()][$function_replace][$parameter1][] = array(
-		'include'	=> $include,
-		'priority'	=> $priority_requested,
-		'function'	=> $function_new,
+
+
+/*
+ * SECTION: DEFINE EQUATE AND EXTEND
+ *
+ */
+// Core function to map/equate path commands to hooks
+public function output_equate(
+	string $path,					// unique path command must be unique
+	string $hook,					// name of hook
+	string $extension,				// name of extension
+) : void {
+
+	$this->ABCMS_settings['equate'][mb_strtolower("{$path}{$hook}{$extension}", 'UTF-8')] = TRUE;
+	return;
+}
+
+
+
+// Core function for packages to pre-register their hook extensions and store in application settings for fast autoloading
+public function output_extend(
+	string $meth,					// HTTP method or '' = always
+	string $ext,					// name of extension or '' = always
+	string $hook,					// /vendor/package/hook (not a file path)
+	string $pos,					// position to default: only, pre, post, both
+	string $fun,					// include?function
+	int $ord,						// order
+) : void {
+	$newpos =
+		('only' === $pos ? 'pre' :
+		('pre'  === $pos ? 'pre' : 'post'));
+	$this->ABCMS_settings['route'][$hook][$newpos][] = array(
+		'meth'	=> $meth,
+		'ext'	=> $ext,
+		'fun'	=> $fun,
+		'ord'	=> $ord,
+		'only'	=> ('only' === $pos ? TRUE : FALSE),
 	);
-	return TRUE;
-}
-// Get function override
-public function get_override_function(int $priority_allowed, string $function, string $parameter1, ...$parameters) : mixed {
-	$found = FALSE;
-	foreach($this->_function[$this->module()][$function_replace][$parameter1] as $possible) {
-		if (!$found || $possible['priority'] < $found['priority']) { $found = $possible; }
-	}
-	if ($found) {
-		include($found['include']);
-		if(function_exists($found['function'])) { return($found['function']($parameter1, ...$parameters)); }
-	}
-	return($function($parameter1, ...$parameters));
-}
-
-public function set_override_include(		string $module, string $original, string $override, int $mixed=NULL) : ?bool { return TRUE; }
-public function set_override_include_once(	string $module, string $original, string $override, int $mixed=NULL) : ?bool { return TRUE; }
-public function set_override_require(		string $module, string $original, string $override, int $mixed=NULL) : ?bool { return TRUE; }
-public function set_override_require_once(	string $module, string $original, string $override, int $mixed=NULL) : ?bool { return TRUE; }
-public function set_override_return(		string $module, string $function, string $include,  int $mixed=NULL) : ?bool { return TRUE; }
-
-public function get_override_include(		string $original, mixed $priority_allowed=NULL) : ?bool { return FALSE; } // rank (by module or request)
-public function get_override_include_once(	string $original, mixed $priority_allowed=NULL) : ?bool { return FALSE; } // exclusive(first or highest)
-public function get_override_require(		string $original, mixed $priority_allowed=NULL) : ?bool { return FALSE; } // rank (by module or request)
-public function get_override_require_once(	string $original, mixed $priority_allowed=NULL) : ?bool { return FALSE; } // exclusive(first or highest)
-public function get_override_return(		string $return,   mixed $priority_allowed=NULL) : ?bool { return FALSE; } // exclusive(first or highest) or rank (by module or request)
-
-// Non-function to function wrappers
-public function hello(string ...$strings) : void {
-	for($x=0,$z=count($strings); $x<$z; ++$x){
-		echo $strings[$x];
+	if ('both' === $pos) {
+	$this->ABCMS_settings['route'][$hook]['pre'][] = array(
+		'meth'	=> $meth,
+		'ext'	=> $ext,
+		'fun'	=> $fun,
+		'ord'	=> $ord,
+		'only'	=> FALSE,
+	);
 	}
 	return;
 }
-public function print(string $string = NULL) : bool {
-	return print($string);
-}
 
-// Path functions
-public function set_path(string $path = NULL) : ?string {
-	return $path;
-}
-public function get_path(string $path = NULL) : ?string {
-	return $path;
-}
 
-// Read or build overrides array
-private function overrides() : void {
+
+
+/*
+ * SECTION: DEFINE HELP
+ *
+ */
+public function help(string &...$args) : ?int { // Non-function wrapper so extendable
+	static $count = 3;
+	echo "Help World! ".ABCMS_CHECK."<br>\n";
+	return $count--;
 }
 
 
-// Sanitize string
-private function sanitize(string $output) : string {
-	return $output;
-}
+/*
+ * SECTION: DEFINE SETUP
+ *
+ */
 
-// Default welcome
-private function welcome() : void {
+
+
+/*
+ * SECTION: DEFINE CRON
+ *
+ */
+
+
+
+/*
+ * SECTION: DEFINE LOGS
+ *
+ */
+
+
+
+/*
+ * SECTION: DEFINE AUTHENTICATION AND SESSIONS
+ *
+ */
+
+
+
+/*
+ * SECTION: DEFINE FORMS
+ *
+ */
+
+
+
+/*
+ * SECTION: DEFINE ADMIN
+ *
+ */
+private function home(string &...$args) : ?int { // Non-function wrapper so extendable
 	echo <<< EOF
-Hello World! 
-I am A Basic Content Management System :-)
-
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'>
+<title>A Basic Content Management System</title>
+<meta name='description' content="A Basic Content Management System">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name='mobile-web-app-capable' content='yes'>
+<meta name="generator" content="ABCMS™">
+<meta http-equiv='x-ua-compatible' content='ie=edge'>
+<script></script>
+</head>
+<body>
 EOF;
+	$out[] = "I am alive! ".ABCMS_CHECK."<br>\n";
+	$out[] = "But we do not belong here! ".ABCMS_BALLOT."<br>\n";
+	abcms()->output(
+		'/nainoiainc/abcms/abcms',
+		'abcms()->echo',
+		...$out,
+	);
+	echo <<< EOF
+</body>
+</html>
+EOF;
+	return FALSE;
 }
+public function homepage(string &...$args) : ?int { // Non-function wrapper so extendable
+	echo "I am alive! ".ABCMS_CHECK."<br>\n";
+	echo "Hello World! ".ABCMS_CHECK."<br>\n";
+	return FALSE;
+} 
 
-// Default welcome
-private function settings() : void {
-	// test auto-loader
-	$settings = "ABCMS packages:\n";
-	if ($this->_ABCMS['auto']) {
-		foreach (($packages = Composer\InstalledVersions::getInstalledPackagesByType('abcms-package')) as $name) { // get 'abcms-package'
-			$settings .= "{$name} : " . Composer\InstalledVersions::getInstallPath($name) . "\n";
-		}
+
+
+/*
+	string $meth,					// HTTP method, NULL = all
+	string $ext,					// name of extension
+	string $hook,					// /vendor/package/hook (not a file path)
+	string $pos,					// position to default: only, pre, post
+	string $fun,					// include?function
+	int $ord,						// order
+
+	$path,							// unique path command must be unique
+	$hook,							// name of hook
+	$extension,						// name of extension
+*/
+private function set_settings() : void {
+	// add extensions and everything is an extension
+	$this->output_extend('GET',		'', '', '', '', 0);
+	$this->output_extend('POST',	'', '', '', '', 0);
+	$this->output_extend('PUT',		'', '', '', '', 0);
+	$this->output_extend('HEAD',	'', '', '', '', 0);
+	$this->output_extend('DELETE',	'', '', '', '', 0);
+	$this->output_extend('PATCH',	'', '', '', '', 0);
+	$this->output_extend('OPTIONS',	'', '', '', '', 0);
+	$this->output_extend('CONNECT',	'', '', '', '', 0);
+	$this->output_extend('TRACE',	'', '', '', '', 0);
+	
+	$this->output_extend('GETPOST', '',  	'/nainoiainc/abcms/begin', 'only', 'abcms()->home', 0);
+	$this->output_extend('GETPOST', 'home',	'/nainoiainc/abcms/abcms', 'only', 'abcms()->homepage', 0);
+	$this->output_extend('GETPOST', 'help',	'/nainoiainc/abcms/abcms', 'only', 'abcms()->help', 0);
+	$this->output_extend('GETPOST', 'debug','/nainoiainc/abcms/abcms', 'only', 'abcms()->throw_debugs', 0);
+	
+	$this->output_equate('/',				'/nainoiainc/abcms/abcms',	'home');
+	$this->output_equate('/abcms/home',		'/nainoiainc/abcms/abcms',	'home');
+	$this->output_equate('/abcms/help',		'/nainoiainc/abcms/abcms',	'help');
+	$this->output_equate('/abcms/debug',	'/nainoiainc/abcms/abcms',	'debug');
+
+	// order extensions as requested
+	foreach($this->ABCMS_settings['route'] as &$hook) {
+		if (isset($hook['pre']) && is_array($hook['pre'])) {  usort($hook['pre'],  function($a, $b) { return $a['ord'] <=> $b['ord'];} ); }
+		if (isset($hook['post']) && is_array($hook['post'])) { usort($hook['post'], function($a, $b) { return $a['ord'] <=> $b['ord'];} ); }
 	}
-	$settings .= "\nABCMS Settings\n\n";
-	$settings .= print_r($this->_ABCMS,TRUE);
-	if ($this->_ABCMS['cli']) { echo $settings; }
-	else {						echo nl2br($settings); }
+	// save to file for fast loading
+	$this->set_json("../private/nainoiainc/abcms/ABCMS.json", $this->ABCMS_settings);
 }
 
-// Settings output
-private function set_settings($filename) : void {
-	// settings
-	$settings = array(
-		'preference'=> true,
-		'router'	=> array(),
-		);
-	// router
-	$settings['router']['GET'		][NULL] = NULL;
-	$settings['router']['POST'		][NULL] = NULL;
-	$settings['router']['PUT'		][NULL] = NULL;
-	$settings['router']['HEAD'		][NULL] = NULL;
-	$settings['router']['DELETE'	][NULL] = NULL;
-	$settings['router']['PATCH'		][NULL] = NULL;
-	$settings['router']['OPTIONS'	][NULL] = NULL;
-	$settings['router']['CONNECT'	][NULL] = NULL;
-	$settings['router']['TRACE'		][NULL] = NULL;
-	$settings['router']['GETPOST'	]['/']			= array('level' => 1, 'include' => 'include_once', 'filename' => 'ABCMS', 'class' => 'ABCMS', 'function' => 'welcome');
-	$settings['router']['GETPOST'	]['/Settings']	= array('level' => 1, 'include' => 'include_once', 'filename' => 'ABCMS', 'class' => 'ABCMS', 'function' => 'settings');
-	$settings['router']['GETPOST'	]['/Unknown']	= array('level' => 1, 'include' => 'include_once', 'filename' => 'ABCMS', 'class' => 'ABCMS', 'function' => 'unknown');
-	// lowercase the command key
-	foreach($settings['router'] as &$methods) {
-		$newArray = [];
-		foreach ($methods as $key => $value) {
-			$newKey = mb_strtolower($key, 'UTF-8');
-			$newArray[$newKey] = $value;
-		}
-		$methods = $newArray;
-    }
-	$this->set_json($filename, $settings);
-}
+
+
+// ADMIN BROWSER
 private function browser(string $path = NULL) : void {
-	if (NULL===$path) { $path = $this->_ABCMS['projectroot']; }
+	if (NULL===$path) { $path = $this->ABCMS['projectroot']; }
 	$display = <<< EOF
 Filename: {$path}
 
 EOF;
 	$files = array_diff(scandir($path), array('..'));
 	foreach($files as $file) {
-		$display .= $file."\n";
+		$display .= $file."<br>\n";
 	}
-	if ($this->_ABCMS['cli']) { echo $display; }
-	else {						echo nl2br($display); }
+	echo $display;
 }
 
 
 
-// set and get file types
-// TODO error check that reading and writing in my own directory!!
-public function set_file(string $filename, mixed $value) : void {
+
+/*
+ * SECTION: DEFINE WEBSERVANT
+ *
+ */
+
+
+
+/*
+ * SECTION: DEFINE PAGES, BOOKS, AND LISTS
+ *
+ */
+
+
+
+/*
+ * SECTION: DEFINE UTILITIES
+ *
+ */
+public function __set(string $name, $value) { // Dynamic properties not allowed
+	$this->throw_debugs("Invalid programming, dynamic property creation not allowed for name = {$name}");
+}
+private function sanitize(string $output) : string { // Sanitize string
+	return $output;
+}
+public function echo(string &...$args) : void { // Non-function wrapper so extendable
+	for($x=0,$z=count($args); $x<$z; ++$x){
+		echo $args[$x];
+	}
+	return;
+}
+public function print(string $string = NULL) : bool { // Non-function wrapper so extendable
+	return print($string);
+}
+public function set_path(string $path = NULL) : ?string { // set path
+	return $path;
+}
+public function get_path(string $path = NULL) : ?string { // get path
+	return $path;
+}
+public function set_file(string $filename, mixed $value) : void { // set file, TODO error check that reading and writing in my own directory!!
 	if (FALSE === file_put_contents($filename, $value)) {
-		throw new Exception("System call failure, file_put_contents({$filename}).");
+		$this->throw_debugs("System call failure, file_put_contents({$filename}).");
 	}
 }
-public function get_file(string $filename) : mixed {
+public function get_file(string $filename) : mixed { // get file, TODO error check that reading and writing in my own directory!!
 	if (FALSE === ($data = file_get_contents($filename))) {
-		throw new Exception("System call failure, file_get_contents({$filename}).");
+		$this->throw_debugs("System call failure, file_get_contents({$filename}).");
 	}
 	return($data);
 }
-
-public function set_json(string $filename, mixed $value) : void {
+public function set_json(string $filename, mixed $value) : void { // set json
 	if (FALSE === ($value = json_encode($value, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE))) {
-		throw new Exception("System call failure, json_encode({$filename}).");
+		$this->throw_debugs("System call failure, json_encode({$filename}).");
 	}
 	if (FALSE === file_put_contents($filename, $value)) {
-		throw new Exception("System call failure, file_put_contents({$filename}).");
+		$this->throw_debugs("System call failure, file_put_contents({$filename}).");
 	}
 }
-public function get_json(string $filename) : mixed {
+public function get_json(string $filename) : mixed { // get json
 	if (FALSE === ($json = file_get_contents($filename))) {
-		throw new Exception("System call failure, file_get_contents({$filename}).");
+		$this->throw_debugs("System call failure, file_get_contents({$filename}).");
 	}
 	if (NULL === ($json = json_decode($json, TRUE))) {
-		throw new Exception("System call failure, json_decode({$filename}).");
+		$this->throw_debugs("System call failure, json_decode({$filename}).");
 	}
 	return($json);
 }
-
 
 
 // end object
@@ -391,7 +613,3 @@ public function get_json(string $filename) : mixed {
 
 return $_abcms;
 }
-
-
-// convenience GLOBALS
-function abcms_noop(...$args) : mixed { return NULL; }
