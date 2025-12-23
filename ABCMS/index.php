@@ -7,7 +7,7 @@
  * PHP web developer toolkit and CMS in a single file
  * Install with Composer or copy to document root
  * Everything is an extension with the abcms() router
- * Run CLI "php index.php /abcms/help"
+ * Run CLI "php index.php /abcms/help | html2text"
  *
  */
  
@@ -39,7 +39,7 @@ $abcms_constant			= 'constant';
 const ABCMS_GOOD		= "<span style='color: green;'>\u{2611}</span> ";
 const ABCMS_BAD			= "<span style='color: red;'>\u{2612}</span> ";
 // Extensions
-const ABCMS_EXT			= "/nainoiainc/abcms";
+const ABCMS_EXT_SELF	= "/nainoiainc/abcms";
 const ABCMS_EXT_BEGINS	= "/begin";
 const ABCMS_EXT_BEGIN	= "/nainoiainc/abcms/begin";
 const ABCMS_EXT_ADMINS	= "/admin";
@@ -48,24 +48,27 @@ const ABCMS_EXT_ADMIN	= "/nainoiainc/abcms/admin";
 const ABCMS_REGEX_FUNC	= "/^((\/[^?]+)\?)?((([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x{7f}-\x{ff}]*))?$/u";
 const ABCMS_REGEX_HOOK	= "/\/[^\/]+\/[^\/]+\/[^\/]+/u";
 const ABCMS_REGEX_METH	= "/(CLI|GET|POST|PUT|HEAD|DELETE|PATCH|OPTIONS|CONNECT|TRACE)/u";
+const ABCMS_REGEX_META	= array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE');
+const ABCMS_REGEX_PATH	= "/(\/[^\/]*)(\/.+)?/u";
 const ABCMS_REGEX_URLV	= "/\/([A-Za-z0-9\-_.~]+)=([A-Za-z0-9\-_.~]+)/u";
 const ABCMS_REGEX_VARS	= "/^[A-Za-z0-9\-_.~]+$/u";
 // Arrays
 const ABCMS_ARRAY_TYPE	= array('mixed','string','array','integer','float','bool','boolean','email','domain','url','ip','mac');
 // Files
+const ABCMS_ABCMSLOG	= "../private/nainoiainc/abcms/ABCMS.abcmslog";
 const ABCMS_COREDUMP	= "../private/nainoiainc/abcms/ABCMS.coredump";
-const ABCMS_ERRORLOG	= "../private/nainoiainc/abcms/ABCMS.errorlog";
 const ABCMS_SESSIONS	= "../private/nainoiainc/abcms/ABCMS.sessions";
 const ABCMS_SETTINGS	= "../private/nainoiainc/abcms/ABCMS.settings";
 // Roles
 const ABCMS_ROLE_PUBLIC	= 0;
-const ABCMS_ROLE_READER	= 1;
-const ABCMS_ROLE_BASICS	= 2;
-const ABCMS_ROLE_EDITOR	= 3;
-const ABCMS_ROLE_MANAGE	= 4;
-const ABCMS_ROLE_ADMINS	= 5;
+const ABCMS_ROLE_AUTHEN	= 1;
+const ABCMS_ROLE_READER	= 2;
+const ABCMS_ROLE_WRITER	= 3;
+const ABCMS_ROLE_EDITOR	= 4;
+const ABCMS_ROLE_MANAGE	= 5;
+const ABCMS_ROLE_ADMINS	= 6;
 const ABCMS_ROLE_CLI	= 7;
-
+const ABCMS_ROLE_SET	= array(0,1,2,3,4,5,6,7);
 
 
 /*
@@ -75,36 +78,51 @@ const ABCMS_ROLE_CLI	= 7;
  *
  */
 try {																		// Try catch
-	$abcms = NULL;															// ReflectionClass same name 'abcms' protects privates
-	$abcms = abcms();														// Object pointer for catch()
-	if (empty(abcms()->inputs['boss'])) { return TRUE; }					// I do nada, do as you please
-	$args[] = <<<EOF
-<div style='margin: 20px;'>	
-{$abcms_constant('ABCMS_GOOD')}Hello World.<br>
-{$abcms_constant('ABCMS_BAD')}Fatal system error, core extension failed.<br>
-</div>
+	abcms();																// Construct and assign to $abcms
+	if (empty($abcms->inputs['boss'])) { return TRUE; }						// I do nada, do as you please
+	$page = <<<EOF
+<h4>Status</h4>
+{$abcms_constant('ABCMS_GOOD')}Hello World. Graceful termination.<br>
+{$abcms_constant('ABCMS_BAD')}Fatal error. Core extension failed.<br>
+<br>
+Please contact the webmaster for help.
 EOF;
-	abcms()->output(														// I am boss and do as I please
-		ABCMS_EXT_BEGINS,													// Entry hook and everything is a hook
-		'abcms()->echo_error',												// Default function
+	$args = array(FALSE,NULL,NULL,NULL,$page,NULL);
+	$abcms->output(															// I am boss and do as I please
+		'/begin',															// Entry hook and everything is a hook
+		'abcms->htmldoc',													// Default function
 		ABCMS_ROLE_PUBLIC,													// Minimum role required
-		0,																	// 0 = freely extendable
+		NULL,																// NULL = allow solo
 		...$args,															// Default args
 	);
+	if (!empty($abcms->inputs['urlquery']['fatal-3'])) {
+		$abcms->throw_wsod("Fatal construct, forced failure 3.");			// Force coredump
+	}
 }
 catch (Exception $e) {														// WSOD coredump
-	// Screen message
-	echo <<< EOF
-{$abcms_constant('ABCMS_GOOD')}Hello World.<br>
-{$abcms_constant('ABCMS_BAD')}WSOD at '{$abcms_constant('ABCMS_COREDUMP')}'.<br>
+	// Screen
+	echo ob_get_clean();
+	$head = "<h2>Console</h2>";
+	$page = <<< EOF
+<h4>Status</h4>
+{$abcms_constant('ABCMS_GOOD')}Hello World. Graceful termination.<br>
+{$abcms_constant('ABCMS_BAD')}Fatal error. Exception caught.<br>
+{$abcms_constant('ABCMS_GOOD')}Coredump available for review.<br>
+<br>
+Please contact the webmaster for help.<br>
 EOF;
+	$foot = "Thank you!";
+	$alive = (isset($abcms) && is_object($abcms) ? TRUE : FALSE);
+	ob_end_clean();
+	if (headers_sent()) {	echo $head.$page; }
+	else {					ob_end_clean(); abcms_htmldoc(TRUE, NULL, NULL, $head, $page, $foot); }
 	// Get info
 	$error		= ($e->getMessage() ?: 'NA');								// Exception error
 	$sys		= (($sys = error_get_last()) ? print_r($sys,TRUE) : 'NA');	// System error
 	$syserr		= (isset($sys['message']) ? $sys['message'] : 'NA');		// System error message
 	$globals	= print_r((isset($GLOBALS) ? $GLOBALS : 'NA'), TRUE);		// Get $GLOBALS
 	$inputs		= $settings = $errors = $debugs = $packages = 'NA';			// Extra initialized as 'NA'
-	if (is_object($abcms)) {												// If contructed, get extra
+	if ($alive) {															// If contructed, get extra
 		$inputs		= print_r($abcms->inputs,TRUE);							// Processed input
 		$settings	= print_r($abcms->get_settings(),TRUE);					// Settings file
 		$errors		= print_r($abcms->get_errors(),TRUE);					// Runtime errors
@@ -117,7 +135,7 @@ EOF;
 		}
 	}
 	// Report error_log()
-	ini_set('error_log', ABCMS_ERRORLOG);									// If constructor failed
+	ini_set('error_log', ABCMS_ABCMSLOG);									// If constructor failed
 	error_log("ABCMS: WSOD exception, error = '{$error}'");
 	error_log("ABCMS: WSOD exception, system = '{$syserr}'\n{$sys}");
 	// Coredump
@@ -159,7 +177,8 @@ return TRUE;
 // ABCMS object available through abcms() function
 function abcms() : object {						// Returns $_abcms object
 static $_abcms = NULL; if (NULL === $_abcms) {	// Create once
-$_abcms = new class {							// Instanciate object
+if (isset($GLOBALS['abcms'])) {											$this->throw_wsod("Fatal construct, \$abcms already set."); }							// $abcms already set
+$GLOBALS['abcms'] = $_abcms = new class {		// Instanciate assign global object
 readonly	array $GLOBALS;						// Readonly raw inputs
 readonly	array $inputs;						// Readonly processed inputs
 private		array $settings	= array();			// Application settings
@@ -168,42 +187,46 @@ private		array $debugs	= array();			// Runtime debugs
 // Construct process inputs
 function __construct() {
 	// WSOD errors
-	if (PHP_VERSION < '8.2.0') {										$this->throw_wsod("Fatal construct, >=PHP82 required"); }								// PHP version or WSOD
-	//if (!chdir(__DIR__)) {											$this->throw_wsod("Fatal construct, chdir('".__DIR__."')");	}							// chdir() or WSOD, dunno
-	if (!ini_set('error_log', ABCMS_ERRORLOG)) {						$this->throw_wsod("Fatal construct, ini_set('error_log','".ABCMS_ERRORLOG."')");}		// ini_set() or WSOD
-	if (FALSE===$this->set_settings()){									$this->throw_wsod("Fatal construct, set_settings(). Temporary!"); }						// JEFF TEMP DEV!!!!!!!!!!!!!!
-	if (FALSE===$this->get_json(ABCMS_SETTINGS, $this->settings)) {		$this->set_errors("Programmer error, settings file not found"); }						// Load settings
-	// Process input
-	$this->GLOBALS	= isset($GLOBALS)	? $GLOBALS	: array();																									// Protect GLOBALS
-	$this->inputs	= array(																																	// Process inputs
-		'boss'			=> ('index.php' === basename(__FILE__) ? TRUE : FALSE),																					// Who is boss?
+	if (PHP_VERSION < '8.2.0') {									$this->throw_wsod("Fatal construct, >=PHP82 required."); }									// PHP version
+	if (!chdir(__DIR__)) {											$this->throw_wsod("Fatal construct, failed chdir('".__DIR__."').");	}						// chdir()
+	if (!ini_set('error_log', ABCMS_ABCMSLOG)) {					$this->throw_wsod("Fatal construct, failed ini_set('error_log','".ABCMS_ABCMSLOG."').");}	// ini_set()
+	if (FALSE===$this->set_settings()){								$this->throw_wsod("Fatal construct, failed set_settings() load."); }						// JEFF TEMP DEV!!!!!!!!!!!!!!
+	if (FALSE===$this->get_json(ABCMS_SETTINGS, $this->settings)) {	$this->throw_wsod("Fatal construct, settings file not found."); }							// Load settings
+	// Sanitize inputs
+	$this->GLOBALS	= isset($GLOBALS) ? $GLOBALS	: array();																									// Protect GLOBALS
+	$this->inputs	= array(																																	// Sanitize inputs
+		'boss'			=> ('index.php' === basename(__FILE__) ? TRUE : FALSE),																					// Who's boss?
 		'filename'		=> (__FILE__),																															// My filename
 		'documentroot'	=> (__DIR__),																															// My documentroot folder
 		'projectroot'	=> (dirname(__DIR__)),																													// My project folder
 		'project'		=> (basename(dirname(__DIR__))),																										// My project name
-		'urlfull'		=> ($urlfull = ('cli' === PHP_SAPI ? ('cli://localhost' . ($_SERVER['argc']!=2 || empty($_SERVER['argv'][1]) || '/' !== $_SERVER['argv'][1][0] ? '/abcms/help' : $_SERVER['argv'][1])) :
-							((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http').'://'.
-							(isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'unknown').
-							(isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '/unknown')))),															// URL full
-		'urlparsed'		=> ($urlparsed = parse_url($urlfull)),																									// URL parsed: ["scheme"], ["host"], ["path"], ["query"]
-		'urlvars'		=> (!preg_match_all(ABCMS_REGEX_URLV, $urlparsed['path'], $matches, PREG_PATTERN_ORDER) ? array() :
-							$this->output_varval(array_combine(array_map('urldecode', $matches[1]), array_map('urldecode', $matches[2])), 'allowv')),			// URL path variables
-		'urlstripped'	=> ($urlstripped = '/'.(trim(preg_replace(ABCMS_REGEX_URLV, '/', $urlparsed['path']), '/'))), 											// URL stripped of variables, no trailing slash
+		'role'			=> ($role = ('cli' === PHP_SAPI ? ABCMS_ROLE_CLI : ABCMS_ROLE_ADMINS)),																	// My user role
+		'urlfull'		=> ($full = ('cli' === PHP_SAPI ? ('https://localhost' . 
+							($_SERVER['argc']>1 && '/' === $_SERVER['argv'][1][0] && FALSE !== filter_var('http://localhost' . $_SERVER['argv'][1], FILTER_VALIDATE_URL) ? $_SERVER['argv'][1] : '/abcms/help')) :
+							((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://') .
+							(isset($_SERVER['HTTP_HOST']) && FALSE !== filter_var($_SERVER['HTTP_HOST'], FILTER_VALIDATE_DOMAIN) ? $_SERVER['HTTP_HOST'] : 'unknown') .
+							(isset($_SERVER['REQUEST_URI']) && FALSE !== filter_var('http://localhost' . $_SERVER['REQUEST_URI'], FILTER_VALIDATE_URL) ? $_SERVER['REQUEST_URI'] : '/unknown')))),	// URL full
+		'urlparsed'		=> ($pars = parse_url($full)),																											// URL parsed
+		'urldomain'		=> ($pars['host']),																														// URL domain
+		'urlvars'		=> (!preg_match_all(ABCMS_REGEX_URLV, $pars['path'], $matches, PREG_PATTERN_ORDER) ? array() :
+							$this->output_varval(array_combine(array_map('urldecode', $matches[1]), array_map('urldecode', $matches[2])), $role, 'allowv')),	// URL path variables
+		'urlstripped'	=> ($urlstripped = '/'.(trim(preg_replace(ABCMS_REGEX_URLV, '/', $pars['path']), '/'))), 												// URL stripped of variables, no trailing slash
 		'urlpathall'	=> (urldecode($urlstripped)),																											// URL urldecoded
-		'urlpathone'	=> (urldecode((!($ret = preg_match("/(\/[^\/]*)(\/.+)?/u", $urlstripped, $matches)) ? '/' : $matches[1]))),								// URL first segment
-		'urlpathext'	=> (urldecode((!$ret || empty($matches[2]) ? '/' : $matches[2]))),																		// URL remainder segment
-		'urlquery'		=> ($this->output_varval((($tmp = array()) || (!empty($urlparsed['query']) && parse_str($urlparsed['query'],$tmp)) ?: $tmp), 'allowq')),// URL query vars needed because CLI has no $_GET
-		'urlmethod'		=> ('cli' === PHP_SAPI ? 'CLI' : (empty($_SERVER['REQUEST_METHOD']) ? 'GET' : $_SERVER['REQUEST_METHOD'])),								// URL request method
+		'urlpathone'	=> (urldecode((!($ret = preg_match(ABCMS_REGEX_PATH, $urlstripped, $matches)) ? '/' : $matches[1]))),									// URL first segment
+		'urlpathext'	=> (urldecode((!$ret || empty($matches[2]) ? '/' : $matches[2]))),																		// URL remainder segments
+		'urlquery'		=> ($this->output_varval((($tmp = array()) || (!empty($pars['query']) && parse_str($pars['query'],$tmp)) ?: $tmp), $role, 'allowq')),	// URL parse_str() because CLI has no $_GET
+		'urlmethod'		=> ('cli' === PHP_SAPI ? 'CLI' : ((empty($_SERVER['REQUEST_METHOD']) || !in_array($_SERVER['REQUEST_METHOD'], ABCMS_REGEX_META)) ? 'GET' : $_SERVER['REQUEST_METHOD'])), // URL request method
 		'cli'			=> ('cli' === PHP_SAPI ? TRUE : FALSE),																									// CLI command line execution
-		'argv'			=> $_SERVER['argv'],																													// CLI arguments
 		'argc'			=> $_SERVER['argc'],																													// CLI argument count
-		'role'			=> ('cli' === PHP_SAPI ? ABCMS_ROLE_CLI : ABCMS_ROLE_ADMINS),																			// Assign user role
+		'argv'			=> $_SERVER['argv'],																													// CLI arguments
 		'auto'			=> (file_exists(($auto = (__DIR__ . '/../vendor/autoload.php'))) ? $auto : NULL),														// Composer auto-loader
 	);
 	// Composer slower than my runtime loader
 	if ($this->inputs['auto']) { require_once($this->inputs['auto']); }
 	// More errors
-	if (0 !== stripos($urlparsed['path'], $this->inputs['urlstripped'])) { $this->set_errors("User error, invalid URL, variables before path"); }				// SEO requires consistent path
+	if (0 !== stripos($pars['path'], $this->inputs['urlstripped'])) {	$this->set_errors("User error, invalid URL, variables before path"); }					// SEO requires consistent path
+	// Force construct failure
+	if (!empty($this->inputs['urlquery']['fatal-1'])) {					$this->throw_wsod("Fatal construct, forced failure 1."); }								// Force construct failure
 	return;
 }
 // Dynamic properties disallowed
@@ -213,128 +236,136 @@ public function __clone() { $this->throw_wsod("Fatal programmer error, cloning A
 // Allow path variable
 public function output_allowv(
 	string $var,			// Allowed path variable
-	string $type = 'mixed',	// Allowed type
+	string	$type,			// Allowed type
+	int		$role,			// Minimum role permissions
 ) : void {
-	$this->output_allow($var,$type,'allowv');
+	$this->output_allow($var, $type, $role, 'allowv');
 	return;
 }
 // Allow query variable
 public function output_allowq(
-	string $var,			// Allowed query variable
-	string $type = 'mixed',	// Allowed type
+	string	$var,			// Allowed query variable
+	string	$type,			// Allowed type
+	int		$role,			// Minimum role permissions
 ) : void {
-	$this->output_allow($var,$type,'allowq');	
+	$this->output_allow($var, $type, $role, 'allowq');	
 	return;
 }
 // Allow variable
 private function output_allow(
-	string $var,			// Allowed variable
-	string $type,			// Allowed type
-	string $which,			// Path or query variable
+	string	$var,			// Allowed variable
+	string	$type,			// Allowed type
+	int		$role,			// Minimum role permissions
+	string	$porq,			// Path or query variable
 ) : void {
 	if (!preg_match(ABCMS_REGEX_VARS, $var) ||
-		!empty($this->settings[$which][$var]) ||
-		!in_array($type, ABCMS_ARRAY_TYPE)) {
-		$this->error_log("Programmer error, illdefined or duplicate abcms()->output_{$which}('{$var}', '{$type}').");
+		!empty($this->settings[$porq][$var]) ||
+		!in_array($type, ABCMS_ARRAY_TYPE) ||
+		!in_array($role, ABCMS_ROLE_SET)) {
+		$this->error_log("Programmer error, illdefined or duplicate abcms()->output_{$porq}('".implode("', '",func_get_args())."')");
 		return;
 	}
-	$this->settings[$which][$var] = $type;
+	$this->settings[$porq][$var] = array('type'=>$type, 'role'=>$role);
 	return;
 }
 // Validate path/query variable
 private function output_varval(
-	array $vars,			// Path/query variable
-	string $porq,			// 'allowv' or 'allowq'
+	array	$vars,			// Path/query variable
+	int		$role,			// User role
+	string	$porq,			// 'allowv' or 'allowq'
 ) : array {
 	$last = NULL;
 	foreach($vars as $var => $val) {
-		if ($var < $last) {							$this->set_errors("User error, URL variables are not alphbetical, '{$var}' < '{$last}'"); }
+		if ($var < $last) {									$this->set_errors("User error, URL variables are not alphbetical, '{$var}' < '{$last}'"); }
 		$last = $var;
-		if (empty($this->settings[$porq][$var])) {	$this->set_errors("User error, ignoring undefined URL path/query variable, '{$var}'");		unset($vars[$var]);	continue; }
-		if ('null' == mb_strtolower($val)) {																									$vars[$var] = NULL;	continue; }
-		switch($this->settings[$porq][$var]) {
-			case 'array'	:	$vars[$var] = explode(',', $val);																									continue 2;
+		if (empty($this->settings[$porq][$var]['type'])) {	$this->set_errors("User error, ignoring undefined URL variable, '{$var}'");	unset($vars[$var]);	continue; }
+		if ($role < $this->settings[$porq][$var]['role']) {	$this->set_errors("Insufficient permission to use variable, '{$var}'");		unset($vars[$var]);	continue; }
+		if ('null' == mb_strtolower($val)) {																							$vars[$var] = NULL;	continue; }
+		switch($this->settings[$porq][$var]['type']) {
+			case 'array'	:	$vars[$var] = explode(',', $val);																							continue 2;
 			case 'bool'		:
-			case 'boolean'	:	if (NULL  === ($vars[$var] = filter_var($val, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE))) {					break; }			continue 2;
-			case 'domain'	:	if (FALSE === ($vars[$var] = filter_var($val, FILTER_VALIDATE_DOMAIN))) {										break; }			continue 2;
-			case 'email'	:	if (FALSE === ($vars[$var] = filter_var($val, FILTER_VALIDATE_EMAIL))) {										break; }			continue 2;
-			case 'float'	:	if (FALSE === ($vars[$var] = filter_var($val, FILTER_VALIDATE_FLOAT))) {										break; }			continue 2;
-			case 'integer'	:	if (FALSE === ($vars[$var] = filter_var($val, FILTER_VALIDATE_INT))) {											break; }			continue 2;
-			case 'ip'		:	if (FALSE === ($vars[$var] = filter_var($val, FILTER_VALIDATE_IP))) {											break; }			continue 2;
-			case 'mac'		:	if (FALSE === ($vars[$var] = filter_var($val, FILTER_VALIDATE_MAC))) {											break; }			continue 2;
+			case 'boolean'	:	if (NULL  === filter_var($val, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE)) {							break; }			continue 2;
+			case 'domain'	:	if (FALSE === filter_var($val, FILTER_VALIDATE_DOMAIN)) {												break; }			continue 2;
+			case 'email'	:	if (FALSE === filter_var($val, FILTER_VALIDATE_EMAIL)) {												break; }			continue 2;
+			case 'float'	:	if (FALSE === filter_var($val, FILTER_VALIDATE_FLOAT)) {												break; }			continue 2;
+			case 'integer'	:	if (FALSE === filter_var($val, FILTER_VALIDATE_INT)) {													break; }			continue 2;
+			case 'ip'		:	if (FALSE === filter_var($val, FILTER_VALIDATE_IP)) {													break; }			continue 2;
+			case 'mac'		:	if (FALSE === filter_var($val, FILTER_VALIDATE_MAC)) {													break; }			continue 2;
 			case 'mixed'	:
-			case 'string'	:																																		continue 2;
-			case 'url'		:	if (FALSE === ($vars[$var] = filter_var($val, FILTER_VALIDATE_URL))) {											break; }			continue 2;
-			default:			$this->throw_wsod("Fatal programmer error, impossible path/query variable type, var='{$var}', type='{$this->settings[$porq][$var]}', val='{$val}'");
+			case 'string'	:																																continue 2;
+			case 'path'		:	if ('/' !== $val[0] || FALSE === filter_var('http:/localhost'.$val, FILTER_VALIDATE_URL)) {				break; }			continue 2;
+			case 'url'		:	if (FALSE === filter_var($val, FILTER_VALIDATE_URL)) {													break; }			continue 2;
+			default:			$this->throw_wsod("Fatal programmer error, impossible URL variable type, var='{$var}', type='{$this->settings[$porq][$var]['type']}', val='{$val}'");
 		}
-		$this->set_errors("User error, ignoring invalid path/query variable, var='{$var}', type='{$this->settings[$porq][$var]}', val='{$val}'");
+		$this->set_errors("User error, ignoring invalid URL variable, var='{$var}', type='{$this->settings[$porq][$var]['type']}', val='{$val}'");
 		unset($vars[$var]);
 	}
 	return $vars;
 }
 // Which extension called the function that called me?
 private function extension() : string {
-	$trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2);																			// Level 2 is caller of previous function
-	if (empty($trace[1]['file'])) {																										// Problem, no trace
+	$trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2);																				// Level 2 is caller of previous function
+	if (empty($trace[1]['file'])) {																											// Problem, no trace
 		$this->throw_wsod("Fatal system call, debug_backtrace('file not found')");
 	}
-	else if ($trace[1]['file'] === (__FILE__)) {																						// Ok, I called myself
-		return ABCMS_EXT;
+	else if ($trace[1]['file'] === (__FILE__)) {																							// Ok, I called myself
+		return ABCMS_EXT_SELF;
 	}
-	else if (preg_match("|^".dirname(__DIR__)."/private(/[^/]+/[^/]+)|u", $trace[1]['file'], $match) && !empty($match[1])) {			// Ok, valid extension
+	else if (preg_match("|^".dirname(__DIR__)."/private(/[^/]+/[^/]+)|u", $trace[1]['file'], $match) && !empty($match[1])) {				// Ok, valid extension, chdir() matters!
 		return $match[1];
 	}
-	$this->throw_wsod("Fatal system call, debug_backtrace('extension location not ../private/vendor/extension')");						// Problem, invalid extension
+	$this->throw_wsod("Fatal system call, debug_backtrace('extension location not ../private/vendor/extension')");							// Problem, invalid extension
 }
 // Hooked function output path router extension manager
 public function output(
 	string	$hook,		// /vendor/extension/$hook segment name
 	string	$default,	// Default function
 	int		$role,		// Minimum role permissions
-	int		$flag,		// <0 = Exclusive -or- >0 = self-extend only -or- 0 = freely extend
+	?int	$flag,		// <0 = myself -or- 0 = freely -or- 1 = solo -or- null = allow solo
 	mixed	&...$args,	// Default arguments
 ) : bool {
-	if (!empty($this->inputs['urlquery']['debug'])) { $this->set_debugs(array('Extendable Hook:') + func_get_args(),'Extendable Hook'); }	// Expose extension for developers
-	if ($this->inputs['role'] < $role) { $this->set_errors("Insufficient permission to execute {$hook}"); return FALSE; }					// User has no permision to call
+	if (!empty($this->inputs['urlquery']['debug'])) {	$this->set_debugs(array('Extendable Hook:') + func_get_args(),'Extendable Hook'); }	// Expose extension for developers
 	// loop through default or extension
 	$extended = FALSE;																														// Extension found?
 	$whoami = $this->extension();																											// Which extension am I?
+	$myself = (ABCMS_EXT_SELF === $whoami ? TRUE : FALSE);																						// I am myself?
 	$hook = $whoami . $hook;																												// Full hook name
-	$caller   = ($flag > 0 ? $whoami : NULL);																								// Extension must be self
-	$supplant = ($default ? FALSE : TRUE);																									// Extend or supplant default
-	if (isset($this->settings['route'][$hook]['in'])) {																						// Extend input, pre-output, or supplant default
+	$caller   = ($flag < 0 ? $whoami : NULL);																								// Extension must be self
+	$bypass = FALSE;																														// Bypass default
+	if (isset($this->settings['route'][$hook]['in'])) {																						// Extend input, pre-output, or bypass default
 		foreach($this->settings['route'][$hook]['in'] as $extin) {																			// Loop through input extensions by priority
 			if (!$this->output_doit($hook, $extin, $caller)) { continue; }																	// Consider hook extension
 			if (isset($extin['args']) && NULL !== $extin['args']) { $args = $extin['args']; }												// Extend input returned aguments or function input
-			if ($extin['one']) { $supplant = TRUE; }																						// Supplant default function
+			if ($extin['solo']) { $bypass = TRUE; }																							// Bypass default function
 			do {																															// Call hook extension for repeating rows
 				if (FALSE === ob_start()) { $this->throw_wsod("Fatal system call, ob_start(), hook = {$hook}"); }							// Buffer each output row
-				$more = $this->output_call($extin['fun'], ...$args);																		// Call hook extension
+				$more = $this->output_call($myself, $extin['fun'], ...$args);																// Call hook extension
 				if (FALSE === ($out = ob_get_clean())) { $this->throw_wsod("Fatal system call, ob_get_clean(), hook = {$hook}"); }			// Retrieve buffer
 				if (isset($this->settings['route'][$hook]['out'])) {																		// Hook extension filter output
 					foreach($this->settings['route'][$hook]['out'] as $extout) {															// Loop through output filter extensions by priority
 						if (!$this->output_doit($hook, $extout, $caller)) { continue; }														// Consider hook extension
-						$this->output_call($extout['fun'], $out, ...$args);																	// Call output filter
-						if ($flag < 0) { break; }																							// Exclusive extension only	
+						$this->output_call($myself, $extout['fun'], $out, ...$args);														// Call output filter
+						if ($flag > 0 || (NULL===$flag && $extout['solo'])) { break; }														// Solo extension only	
 					}
 				}
 				echo $out;																													// Echo filtered output
 			} while ($more);																												// Output all rows
 			$extended = TRUE;																												// Hook is extended
-			if ($flag < 0) { break; }																										// Exclusive extension only
+			if ($flag > 0 || (NULL===$flag && $extin['solo'])) { break; }																	// Solo extension only
 		}
 	}
-	if ($supplant) { return ($extended ? TRUE : FALSE); }																					// No hook no extension allowed
+	if (!$default || $bypass) { return ($extended ? TRUE : FALSE); }																		// No default or bypass default
 	// default function
 	do {
+		if ($this->inputs['role'] < $role) { $this->set_errors("Insufficient permission for requested resource"); return FALSE; }			// No permision
 		if (FALSE === ob_start()) { $this->throw_wsod("Fatal system call, ob_start(), hook = {$hook}"); }									// Buffer each output row
-		$more = $this->output_call($default, ...$args);																						// Call default
-		if (FALSE === ($out = ob_get_clean())) { $this->throw_wsod("Fatal system call, ob_get_clean(), hook = {$hook}"); }						// Retrieve buffer
+		$more = $this->output_call($myself, $default, ...$args);																			// Call default
+		if (FALSE === ($out = ob_get_clean())) { $this->throw_wsod("Fatal system call, ob_get_clean(), hook = {$hook}"); }					// Retrieve buffer
 		if (isset($this->settings['route'][$hook]['out'])) {																				// Hook extension filter output
 			foreach($this->settings['route'][$hook]['out'] as $extout) {																	// Loop through output filter extensions by priority
 				if (!$this->output_doit($hook, $extout, $caller)) { continue; }																// Consider hook extension
-				$this->output_call($extout['fun'], $out, ...$args);																			// Output filter
-				if ($flag < 0) { break; }																									// Exclusive extension only	
+				$this->output_call($myself, $extout['fun'], $out, ...$args);																// Output filter
+				if ($flag > 0 || (NULL===$flag && $extout['solo'])) { break; }																// Solo extension only	
 			}
 		}
 		echo $out;
@@ -347,27 +378,31 @@ private function output_doit(
 	array	$ext,		// Extension definition
 	?string	$caller,	// Is this caller allowed
 ) : bool {
-	if (empty($ext['fun'])) {																					return FALSE; }	// Nothing to run
-	if ($caller && $caller !== $ext['who']) {
-		$this->error_log("Programmer error, hook='{$hook}', ext='{$caller}' not self disallowed.");				return FALSE; }	// Caller hook match failure
-	if (!empty($ext['meth'])) {
-		if (FALSE !== stripos($ext['meth'], $this->inputs['urlmethod'])) {														// run if method match
-			if (empty($ext['ext']) ||																							// no extension name
-				!empty($this->settings['equate']["{$this->inputs['urlpathall']}-{$hook}-{$ext['ext']}"]) ||						// "pathall-hook-ext" match
-				!empty($this->settings['equate']["{$this->inputs['urlpathone']}-{$hook}-{$ext['ext']}"])) {		return TRUE; }	// "pathone-hook-ext" match
+	$ret = FALSE;
+	if (empty($ext['fun'])) {																					; }							// Nothing to do
+	else if ($caller && $caller !== $ext['who']) {
+		$this->error_log("Programmer error, hook='{$hook}', ext='{$caller}' not self disallowed.");				; }							// Caller hook match failure
+	else if (!empty($ext['meth'])) {
+		if (FALSE !== stripos($ext['meth'], $this->inputs['urlmethod'])) {																	// run if method match
+			if (empty($ext['ext']) ||																										// no extension name
+				isset($this->settings['equate']["{$this->inputs['urlpathall']}-{$hook}-{$ext['ext']}"]) ||									// "pathall-hook-ext" match
+				!empty($this->settings['equate']["{$this->inputs['urlpathone']}-{$hook}-{$ext['ext']}"])) {		$ret = TRUE; }				// "pathone-hook-ext" match
 		}
 	}
-	else {																														// run if no method and
-		if (empty($ext['ext']) ||																								// no extension name
-			!empty($this->settings['equate']["{$this->inputs['urlpathall']}-{$hook}-{$ext['ext']}"]) ||							// "pathall-hook-ext" matches
-			!empty($this->settings['equate']["{$this->inputs['urlpathone']}-{$hook}-{$ext['ext']}"])) {			return TRUE; }	// "pathone-hook-ext" matches	
+	else {																																	// run if no method and
+		if (empty($ext['ext']) ||																											// no extension name
+			isset($this->settings['equate']["{$this->inputs['urlpathall']}-{$hook}-{$ext['ext']}"]) ||										// "pathall-hook-ext" matches
+			!empty($this->settings['equate']["{$this->inputs['urlpathone']}-{$hook}-{$ext['ext']}"])) {			$ret = TRUE; }				// "pathone-hook-ext" matches	
 	}
-	return FALSE;
+	if ($ret && $this->inputs['role'] < $ext['role']) {
+		$this->set_errors("Insufficient permission for requested resource");									$ret = FALSE; }				// No permision
+	return $ret;
 }
 // Call extension function
 private function output_call(
+	bool	$myself,	// Am I myself?
 	string	$filefunc,	// File function
-	string	&...$args,	// Arguments passed
+	mixed	&...$args,	// Arguments passed
 ) : ?bool {
 	// Parse file function string #^(|/vendor/package/filepath)(|?(|classobject(::|->|()->))funcmeth)#
 	if (!preg_match(ABCMS_REGEX_FUNC, $filefunc, $match)) {										$this->throw_wsod("Fatal programmer error, output_call() preg_match('{$filefunc}')"); }
@@ -378,34 +413,37 @@ private function output_call(
 	$result = FALSE;																			// Default failure
 	// Include file
 	if ($filepath) {
-		if ($funcmeth) {	$result = (bool)ABCMS()->include_once($filepath, ...$args); }		// Include for function, once only
-		else {				$result = (bool)ABCMS()->include($filepath, ...$args); }			// No function, multiple executions
+		if ($funcmeth) {	$result = (bool)$this->include_once($filepath, ...$args); }			// Include for function, once only
+		else {				$result = (bool)$this->include($filepath, ...$args); }				// No function, multiple executions
 	}
 	// Call function
 	if ($funcmeth) {																			// Function attempt
 		if ($classobject) {																		// Class or object method
-			if ('abcms' === $classobject) {														// Disallow access to ABCMS privates
-				$reflection = new ReflectionClass($this);
-				if ($reflection->getMethod($funcmeth)->isPrivate()) {							$this->throw_wsod("Fatal programmer error, private abcms()->method access disallowed '{$filefunc}'"); }
-			}
 			if ("::" === $operator) {															// Class operator
 				if (!class_exists($classobject) || !method_exists($classobject, $funcmeth)) {	$this->throw_wsod("Fatal programmer error, output_call() invalid class method '{$filefunc}'"); }
 				$result = (bool)$classobject::$funcmeth(...$args);								// Execute
 			}
-			else if ("->" === $operator) {														// Instance or object operator
-				if (!is_object($classobject) || !method_exists($classobject, $funcmeth)) {		$this->throw_wsod("Fatal programmer error, output_call() invalid object method '{$filefunc}'"); }
-				$result = (bool)$classobject->$funcmeth(...$args);								// Execute
-			}
-			else if ("()->" === $operator) {													// Returned object operator
-				if (!function_exists($classobject)) {											$this->throw_wsod("Fatal programmer error, output_call() invalid function for object '{$filefunc}'"); }
-				if (!is_object(($newobject = $classobject()))) {								$this->throw_wsod("Fatal programmer error, output_call() invalid function object '{$filefunc}'"); }
-				if (!method_exists($newobject, $funcmeth)) {									$this->throw_wsod("Fatal programmer error, output_call() invalid function object method '{$filefunc}'"); }
+			else {
+				if ("->" === $operator) {														// Instance or object operator
+					if (!isset($GLOBALS[$classobject]) || !is_object($GLOBALS[$classobject])) {	$this->throw_wsod("Fatal programmer error, output_call() invalid object '{$filefunc}'"); }
+					$newobject = $GLOBALS[$classobject];
+				}
+				else if ("()->" === $operator) {												// Returned object operator
+					if (!function_exists($classobject)) {										$this->throw_wsod("Fatal programmer error, output_call() invalid function for object '{$filefunc}'"); }
+					if (!is_object(($newobject = $classobject()))) {							$this->throw_wsod("Fatal programmer error, output_call() invalid function object '{$filefunc}'"); }
+				}
+				else {																			$this->throw_wsod("Fatal programmer error, output_call() invalid operator '{$filefunc}'"); }
+				if (!method_exists($newobject, $funcmeth)) {									$this->throw_wsod("Fatal programmer error, output_call() invalid object method '{$filefunc}'"); }
+				global $abcms;																	// Global pointer to myself allowing 'abcms' object reference
+				if (!$myself && $newobject === $abcms) {										// Disallow ABCMS privates because we are inside abcms, unless I am myself
+					$reflection = new ReflectionClass($this);
+					if ($reflection->getMethod($funcmeth)->isPrivate()) {						$this->throw_wsod("Fatal programmer error, private abcms()->method access disallowed '{$filefunc}'"); }
+				}
 				$result = (bool)$newobject->$funcmeth(...$args);								// Execute
 			}
-			else {																				$this->throw_wsod("Fatal programmer error, output_call() invalid operator '{$filefunc}'"); }
 		}
 		else {
-			if (!is_function($funcmeth)) {														$this->throw_wsod("Fatal programmer error, output_call() invalid function '{$filefunc}'"); }
+			if (!function_exists($funcmeth)) {													$this->throw_wsod("Fatal programmer error, output_call() invalid function '{$filefunc}'"); }
 			$result = (bool)$funcmeth(...$args);												// Execute
 		}
 	}
@@ -413,31 +451,31 @@ private function output_call(
 }
 // Register hook extension
 public function output_extend(
-	string $meth,			// Allowed HTTP methods, '' = ALL = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE"
-	string $hook,			// /vendor/package/hook (not file path)
-	string $ext,			// Extension name or '' = always
-	string $typ,			// Type 'one', 'in', 'out'
-	string $fun,			// Include?function
-	int $ord = 0,			// Order
-	mixed $args = NULL,		// Argument
+	string	$hook,			// /vendor/package/hook (not file path)
+	string	$ext,			// Extension name or '' = always
+	string	$meth,			// Allowed HTTP methods, '' = ALL = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE"
+	string	$typ,			// Type 'in', '1in', 'out', '1out'
+	string	$fun,			// Include?function
+	int		$role = 0,		// Minimum role permission
+	int		$ord = 0,		// Order
+	mixed	$args = NULL,	// Argument
 ) : bool {
 	if (!preg_match(ABCMS_REGEX_METH, $meth) ||
 		!preg_match(ABCMS_REGEX_HOOK, $hook) ||
-		!in_array($typ, array('one','in','out')) ||
+		!in_array($typ, array('in','1in','out','1out')) ||
 		!preg_match(ABCMS_REGEX_FUNC, $fun)) {
-		$this->error_log("Programmer error, invalid extension output_extend('{$tmp} {$meth}','{$hook}','{$ext}','{$typ}','{$fun}','{$ord}').");
+		$this->error_log("Programmer error, invalid extension output_extend('{$tmp} {$meth}','{$hook}','{$ext}','{$typ}','{$fun}','{$role}','{$ord}').");
 		return FALSE;
 	}	
-	$newtyp =
-		('one'=== $typ ? 'in' :
-		('in' === $typ ? 'in' : 'out'));
+	$newtyp = ('1in'=== $typ ? 'in' : ('1out' === $typ ? 'out' : $typ));
 	$this->settings['route'][$hook][$newtyp][] = array(
 		'meth'	=> $meth,
 		'ext'	=> $ext,
 		'fun'	=> $fun,
+		'role'	=> $role,
 		'ord'	=> $ord,
 		'args'	=> $args,
-		'one'	=> ('one' === $typ ? TRUE : FALSE),
+		'solo'	=> ('1' === $typ[0] ? -1 : 0),
 		'who'	=> $this->extension(),
 	);
 	return TRUE;
@@ -447,16 +485,17 @@ public function output_equate(
 	string $hook,			// Hook name
 	string $ext,			// Extension name
 	string $path,			// Unique URL path
+	bool $flag = FALSE,		// TRUE=full and 1st segment, FALSE=full only
 ) : bool {
 	$equate = "{$path}-{$hook}-{$ext}";
 	if (!preg_match(ABCMS_REGEX_HOOK, $hook) ||
 		empty($ext) ||
-		'/' !== $path[0] ||
+		(!empty($path) && '/' !== $path[0]) ||
 		!empty($this->settings['equate'][$equate])) {
 		$this->error_log("Programmer error, invalid or duplicate output_equate('{$equate}').");
 		return FALSE;
 	}
-	$this->settings['equate']["{$path}-{$hook}-{$ext}"] = TRUE;
+	$this->settings['equate'][$equate] = $flag;
 	return TRUE;
 }
 
@@ -496,6 +535,11 @@ public function get_debugs() : array {		// Get private debugs for public
 public function get_errors() : array {		// Get private errors for public
 	return $this->errors;
 }
+public function see_errors() : ?string {	// Format private errors for public
+	if (!empty($this->errors)) { return '<br><br>Errors:<br>'.implode('<br>',$this->errors); }
+	return NULL;
+}	
+	
 public function get_settings() : array {	// Get private settings for public
 	return $this->settings;
 }
@@ -534,57 +578,96 @@ public function get_settings() : array {	// Get private settings for public
  * SECTION: ADMIN
  *
  */
-private function set_settings() : bool {
-	// register valid path and query variables
-	$this->output_allowq('debug',	'bool');
-	$this->output_allowv('test',	'string');
-	$this->output_allowq('test',	'string');
-	// core hook extensions
-	$this->output_extend('CLI-GET-POST',	ABCMS_EXT_BEGIN,	'',  		'one',	'abcms()->home',		0);
-	$this->output_extend('CLI-GET-POST',	ABCMS_EXT_ADMIN,	'home',		'one',	'abcms()->homepage',	0);
-	$this->output_extend('CLI-GET-POST',	ABCMS_EXT_ADMIN,	'help',		'one',	'abcms()->help',		0);
-	$this->output_extend('CLI-GET-POST',	ABCMS_EXT_ADMIN,	'debug',	'one',	'abcms()->throw_wsod',	0);
-	// output filtering
-	$this->output_extend('CLI-GET-POST',	ABCMS_EXT_ADMIN,	'',  		'out',	'abcms()->replace',		1);
-	// core hook extension paths
-	$this->output_equate(ABCMS_EXT_ADMIN,	'home',		'/');
+public function htmldoc(		// Default theme function and method
+	mixed &...$args,			// Aguments
+) : ?bool {
+	return abcms_htmldoc(...$args);
+}
+public function htmldefault(	// Default theme function and method
+	mixed &...$args,			// Aguments
+) : ?bool {
+	global $abcms_constant;
+	$args[4] = NULL;
+	return $this->htmldoc(...$args);
+}
+private function htmladmin(
+	mixed &...$args,			// Aguments
+) : ?bool {
+	global $abcms_constant;
+	$args[0] = TRUE;
+	$args[3] = "<div style='display: inline-block;'><h2>Console</h2></div><div style='float: right; display: inline-block;'><h2><a href='/' title='Close Console' style='text-decoration: none; color: white;'>X</a></h2></div>";
+	$args[4] = NULL;
+	return $this->htmldoc(...$args);
+}
+ 
+ 
+ 
+private function set_settings() : bool { // This function to be moved to /admin/setup and loop through all extensions
+	// register path variables
+	$this->output_allowv('test',	'string',	ABCMS_ROLE_PUBLIC);
+	// register query / _GET variables
+	$this->output_allowq('test',	'string',	ABCMS_ROLE_PUBLIC);
+	$this->output_allowq('debug',	'bool',		ABCMS_ROLE_ADMINS);
+	$this->output_allowq('fatal-1',	'bool',		ABCMS_ROLE_ADMINS);
+	$this->output_allowq('fatal-2',	'bool',		ABCMS_ROLE_ADMINS);
+	$this->output_allowq('fatal-3',	'bool',		ABCMS_ROLE_ADMINS);
+	$this->output_allowq('clionly',	'bool',		ABCMS_ROLE_CLI);
+	// register _POST variables
+
+	// default hook extensions
+	$this->output_extend('/nainoiainc/abcms/begin',				'',			'CLI-GET-POST',	'1in',	'abcms->htmldefault',	ABCMS_ROLE_PUBLIC,	PHP_INT_MAX);
+	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'home',		'CLI-GET-POST',	'1in',	'abcms->pagehome',		ABCMS_ROLE_PUBLIC,	PHP_INT_MAX);
+	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'contact',	'CLI-GET-POST',	'1in',	'abcms->pagecontact',	ABCMS_ROLE_PUBLIC,	PHP_INT_MAX);
+	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'home',		'/');
+	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'home',		'/home');
+	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'contact',	'/contact');
+	// admin hook extensions
+	$this->output_extend('/nainoiainc/abcms/begin',				'abcms',	'CLI-GET-POST',	'1in',	'abcms->htmladmin',		ABCMS_ROLE_ADMINS,	PHP_INT_MIN);
+	$this->output_equate('/nainoiainc/abcms/begin',				'abcms',	'/admin', TRUE);
+	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'abcms',	'CLI-GET-POST',	'1in',	'abcms->pageadmin',		ABCMS_ROLE_ADMINS,	PHP_INT_MIN);
+	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'abcms',	'/admin');
+	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'abcms',	'/admin/status');
+/*
+	$this->output_extend('CLI-GET-POST',	ABCMS_EXT_ADMIN,	'help',		'one',	'abcms->help',			ABCMS_ROLE_ADMINS,	0);
+	$this->output_extend('CLI-GET-POST',	ABCMS_EXT_ADMIN,	'debug',	'one',	'abcms->throw_wsod',	ABCMS_ROLE_CLI,		0);
+	$this->output_extend('CLI-GET-POST',	ABCMS_EXT_ADMIN,	'',  		'out',	'abcms->replace',	ABCMS_ROLE_ADMINS,	1);
 	$this->output_equate(ABCMS_EXT_ADMIN,	'home',		'/abcms/home');
 	$this->output_equate(ABCMS_EXT_ADMIN,	'help',		'/abcms/help');
 	$this->output_equate(ABCMS_EXT_ADMIN,	'debug',	'/abcms/debug',);
-	// extension sort order
-	if (is_array($this->settings['route'])) { foreach($this->settings['route'] as &$hook) {
-		if (isset($hook['pre'])  && is_array($hook['pre'])) {  usort($hook['pre'],  function($a, $b) { return $a['ord'] <=> $b['ord'];} ); }
-		if (isset($hook['post']) && is_array($hook['post'])) { usort($hook['post'], function($a, $b) { return $a['ord'] <=> $b['ord'];} ); }
-	}}
+*/
+
+	// sort extension by solo and order
+	// $this->settings['route'][$hook][$newtyp]
+	foreach($this->settings['route'] as &$hook) {
+		if (isset($hook['in'])) {	usort($hook['in'],	function($a, $b) { return $a['solo'] <=> $b['solo'] || $a['ord'] <=> $b['ord'];} ); }
+		if (isset($hook['out'])) {	usort($hook['out'],	function($a, $b) { return $a['solo'] <=> $b['solo'] || $a['ord'] <=> $b['ord'];} ); }
+	}
 	// fast loading json
 	return $this->set_json(ABCMS_SETTINGS, $this->settings);
 }
-public function home(string &...$unused) : ?int { // Non-function wrapper so extendable
-	echo "<div style='margin: 20px;'>";
-	$args[] = ABCMS_GOOD."Hello World.<br>\n";
-	$args[] = ABCMS_BAD."Page not found.<br>\n";
-	abcms()->output(
-		ABCMS_EXT_ADMINS,
-		'abcms()->echo_error',
-		ABCMS_ROLE_ADMINS,
-		1,
-		...$args,
-	);
-	echo "</div>";
-
-	return FALSE;
+private function pagehome(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+	global $abcms_constant;
+	?><h4>Homepage</h4><?
+	echo $abcms_constant('ABCMS_GOOD'); ?>Hello World. I am alive.<br><?
+	echo $abcms_constant('ABCMS_GOOD'); ?>Thank you!<br><?
+	echo $this->see_errors();
+	return NULL;
 }
-public function homepage(string &...$unused) : ?int { // Non-function wrapper so extendable
-	echo ABCMS_GOOD."Hello World.<br>\n";
-	echo ABCMS_GOOD."I am alive.<br>\n";
-	$args[] = 'unused';
-	//echo ABCMS_GOOD.implode(' ',abcms()->output('/nainoiainc/abcms/variable','',...$args))."<br>\n";
-	return FALSE;
+private function pagecontact(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+	global $abcms_constant;
+	?><h4>Contact</h4>
+This is where to contact us.<?
+	echo $this->see_errors();
+	return NULL;
 }
-public function help(string &...$unused) : ?int { // Non-function wrapper so extendable
-	static $count = 3;
-	echo ABCMS_GOOD."Hello World.<br>\n";
-	return $count--;
+private function pageadmin(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+	static $count = 7;
+	if ($count===7) { echo "<h4>Status</h4>"; }
+echo ABCMS_GOOD."Helping you! {$count}<br>\n";
+	--$count;
+	if ($count>0) { return TRUE; }
+	echo $this->see_errors();
+	return NULL;
 }
 private function browser(string $path = NULL) : void {
 	if (NULL===$path) { $path = $this->inputs['projectroot']; }
@@ -624,13 +707,13 @@ public function replace(mixed &...$args) : bool { // Test replace function
 	$args[0] = preg_replace("/Hello/u", "Howdy", $args[0]);
 	return FALSE;
 }
-public function echo(string &...$args) : void { // Non-function wrapper so extendable
+public function echo(?string &...$args) : void { // Non-function wrapper so extendable
 	for($x=0,$z=count($args); $x<$z; ++$x){
 		echo $args[$x];
 	}
 	return;
 }
-public function echo_error(string &...$args) : void { // Non-function wrapper so extendable
+public function echo_error(?string &...$args) : void { // Non-function wrapper so extendable
 	for($x=0,$z=count($args); $x<$z; ++$x){
 		echo $args[$x];
 	}
@@ -639,13 +722,13 @@ public function echo_error(string &...$args) : void { // Non-function wrapper so
 	}
 	return;
 }
-public function print(string $string = NULL) : bool { // Non-function wrapper so extendable
+public function print(?string $string = NULL) : bool { // Non-function wrapper so extendable
 	return print($string);
 }
-public function set_path(string $path = NULL) : ?string { // set path
+public function set_path(?string $path = NULL) : ?string { // set path
 	return $path;
 }
-public function get_path(string $path = NULL) : ?string { // get path
+public function get_path(?string $path = NULL) : ?string { // get path
 	return $path;
 }
 public function set_file(string $filename, string $value) : bool { // set file, TODO error check that reading and writing in my own directory!!
@@ -680,10 +763,187 @@ public function get_json(string $filename, mixed &$data) : bool { // get json
 	}
 	return TRUE;
 }
-
+public function include(string $filename, string &...$args) : mixed { // include always
+	if (!file_exists($filename)) {
+		$this->error_log("Programmer error, include({$filename}) does not exist");
+	}
+	return include($filename);
+}
+public function include_once(string $filename, string &...$args) : mixed { // PHP should provide a no fault include_once function
+	static $included = array();
+	if (!($filename = realpath($filename)) || !file_exists($filename)) {
+		$this->error_log("Programmer error, include_once({$filename}) does not exist");
+	}
+	else if (!isset($included[$filename])) {
+		$included[$filename] = TRUE;
+		include($filename);
+	}
+	return FALSE;
+}
 
 // end object
 }; }
 
 return $_abcms;
+}
+
+
+
+/*
+ * SECTION: THEME
+ *
+ */
+function abcms_htmldoc(	// Default theme function and method
+	bool $admin		= FALSE,// default or admin
+	?string $css	= NULL,	// Override css default
+	?string $js		= NULL,	// Override js default
+	?string $head	= NULL,	// Override header default
+	?string $page	= NULL,	// Override page content default
+	?string $foot	= NULL,	// Override footer default
+) : ?bool {					// Return boolean
+global $abcms, $abcms_constant;
+$alive = (isset($abcms) && is_object($abcms) ? TRUE : FALSE);
+$title = (isset($_SERVER['HTTP_HOST']) && FALSE !== filter_var($_SERVER['HTTP_HOST'], FILTER_VALIDATE_DOMAIN) ? $_SERVER['HTTP_HOST'] : 'unknown');
+?>
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'>
+<title><? echo $title; ?></title>
+<meta name='description' content='<? echo $title; ?>'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<meta name='apple-mobile-web-app-capable' content='yes'>
+<style>
+body {
+	margin: 0;
+	padding: 0;
+	font-family: Arial,sans-serif;
+}
+#main {
+	display: flex;
+	flex-direction: column;
+	min-height: 100vh;
+	margin: 0;
+	background-color: #F0F0F0;
+}
+#head {
+	background-color: #404040;
+	color: #FFFFFF;
+	text-align: center;
+	padding: 5px 2%;
+	width: 96%;
+	min-width: 360px;
+	max-width: 1024px;
+	border-radius: 7px;
+	margin: 5px auto;
+}
+#page {
+	flex: 1;
+	height: 100%;
+	width: 96%;
+	min-width: 360px;
+	max-width: 1024px;
+	margin: 0 auto;
+	padding: 12px 2%;
+	background-color: #FFFFFF;
+	border-radius: 7px;
+}
+#foot {
+	background-color: #404040;
+	color: #FFFFFF;
+	text-align: center;
+	padding: 3px 2%;
+	font-weight: 700;
+	width: 96%;
+	min-width: 360px;
+	max-width: 1024px;
+	border-radius: 7px;
+	margin: 5px auto;
+}
+@media screen and (max-width: 1065px) {
+#head, #page, #foot {
+	border-radius: 0;
+	margin: 0;
+}
+}
+<?
+if ($admin) {
+?>
+#main {
+	border-width: 0 25px 0 25px;
+	border-style: solid;
+	border-color: #404040;
+}
+#head {
+	max-width: 100%;
+	border-radius: 0;
+	margin: 0 auto 5px auto;
+}
+#page {
+	border-radius: 0;
+}
+#foot {
+	max-width: 100%;
+	border-radius: 0;
+	margin: 5px auto 0 auto;
+}
+@media screen and (max-width: 1115px) {
+#head {
+	border-radius: 0;
+	margin: 0;
+}
+#foot {
+	border-radius: 0;
+	margin: 0;
+}
+}
+<?
+}
+if ($alive) {	$css = array($css); $abcms->output('/htmldefault_css', 'abcms->echo', ABCMS_ROLE_PUBLIC, NULL, ...$css); }
+else {			echo $css; }
+?>
+</style>
+<script type='text/javascript'>
+<?
+if ($alive) {	$js = array($js); $abcms->output('/htmldefault_js', 'abcms->echo', ABCMS_ROLE_PUBLIC, NULL, ...$js); }
+else {			echo $js; }
+?>
+</script>
+</head>
+<body>
+<div id='main'>
+<div id='head'>
+<?
+if (!$head) {	$head = "<h2>{$title}</h2>"; }
+if ($alive) {	$head = array($head); $abcms->output('/htmldefault_head', 'abcms->echo', ABCMS_ROLE_PUBLIC, NULL, ...$head); }
+else {			echo $head; }
+?>
+</div>
+<div id='page'>
+<?
+if (!$page) {
+	$page = <<<EOF
+<h4>Status</h4>
+{$abcms_constant('ABCMS_GOOD')}Hello World. I am alive.<br>
+{$abcms_constant('ABCMS_BAD')}However, page requested not found.<br>
+<br>
+Please contact the webmaster for help.
+EOF;
+}
+if ($alive) {	$page .= $abcms->see_errors();
+				$page = array($page); $abcms->output('/htmldefault_page', 'abcms->echo', ABCMS_ROLE_PUBLIC, NULL, ...$page); }
+else {			echo $page; }
+?>
+</div>
+<div id='foot'>
+<?
+if (!$foot) {	$foot = "Thank you!"; }
+if ($alive) {	$foot = array($foot); $abcms->output('/htmldefault_foot', 'abcms->echo', ABCMS_ROLE_PUBLIC, NULL, ...$foot); }
+else {			echo $foot; }
+?>
+</div>
+</div>
+</body>
+<?
+return NULL; // done
 }
