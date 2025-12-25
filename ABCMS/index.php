@@ -625,8 +625,10 @@ private function set_settings() : bool { // This function to be moved to /admin/
 	$this->output_extend('/nainoiainc/abcms/begin',				'abcms',	'CLI-GET-POST',	'1in',	'abcms->htmladmin',		ABCMS_ROLE_ADMINS,	PHP_INT_MIN);
 	$this->output_equate('/nainoiainc/abcms/begin',				'abcms',	'/admin', TRUE);
 	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'abcms',	'CLI-GET-POST',	'1in',	'abcms->pageadmin',		ABCMS_ROLE_ADMINS,	PHP_INT_MIN);
+	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'phpinfo',	'CLI-GET-POST',	'1in',	'abcms->pagephpinfo',	ABCMS_ROLE_ADMINS,	PHP_INT_MIN);
 	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'abcms',	'/admin');
 	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'abcms',	'/admin/status');
+	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'phpinfo',	'/admin/phpinfo');
 /*
 	$this->output_extend('CLI-GET-POST',	ABCMS_EXT_ADMIN,	'help',		'one',	'abcms->help',			ABCMS_ROLE_ADMINS,	0);
 	$this->output_extend('CLI-GET-POST',	ABCMS_EXT_ADMIN,	'debug',	'one',	'abcms->throw_wsod',	ABCMS_ROLE_CLI,		0);
@@ -663,10 +665,15 @@ This is where to contact us.<?
 private function pageadmin(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 	static $count = 7;
 	if ($count===7) { echo "<h4>Status</h4>"; }
-echo ABCMS_GOOD."Helping you! {$count}<br>\n";
+	echo ABCMS_GOOD."Helping you! {$count}<br>\n";
 	--$count;
 	if ($count>0) { return TRUE; }
 	echo $this->see_errors();
+	return NULL;
+}
+private function pagephpinfo(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+	echo "<h4>PHP Info</h4>";
+	phpinfo();
 	return NULL;
 }
 private function browser(string $path = NULL) : void {
