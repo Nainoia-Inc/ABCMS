@@ -141,7 +141,7 @@ EOF;
 	$alive = (isset($abcms) && is_object($abcms) ? TRUE : FALSE);
 	ob_end_clean();
 	if (headers_sent()) {	echo $head.$page; }
-	else {					ob_end_clean(); abcms_htmldoc(TRUE, NULL, NULL, $head, $page, $foot, FALSE); }
+	else {					ob_end_clean(); abcms_htmldoc(TRUE, NULL, NULL, $head, $page, $foot, -1, FALSE); }
 	// Get info
 	$error		= ($e->getMessage() ?: 'NA');								// Exception error
 	$sys		= (($sys = error_get_last()) ? print_r($sys,TRUE) : 'NA');	// System error
@@ -343,11 +343,11 @@ private function extension() : string {
 // Hooked function output path router extension manager
 public function output(
 	string	$hook,		// /vendor/extension/$hook segment name
-	string	$meth,		// Allowed HTTP methods, '' = ALL = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE"
+	string	$met,		// Allowed HTTP methods, '' = ALL = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE"
 	string	$default,	// Default function
-	int		$role,		// Minimum role permissions
+	int		$rol,		// Minimum role permissions
 	int		$flag,		// <0 = author exclusive -or- 0 = anyone -or- 1 = extender exclusive allowed
-	bool	$must,		// Must do default function TRUE==required -OR- FALSE==optional
+	bool	$must,		// Must do default function TRUE = required -OR- FALSE = optional
 	mixed	&...$args,	// Default arguments
 ) : bool {
 	$this->set_debugs(array('ABCMS()->output():') + func_get_args());																		// Developer info
@@ -360,77 +360,88 @@ public function output(
 	$bypass = FALSE;																														// Bypass default
 	// setup default
 	$ext = array(																															// Default
-		'in' => array(																														// Input
+		'I' => (empty($default) ? array() : array(																							// Input unless no default
 			array(																															// Array
-				'meth'	=> $meth,																											// HTTP methods
+				'met'	=> $met,																											// HTTP methods
 				'fun'	=> $default,																										// Function
-				'role'	=> $role,																											// Role
+				'rol'	=> $rol,																											// Role
 				'ord'	=> 0,																												// Order
-				'args'	=> NULL,																											// Args
-				'flag'	=> 0,																												// Flag
-				'must'	=> FALSE,																											// Must do default
+				'ctl'	=> NULL,																											// Control
 				'who'	=> $whoami,																											// Default is myself
+				'arg'	=> NULL,																											// Args
 			)
-		),
-		'out' => array(),																													// No default output filter
+		)),
+		'O' => array(),																														// No default output filter
 	);
 	// sort extensions
 	if (isset($this->settings['route'][$hook])) {																							// Compile hook extensions
 		$hooky = $this->settings['route'][$hook];																							// Shortened variable reference
 		$ext = array_merge_recursive(																										// Merge the extensions
-			$ext,																																															// Default included
-			(!empty($hooky['eq'][$this->inputs['urlpathall']]) && !empty($hooky['ex'][$hooky['eq'][$this->inputs['urlpathall']]])	? $hooky['ex'][$hooky['eq'][$this->inputs['urlpathall']]] :				// Full path
-			(!empty($hooky['eq'][$this->inputs['urlpathone']]) && !empty($hooky['ex'][$hooky['eq'][$this->inputs['urlpathone']]])	? $hooky['ex'][$hooky['eq'][$this->inputs['urlpathone']]] : array())),	// Or 1st segment
-			(!empty($hooky['eq']['']) && !empty($hooky['ex'][$hooky['eq']['']])														? $hooky['ex'][$hooky['eq']['']] : array()),							// Empty path = always
-			(!empty($hooky['ex'][''])																								? $hooky['ex'][''] : array()));											// Empty ext = awlays
-		if (isset($ext['in'])) {	usort($ext['in'],	function($a, $b) { return (($ret = ($a['flag'] <=> $b['flag'])) ? $ret : $a['ord'] <=> $b['ord']); } ); }	// Sort by 'flag' and 'ord'
-		if (isset($ext['out'])) {	usort($ext['out'],	function($a, $b) { return (($ret = ($a['flag'] <=> $b['flag'])) ? $ret : $a['ord'] <=> $b['ord']); } ); }	// Sort by 'flag' and 'ord'
+			$ext,																															// Default included
+			(!empty($hooky['eq'][$this->inputs['urlpathall']]) &&
+			 !empty($hooky['ex'][$hooky['eq'][$this->inputs['urlpathall']]]) ?
+			 $hooky['ex'][$hooky['eq'][$this->inputs['urlpathall']]] :																		// Full path match?
+			('/' !== $this->inputs['urlpathone'] &&
+			 !empty($hooky['eq'][$this->inputs['urlpathone'].'/']) &&
+			 !empty($hooky['ex'][$hooky['eq'][$this->inputs['urlpathone'].'/']]) ?
+			 $hooky['ex'][$hooky['eq'][$this->inputs['urlpathone'].'/']] :																	// 1st segment match?
+			 array())),																														// Or nothing?
+			(!empty($hooky['eq']['']) && !empty($hooky['ex'][$hooky['eq']['']])	? $hooky['ex'][$hooky['eq']['']] : array()),				// Empty path = always considered
+			(!empty($hooky['ex'][''])											? $hooky['ex'][''] : array()));								// Empty ext = awlays considered
+		// sort the extension array
+		if (isset($ext['I'])) {	usort($ext['I'], function($a, $b) { return (($ret=(isset($a['ctl']['U'])===isset($b['ctl']['U']) ? 0 : (isset($a['ctl']['U']) ? -1 : 1))) ? $ret : $a['ord'] <=> $b['ord']); } );}
+		if (isset($ext['O'])) {	usort($ext['O'], function($a, $b) { return (($ret=(isset($a['ctl']['U'])===isset($b['ctl']['U']) ? 0 : (isset($a['ctl']['U']) ? -1 : 1))) ? $ret : $a['ord'] <=> $b['ord']); } );}
 	}
 	$this->set_debugs(print_r($ext,TRUE));																									// Developer info
 	// do extensions
-	$exclusive_in = $exclusive_out = NULL;
+	$exin = $exout = NULL;
 	$musty = TRUE;
-	foreach($ext['in'] as $extin) {																											// Loop through input extensions by priority
-		if (!$this->output_doit($extin, $caller, $flag, ($must || $musty), $exclusive_in)) { continue; }									// Consider hook extension
-		if (FALSE === $extin['must']) { $musty = FALSE; }																					// No longer have to do default
-		if (isset($extin['args']) && NULL !== $extin['args']) { $args = $extin['args']; }													// Extend input returned aguments or function input
+	foreach($ext['I'] as $extin) {																											// Loop through input extensions by priority
+		if (!$this->output_doit($extin, $caller, $flag, ($must || $musty), $exin)) { continue; }											// Consider hook extension
+		if (!$must && $extin['ord'] < 0 && !isset($extin['ctl']['D'])) { $musty = FALSE; }													// Do default unless one extended says no before the default
+		if (isset($extin['arg']) && NULL !== $extin['arg']) { $args = $extin['arg']; }														// Extend input returned aguments or function input
 		do {																																// Call hook extension for repeating rows
 			if (FALSE === ob_start()) { $this->throw_wsod("Fatal system call, ob_start(), hook = {$hook}"); }								// Buffer each output row
 			$more = $this->output_call($myself, $extin['fun'], ...$args);																	// Call hook extension
 			if (FALSE === ($out = ob_get_clean())) { $this->throw_wsod("Fatal system call, ob_get_clean(), hook = {$hook}"); }				// Retrieve buffer
-			foreach($ext['out'] as $extout) {																								// Loop through output filter extensions by priority
-				if (!$this->output_doit($extout, $caller, $flag, TRUE, $exclusive_out)) { continue; }										// Consider hook extension
-				if ($extout['flag']) { continue; }																							// Control flag
+			foreach($ext['O'] as $extout) {																									// Loop through output filter extensions by priority
+				if (!$this->output_doit($extout, $caller, $flag, TRUE, $exout)) { continue; }												// Consider hook extension
 				$this->output_call($myself, $extout['fun'], $out, ...$args);																// Call output filter
 			}
 			echo $out;																														// Echo filtered output
 		} while ($more);																													// Output all rows
 		$extended = TRUE;																													// Hook is extended
+		if (isset($extin['ctl']['U'])) { break; }																							// Uno extension allowed
 	}
 	return $extended;
 }
 // Execute hook extension?
 private function output_doit(
 	array	$ext,		// Extension definition
+						// 'I' = Input/default -OR- 'O' = Output/filter
+						// 'E' = Exclusive by my extension or omit me, otherwise default anyone
+						// 'U' = Uno/single extension, otherwise default multiple extensions cooperate 
+						// 'D' = Default included, otherwise default excluded if extended and $ord < 0
 	?string	$caller,	// Is this caller allowed
 	int		$flag,		// <0 = author exclusive -or- 0 = anyone -or- 1 = extender exclusive allowed
 	bool	$must,		// Must do default function TRUE==required
 	?string	&$excl,		// Name of chosen exclusive extension
 ) : bool {
-
-	if (!$ext['ord'] && !$must) {																			return FALSE; }		// Default extension excluded
-	if ($flag > 0) {																											// Exclusive allowed
-		if (NULL === $excl) { $excl = ($ext['flag'] ? $ext['who'] : FALSE); }													// First valid extension determines if exclusive or non-exclusive
-		if (!$excl && $ext['flag']) {																		return FALSE; }		// Non-exclusive, but exclusive requested
-		if ($excl && $ext['who'] != $excl) {																return FALSE; }		// Exclusive granted, but wrong extension
-	}
-	if (!$flag && $ext['flag']) {																			return FALSE; }		// Exclusive not allowed, but requested
+	// Exits before exclusive non-exclusive test
+	if (!$must && !$ext['ord']) {																			return FALSE; }		// Default extension excluded
+	if (!empty($ext['met']) && FALSE === stripos($ext['met'], $this->inputs['urlmethod'])) { 				return FALSE; }		// HTTP method
 	if ($caller && $caller !== $ext['who']) {
 		$this->error_log("Programmer error, caller not self disallowed '{$caller}' !== '{$ext['who']}'.");	return FALSE;		// Caller match
 	}
-	if (!empty($ext['meth']) && FALSE === stripos($ext['meth'], $this->inputs['urlmethod'])) { 				return FALSE; }		// HTTP method
+	// Exclusive or non-exclusive
+	if (!$flag && isset($ext['ctl']['E'])) {																return FALSE; }		// Exclusive not allowed, but requested, so forget it
+	if ($flag > 0) {																											// Exclusive allowed
+		if (NULL === $excl) { $excl = (isset($ext['ctl']['E']) ? $ext['who'] : FALSE); }										// First viable extension determines if exclusive or non-exclusive
+		if (!$excl && isset($ext['ctl']['E'])) {															return FALSE; }		// Non-exclusive, but exclusive requested
+		if ($excl && $ext['who'] != $excl) {																return FALSE; }		// Exclusive granted, but wrong extension
+	}
 	if (empty($ext['fun'])) {																				return FALSE; }		// Nothing to do
-	if ($this->inputs['role'] < $ext['role']) {
+	if ($this->inputs['role'] < $ext['rol']) {
 		$this->set_errors("Insufficient permission for requested resource");								return FALSE;		// Permision
 	}
 	return TRUE;
@@ -488,32 +499,37 @@ private function output_call(
 }
 // Register hook extension
 public function output_extend(
-	string	$hook,						// /vendor/package/hook (not file path)
-	string	$ext,						// Extension name or '' for all
-	string	$meth,						// Allowed HTTP methods, '' = ALL = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE"
-	string	$typ,						// Type 'in', '1in', 'on', '1on', 'out', '1out'
+	string	$hok,						// /vendor/package/hook (not file path)
+	string	$ext,						// Extension name or '' for ALL
+	string	$met,						// Allowed HTTP methods, '' = ALL = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE"
+	string	$str,						// Control string
+										// 'I' = Input/default -OR- 'O' = Output/filter
+										// 'E' = Exclusive by my extension or omit me, otherwise default anyone
+										// 'U' = Uno/single extension, otherwise default multiple extensions cooperate 
+										// 'D' = Default included, otherwise default excluded if extended and $ord < 0
 	string	$fun,						// Include?function
-	int		$role = ABCMS_ROLE_PUBLIC,	// Minimum role permission
-	int		$ord = 0,					// Order
-	mixed	$args = NULL,				// Argument
+	int		$rol = ABCMS_ROLE_PUBLIC,	// Minimum role permission
+	int		$ord = 0,					// Order, -9999 >= $ord <= 9999
+	mixed	$arg = NULL,				// Argument
 ) : bool {
-	if (!preg_match(ABCMS_REGEX_HOOK, $hook) ||
-		!preg_match(ABCMS_REGEX_METH, $meth) ||
-		!in_array($typ, array('in','1in','on','1on','out','1out')) ||
+	$ctl = array_flip(($key=str_split(strtoupper($str))));
+	$key = array_diff_key($key, array('I','O','E','U','D'));
+	if (!preg_match(ABCMS_REGEX_HOOK, $hok) ||
+		!preg_match(ABCMS_REGEX_METH, $met) ||
+		(isset($ctl['I']) && isset($ctl['O'])) ||
+		!empty($key) ||
 		!preg_match(ABCMS_REGEX_FUNC, $fun)) {
-		$this->error_log("Programmer error, invalid extension output_extend('{$tmp} {$meth}','{$hook}','{$ext}','{$typ}','{$fun}','{$role}','{$ord}').");
+		$this->error_log("Programmer error, invalid extension output_extend('{$hok}','{$ext}','{$met}','{$str}','{$fun}','{$rol}','{$ord}').");
 		return FALSE;
-	}	
-	$newtyp = (('1in' === $typ || '1on' === $typ || 'on' === $typ) ? 'in' : ('1out' === $typ ? 'out' : $typ));
-	$this->settings['route'][$hook]['ex'][$ext][$newtyp][] = array(
-		'meth'	=> $meth,
+	}
+	$this->settings['route'][$hok]['ex'][$ext][(isset($ctl['O']) ? 'O' : 'I')][] = array(
+		'met'	=> $met,
 		'fun'	=> $fun,
-		'role'	=> $role,
-		'ord'	=> $ord,
-		'args'	=> $args,
-		'flag'	=> ('1' === $typ[0] ? -1 : 0),
-		'must'	=> (('1in' === $typ || 'in' === $typ) ? TRUE : FALSE),
+		'rol'	=> $rol,
+		'ord'	=> min(9999, max(-9999, $ord)),
+		'ctl'	=> $ctl,
 		'who'	=> $this->extension(),
+		'arg'	=> $arg,
 	);
 	return TRUE;
 }
@@ -521,12 +537,13 @@ public function output_extend(
 public function output_equate(
 	string $hook,			// Hook name
 	string $ext,			// Extension name or '' for all
-	string $path,			// Unique URL path
+	string $path,			// Unique URL path, use trailing '/' to match 1st path segment, otherwise no trailing slash
 ) : bool {
 	if (!preg_match(ABCMS_REGEX_HOOK, $hook) ||
+		(substr_count($path, '/')>2 && '/' == $path[-1]) ||
 		('' !== $path && ('/' !== $path[0] || FALSE === filter_var('http://localhost'.$path, FILTER_VALIDATE_URL))) ||
 		isset($this->settings['route'][$hook]['eq'][$path])) {
-		$this->error_log("Programmer error, hook extension path already defined output_equate('{$hook}-{$ext}-{$path}').");
+		$this->error_log("Programmer error, hook equate error or path already defined output_equate('{$hook}-{$ext}-{$path}').");
 		return FALSE;
 	}
 	$this->settings['route'][$hook]['eq'][$path] = $ext;
@@ -622,6 +639,7 @@ public function htmldefault(	// Default theme function and method
 ) : ?bool {
 	global $abcms_constant;
 	$args[4] = NULL;
+	$args[6] = 1;
 	return $this->htmldoc(...$args);
 }
 private function htmladmin(
@@ -631,6 +649,7 @@ private function htmladmin(
 	$args[0] = TRUE;
 	$args[3] = "<div style='display: inline-block;'><h2 style='font-size: 1.5em'>Console</h2></div><div style='float: right; display: inline-block;'><h2 style='font-size: 1.5em'><a href='/' title='Close Console' style='text-decoration: none; color: white;'>X</a></h2></div>";
 	$args[4] = NULL;
+	$args[6] = -1;
 	return $this->htmldoc(...$args);
 }
  
@@ -643,29 +662,32 @@ private function set_settings() : bool { // This function to be moved to /admin/
 	$this->output_allowq('debug',	'bool',		ABCMS_ROLE_ADMINS);
 	// register _POST variables
 
-	// default hook extensions
-	$this->output_extend('/nainoiainc/abcms/begin',				'',			'CLI-GET-POST',	'1on',	'abcms->htmldefault',	ABCMS_ROLE_PUBLIC,	PHP_INT_MAX);
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'home',		'CLI-GET-POST',	'1on',	'abcms->pagehome',		ABCMS_ROLE_PUBLIC,	PHP_INT_MAX);
+	// default extensions
+	// String with 'I'=Input/default, 'O'=Output, 'E'=Exclusive/Author, 'U'=One/Uno, 'D'=DefaultAlso
+	$this->output_extend('/nainoiainc/abcms/begin',				'',			'CLI-GET-POST',	'IEU',	'abcms->htmldefault',	ABCMS_ROLE_PUBLIC,	-10);
+	$this->output_extend('/nainoiainc/abcms/begin',				'admin',	'CLI-GET-POST',	'IEU',	'abcms->htmladmin',		ABCMS_ROLE_ADMINS,	-11);
+	$this->output_equate('/nainoiainc/abcms/begin',				'admin',	'/admin/');
+	$this->output_extend('/nainoiainc/abcms/begin',				'code',		'CLI-GET-POST',	'IEU',	'abcms->codeadmin',		ABCMS_ROLE_ADMINS,	-9999+10);
+	$this->output_equate('/nainoiainc/abcms/begin',				'code',		'/admin/code');
+	// user extensions
+	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'home',		'CLI-GET-POST',	'IE',	'abcms->pagehome',		ABCMS_ROLE_PUBLIC,	-10);
 	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'home',		'/');
 	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'home',		'/home');
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'contact',	'CLI-GET-POST',	'1on',	'abcms->pagecontact',	ABCMS_ROLE_PUBLIC,	PHP_INT_MAX);
+	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'contact',	'CLI-GET-POST',	'IE',	'abcms->pagecontact',	ABCMS_ROLE_PUBLIC,	-10);
 	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'contact',	'/contact');
-	// admin hook extensions
-	$this->output_extend('/nainoiainc/abcms/begin',				'abcms',	'CLI-GET-POST',	'1on',	'abcms->htmladmin',		ABCMS_ROLE_ADMINS,	PHP_INT_MIN);
-	$this->output_equate('/nainoiainc/abcms/begin',				'abcms',	'/admin');
-	$this->output_extend('/nainoiainc/abcms/begin',				'code',		'CLI-GET-POST',	'1on',	'abcms->codeadmin',		ABCMS_ROLE_ADMINS,	PHP_INT_MIN);
-	$this->output_equate('/nainoiainc/abcms/begin',				'code',		'/admin/code');
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'test',		'CLI-GET-POST',	'in',	'abcms->pagetest',		ABCMS_ROLE_ADMINS,	PHP_INT_MIN);
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'',			'CLI-GET-POST',	'in',	'abcms->pagetest',		ABCMS_ROLE_ADMINS,	PHP_INT_MIN);
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'',			'CLI-GET-POST',	'in',	'abcms->pagetest',		ABCMS_ROLE_ADMINS,	PHP_INT_MAX);
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'abcms',	'CLI-GET-POST',	'on',	'abcms->pageadmin',		ABCMS_ROLE_ADMINS,	PHP_INT_MIN+1);
-	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'abcms',	'/admin');
-	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'test',	'');
-	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'abcms',	'/admin/status');
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'phpinfo',	'CLI-GET-POST',	'on',	'abcms->pagephpinfo',	ABCMS_ROLE_ADMINS,	PHP_INT_MIN+1);
+	// admin extensions
+	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'status',	'CLI-GET-POST',	'IE',	'abcms->pageadmin',		ABCMS_ROLE_ADMINS,	-9999+10);
+	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'status',	'/admin');
+	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'status',	'/admin/status');
+	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'phpinfo',	'CLI-GET-POST',	'IE',	'abcms->pagephpinfo',	ABCMS_ROLE_ADMINS,	-9999+10);
 	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'phpinfo',	'/admin/phpinfo');
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'help',		'CLI-GET-POST',	'on',	'abcms->adminhelp',		ABCMS_ROLE_ADMINS,	PHP_INT_MIN+1);
+	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'help',		'CLI-GET-POST',	'IE',	'abcms->adminhelp',		ABCMS_ROLE_ADMINS,	-9999+10);
 	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'help',		'/admin/help');
+	// test extensions
+	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'test',		'CLI-GET-POST',	'IED',	'abcms->pagetest',		ABCMS_ROLE_ADMINS,	-9999);
+	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'',			'CLI-GET-POST',	'IED',	'abcms->pagetest',		ABCMS_ROLE_ADMINS,	-9999);
+	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'',			'CLI-GET-POST',	'IED',	'abcms->pagetest',		ABCMS_ROLE_ADMINS,	9999);
+	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'test',	'');
 
 	// fast loading json
 	return $this->set_json(ABCMS_SETTINGS, $this->settings);
@@ -688,6 +710,7 @@ private function pagecontact(mixed &...$unused) : ?bool { // Non-function wrappe
 	?><h4>Contact</h4>
 This is where to contact us.<?
 	echo $this->see_errors();
+	echo "<br><a href='/home'>/home</a>";
 	return NULL;
 }
 private function codeadmin(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
@@ -862,6 +885,7 @@ function abcms_htmldoc(	// Default theme function and method
 	?string $head	= NULL,	// Override header default
 	?string $page	= NULL,	// Override page content default
 	?string $foot	= NULL,	// Override footer default
+	int $flag		= 1,	// Output control flag
 	bool $allow		= TRUE,	// Allow extensions below
 ) : ?bool {					// Return boolean
 global $abcms, $abcms_constant;
@@ -962,13 +986,13 @@ if ($admin) {
 }
 <?
 }
-if ($allow) {	$css = array($css); $abcms->output('/htmldefault_css', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, 1, FALSE, ...$css); }
+if ($allow) {	$css = array($css); $abcms->output('/htmldefault_css', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$css); }
 else {			echo $css; }
 ?>
 </style>
 <script type='text/javascript'>
 <?
-if ($allow) {	$js = array($js); $abcms->output('/htmldefault_js', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, 1, FALSE, ...$js); }
+if ($allow) {	$js = array($js); $abcms->output('/htmldefault_js', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$js); }
 else {			echo $js; }
 ?>
 </script>
@@ -978,7 +1002,7 @@ else {			echo $js; }
 <div id='head'>
 <?
 if (!$head) {	$head = "<h2 style='font-size: 1.5em'>{$title}</h2>"; }
-if ($allow) {	$head = array($head); $abcms->output('/htmldefault_head', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, 1, FALSE, ...$head); }
+if ($allow) {	$head = array($head); $abcms->output('/htmldefault_head', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$head); }
 else {			echo $head; }
 ?>
 </div>
@@ -994,14 +1018,14 @@ Please contact the webmaster for help.
 EOF;
 }
 if ($allow) {	$page .= $abcms->see_errors();
-				$page = array($page); $abcms->output('/htmldefault_page', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, 1, FALSE, ...$page); }
+				$page = array($page); $abcms->output('/htmldefault_page', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$page); }
 else {			echo $page; }
 ?>
 </div>
 <div id='foot'>
 <?
-if (!$foot) {	$foot = "Thank you!"; }
-if ($allow) {	$foot = array($foot); $abcms->output('/htmldefault_foot', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, 1, FALSE, ...$foot); }
+if (!$foot) {	$foot = "<a href='/contact' style='text-decoration: none; color: white;'>Thank you!</a>"; }
+if ($allow) {	$foot = array($foot); $abcms->output('/htmldefault_foot', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$foot); }
 else {			echo $foot; }
 ?>
 </div>
