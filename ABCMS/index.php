@@ -404,8 +404,8 @@ public function output(
 		if (!$this->output_doit($extin, $whoami, $flag, ($must || $dopt), $exin)) { continue; } // Skip for reasons
 		if (!$must && $extin['ord'] < 0 && !isset($extin['ctl']['D'])) { $dopt = FALSE; } // Omit default if hook and one extension says not required
 		if (isset($extin['arg'])) { // Extension arguments
-			if( array_keys($args) !== array_keys($extin['arg'])) { $this->error_log("Programmer, extension argument keys unmatched."); }
-			else { array_walk($args, function(&$a, $k, $n) { $a = $n[$k]; }, $extin['arg']); }
+			if (array_diff(array_keys($extin['arg']), array_keys($args))) { $this->error_log("Programmer, extension argument keys unmatched."); }
+			else { array_walk($args, function(&$a, $k, $n) { if (isset($n[$k])) { $a = $n[$k]; } }, $extin['arg']); }
 		}
 		do { // Repeat hook extension until FALSE
 			if (FALSE === ob_start()) { $this->error_wsod("Fatal, ob_start()."); } // Buffer output
