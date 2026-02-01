@@ -15,11 +15,12 @@
 /*
  * SECTION: EXPLANATION
  *
- * 1. Constants allow sharing immutable values and they are fast
- * 2. Try Catch allows fail safe error handling of the core abcms() function
- * 3. Core dump exception allows developer debugging with all information
- * 4. Instantiate and process inputs allows global onetime input handling
- * 5. EVERYTIHNG is an extension with $abcms->output()
+ * 1. A whole CMS web developer toolkit in one file is possible
+ * 2. Constants allow sharing immutable values and they are fast
+ * 3. Try Catch allows fail safe error handling of the core abcms() function
+ * 4. Core dump exception allows developer debugging with all information
+ * 5. Instantiate and process inputs allows global onetime input handling
+ * 6. EVERYTIHNG is an extension with $abcms->output()
  * Here is the idea, all output is extendable which helps us think more simply about content management.
  * We have inputs, processing, and outputs. The output function serves as both a command router and extension
  * manager. The generic output function does not even require a default function because it expects to be
@@ -46,6 +47,15 @@
  *	beware TRUE and FALSE: https://ask.libreoffice.org/t/entering-true-or-false-as-text-into-any-cell-is-interpreted-as-true-or-false/104905
  *	working example: libreoffice --convert-to "csv:Text - txt - csv (StarCalc):9,,UTF-8,1" --infilter="MS Excel 97" --outdir ./ input.xls
  *
+ * File browser - buidl myself
+ * File and text editor?
+ *	Ace Editor: https://ace.c9.io/
+ *	Code Mirror: https://codemirror.net/
+ *
+ * SMTP - PHPMailer or smaller alternative
+ * https://www.mydreams.cz/en/hosting-wiki/1402-phpmailer-sending-emails-from-php-via-smtp-without-using-composer.html
+ * OR just use mail() and optionally composer to PHPMailer and check for existence.
+ *
  * More stuff...
  *
  */
@@ -56,24 +66,20 @@
  * SECTION: CONSTANTS
  *
  */
-// Constants in strings {$abcms_constant('CONSTANT')}
-$abcms_constant			= 'constant';
 // General
+$abcms_constant			= 'constant';
 const ABCMS_GOOD		= "<span style='color: green;'>\u{2611}</span> ";
 const ABCMS_BAD			= "<span style='color: red;'>\u{2612}</span> ";
 // Extensions
 const ABCMS_EXT_SELF	= "/nainoiainc/abcms";
-const ABCMS_EXT_BEGINS	= "/begin";
-const ABCMS_EXT_BEGIN	= "/nainoiainc/abcms/begin";
-const ABCMS_EXT_ADMINS	= "/admin";
-const ABCMS_EXT_ADMIN	= "/nainoiainc/abcms/admin";
+const ABCMS_EXT_SETS	= "/abcmsset";
 // Regex
 // Includefile?function #^(|/vendor/package/filepath)(|?(|classobject(::|->|()->))funcmeth)#
 const ABCMS_REGEX_FUNC	= "/^((\/[^?]+)\?)?((([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x{7f}-\x{ff}]*))?$/u";
-const ABCMS_REGEX_HOOK	= "/\/[^\/]+\/[^\/]+\/[^\/]+/u"; // Path-like, but not a filepath
+const ABCMS_REGEX_HOOK	= "/^\/[^\/]+\/[^\/]+\/[^\/]+$/u"; // Path-like, but not a filepath
 const ABCMS_REGEX_METH	= "/(CLI|GET|POST|PUT|HEAD|DELETE|PATCH|OPTIONS|CONNECT|TRACE)/u";
 const ABCMS_REGEX_META	= array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE');
-const ABCMS_REGEX_PATH	= "/(\/[^\/]*)(\/.+)?/u";
+const ABCMS_REGEX_PATH	= "/^(\/[^\/]*)(\/.+)?$/u";
 const ABCMS_REGEX_URLV	= "/\/([A-Za-z0-9\-_.~]+)=([A-Za-z0-9\-_.~]+)/u";
 const ABCMS_REGEX_VARS	= "/^[A-Za-z0-9\-_.~]+$/u";
 // Arrays
@@ -102,20 +108,32 @@ const ABCMS_EXTORD_MAX	=  9999;
 
 
 /*
+ * SECTION: GLOBAL NAMESPACE
+ *
+ * Constants above as 'ABCMS_*'
+ * $abcms_constant = 'constant' = constant() to interpolate constants in strings
+ * $abcms = ABCMS object reference for convenience
+ * abcms() = Function to return ABCMS object
+ *
+ */
+ 
+
+
+/*
  * SECTION: TRY/CATCH
  *
  * Run the CMS or coredump if failure
  *
  */
 try {
-	abcms(); // Construct and assign to $abcms
+	abcms(); // Construct and assign to global $abcms
 	if (empty($abcms->inputs['boss'])) { return TRUE; } // I do nada, you do as you please
 	// I am boss and do as I please
 	$args = array(FALSE,NULL,NULL,NULL,NULL,NULL);
 	$args[4] = <<<EOF
 <h4>Status</h4>
-{$abcms_constant('ABCMS_GOOD')}Hello World. Graceful termination.<br>
-{$abcms_constant('ABCMS_BAD')}Fatal error. Core extension failed.<br>
+{$GLOBALS['abcms_constant']('ABCMS_GOOD')}Hello World. Graceful termination.<br>
+{$GLOBALS['abcms_constant']('ABCMS_BAD')}Fatal error. Core extension failed.<br>
 <br>
 Please contact the webmaster for help.
 EOF;
@@ -134,27 +152,18 @@ EOF;
 catch (Exception $e) { // WSOD coredump
 	// Screen
 	echo ob_get_clean();
-	$head = "<div style='display: inline-block;'><h2 style='font-size: 1.5em'>Console</h2></div><div style='float: right; display: inline-block;'><h2 style='font-size: 1.5em'><a href='/' title='Close Console' style='text-decoration: none; color: white;'>X</a></h2></div>";
-	$page = <<< EOF
-<h4>Status</h4>
-{$abcms_constant('ABCMS_GOOD')}Hello World. Graceful termination.<br>
-{$abcms_constant('ABCMS_BAD')}Fatal error. Exception caught.<br>
-{$abcms_constant('ABCMS_GOOD')}Coredump available for review.<br>
-<br>
-Please contact the webmaster for help.<br>
+	echo <<< EOF
+<div style='position: absolute; bottom: 0px; left: 0px; width: 100%; background-color: #FFFFFF; color: red; text-align: center; padding: 3px 0;'>
+Fatal exception caught. Coredump available. Contact the webmaster for help.
+</div>
 EOF;
-	$foot = "Thank you!";
-	$alive = (isset($abcms) && is_object($abcms) ? TRUE : FALSE);
-	ob_end_clean();
-	if (headers_sent()) {	echo $page; }
-	else {					abcms_htmldoc(TRUE, NULL, NULL, $head, $page, $foot, -1, FALSE); }
 	// Get info
 	$error		= ($e->getMessage() ?: 'NA');								// Exception error
 	$sys		= (($sys = error_get_last()) ? print_r($sys,TRUE) : 'NA');	// System error
 	$syserr		= (isset($sys['message']) ? $sys['message'] : 'NA');		// System error message
 	$globals	= print_r((isset($GLOBALS) ? $GLOBALS : 'NA'), TRUE);		// Get $GLOBALS
 	$inputs		= $settings = $errors = $debugs = $packages = 'NA';			// Extra initialized as 'NA'
-	if ($alive) {															// If contructed, get extra
+	if (isset($abcms) && is_object($abcms)) {								// If contructed, get extra
 		$inputs		= print_r($abcms->inputs,TRUE);							// Processed input
 		$settings	= print_r($abcms->get_settings(),TRUE);					// Settings file
 		$errors		= print_r($abcms->get_errors(),TRUE);					// Runtime errors
@@ -222,8 +231,7 @@ function __construct() {
 	if (PHP_VERSION < '8.2.0') {									$this->error_wsod("Fatal, >=PHP82 required."); }											// PHP version
 	if (!chdir(__DIR__)) {											$this->error_wsod("Fatal, failed chdir('".__DIR__."').");	}								// chdir()
 	if (!ini_set('error_log', ABCMS_ABCMSLOG)) {					$this->error_wsod("Fatal, failed ini_set('error_log','".ABCMS_ABCMSLOG."').");}				// ini_set()
-	if (FALSE===$this->set_settings()){								$this->error_wsod("Fatal, failed set_settings() load."); }									// JEFF TEMP DEV!!!!!!!!!!!!!!
-	if (FALSE===$this->get_json(ABCMS_SETTINGS, $this->settings)) {	$this->error_wsod("Fatal, settings file not found."); }										// Load settings
+	if (FALSE===$this->set_settings(TRUE)){							$this->error_wsod("Fatal, failed set_settings() load."); }									// Bootstrap
 	// Sanitize inputs
 	$this->GLOBALS	= isset($GLOBALS) ? $GLOBALS	: array();																									// Protect GLOBALS
 	$this->inputs	= array(																																	// Sanitize inputs
@@ -269,7 +277,7 @@ public function input_varpath(
 	int		$role,			// Minimum role permissions
 	?array	$reg = NULL,	// Regex patterns to match
 ) : void {
-	$this->input_variable($var, $type, $role, $reg, 'v');
+	$this->input_variable($var, $type, $role, 'v', $reg);
 	return;
 }
 // Define _GET variable
@@ -279,7 +287,7 @@ public function input_varget(
 	int		$role,			// Minimum role permissions
 	?array	$reg = NULL,	// Regex patterns to match
 ) : void {
-	$this->input_variable($var, $type, $role, $reg, 'q');	
+	$this->input_variable($var, $type, $role, 'q', $reg);	
 	return;
 }
 // Define _POST variable
@@ -289,7 +297,7 @@ public function input_varput(
 	int		$role,			// Minimum role permissions
 	?array	$reg = NULL,	// Regex patterns to match
 ) : void {
-	$this->input_variable($var, $type, $role, $reg, 'p');	
+	$this->input_variable($var, $type, $role, 'p', $reg);	
 	return;
 }
 // Register variable
@@ -297,8 +305,8 @@ private function input_variable(
 	string	$var,			// Name
 	string	$type,			// Type
 	int		$role,			// Minimum role permissions
-	?array	$reg = NULL,	// Regex patterns to match
 	string	$cat,			// Category
+	?array	$reg = NULL,	// Regex patterns to match
 ) : void {
 	if (!preg_match(ABCMS_REGEX_VARS, $var) ||
 		!empty($this->settings[$cat][$var]) ||
@@ -361,7 +369,7 @@ public function output(
 	int		$flag,		// <0 = extender exclusive, 0 = anyone, 1 = extender exclusive allowed
 	bool	$must,		// Must do default, TRUE = required -OR- FALSE = optional
 	mixed	&...$args,	// Default arguments
-) : bool {
+) : array {
 	// Initialize
 	$whoami = $this->extension(); // Which extension am I?
 	$hook = $whoami . $hook; // Full hook name
@@ -403,15 +411,14 @@ public function output(
 	foreach($ext['I'] as $extin) { // Input extensions by priority
 		if (!$this->output_doit($extin, $whoami, $flag, ($must || $dopt), $exin)) { continue; } // Skip for reasons
 		if (!$must && $extin['ord'] < 0 && !isset($extin['ctl']['D'])) { $dopt = FALSE; } // Omit default if hook and one extension says not required
-		if (isset($extin['arg'])) { // Extension arguments
-			if (array_diff(array_keys($extin['arg']), array_keys($args))) { $this->error_log("Programmer, extension argument keys unmatched."); }
-			else { array_walk($args, function(&$a, $k, $n) { if (isset($n[$k])) { $a = $n[$k]; } }, $extin['arg']); }
-		}
-		do { // Repeat hook extension until FALSE
+		if (isset($extin['arg'])) { $this->array_walk_merge($args, $extin['arg']); } // Extend arguments
+		if (empty($extin['fun'])) { continue; } // Extension only grabs exclusivity or set args
+		do { // Repeat hook extension until FALSE -OR- NULL
 			if (FALSE === ob_start()) { $this->error_wsod("Fatal, ob_start()."); } // Buffer output
 			$more = $this->output_call($whoami, $extin['fun'], ...$args); // Execute hook extension
 			if (FALSE === ($out = ob_get_clean())) { $this->error_wsod("Fatal, ob_get_clean()."); } // Retrieve buffer
-			foreach($ext['O'] as $extout) { // Output filter extensions by priority
+			// Output filter extensions by priority
+			foreach($ext['O'] as $extout) {
 				if (!$this->output_doit($extout, $whoami, $flag, TRUE, $exout)) { continue; } // Skip for reasons
 				$this->output_call($whoami, $extout['fun'], $out, ...$args); // Execute output filter
 			}
@@ -421,7 +428,37 @@ public function output(
 		++$extensions; // Extension count
 		if (isset($extin['ctl']['U'])) { break; } // Uno extension allowed
 	}
-	return $extensions;
+	//return $extensions;
+	return $args;
+}
+// Output settings
+public function settings_assign(
+	array	&$set,		// Default settings
+) : array {
+	return(($this->settings[ABCMS_EXT_SETS][$this->extension()] = $this->output(ABCMS_EXT_SETS, '', '', ABCMS_ROLE_ADMINS, 0, FALSE, ...$set)));
+}
+// Output settings extend
+public function settings_extend(
+	string	$hok,		// /vendor/extension
+	array	$set,		// Default settings
+	int		$ord = 0,	// Default order
+) : bool {
+	return $this->output_extend($hok.ABCMS_EXT_SETS, '', '', '', '', ABCMS_ROLE_ADMINS, $ord, ...$set);
+}
+// Output settings
+private function settings_clean(
+) : void {
+	foreach($this->settings['route'] as $hook => $route) {
+		if (preg_match("#".ABCMS_EXT_SETS."$#", $hook)) { unset($this->settings['route'][$hook]); }
+	}
+	return;
+}
+// Output settings
+public function settings_get(
+	string	$hok = NULL,// /vendor/extension
+) : ?array {
+	$hok = ($hok ?: $this->extension());
+	return (isset($this->settings[ABCMS_EXT_SETS][$hok]) ? $this->settings[ABCMS_EXT_SETS][$hok] : NULL);
 }
 // Execute hook extension?
 private function output_doit(
@@ -453,7 +490,7 @@ private function output_call(
 	mixed	&...$args,	// Arguments passed
 ) : ?bool {
 	// Parse includefile?function
-	if (empty($filefunc) || !preg_match(ABCMS_REGEX_FUNC, $filefunc, $match)) { $this->error_wsod("Fatal, invalid function name."); }
+	if (!preg_match(ABCMS_REGEX_FUNC, $filefunc, $match)) { $this->error_wsod("Fatal, invalid function name."); }
 	$filepath	= $match[2]; // Dynamic extension file inclusion
 	$classobject= $match[5]; // Class or object
 	$operator	= $match[6]; // Operator to function
@@ -511,21 +548,22 @@ public function output_extend(
 	string	$fun,						// Includefile?function
 	int		$rol = ABCMS_ROLE_PUBLIC,	// Minimum role permission
 	int		$ord = 0,					// Order considered, ABCMS_EXTORD_MIN >= $ord <= ABCMS_EXTORD_MAX
-	mixed	$arg = NULL,				// Argument alternatives
+	mixed	...$arg,					// Argument alternatives
 ) : bool {
 	// Control string to array indices
 	$ctl = array_flip(($key=str_split(strtoupper($str))));
 	$key = array_diff_key($key, array('I','O','E','U','D'));
 	// Error checks
 	if (!preg_match(ABCMS_REGEX_HOOK, $hok) || // Hook valid
-		!preg_match(ABCMS_REGEX_METH, $met) || // Method valid
+		(!empty($met) && !preg_match(ABCMS_REGEX_METH, $met)) || // Method valid
 		(isset($ctl['I']) && isset($ctl['O'])) || // Input Output exclusive
 		!empty($key) || // Control flags valid
-		empty($fun) || !preg_match(ABCMS_REGEX_FUNC, $fun)) { // Function valid
+		(!empty($fun) && !preg_match(ABCMS_REGEX_FUNC, $fun))) { // Function valid
 		$this->error_log("Programmer, invalid extension.");
 		return FALSE;
 	}
 	// Extension assigned
+	unset($ctl['I']);
 	$this->settings['route'][$hok]['ex'][$ext][(isset($ctl['O']) ? 'O' : 'I')][] = array(
 		'met'	=> $met,
 		'fun'	=> $fun,
@@ -563,10 +601,10 @@ public function output_equate(
  *
  */
 private function error_trace() : array { // Correct backtrace
-	$back = debug_backtrace(0,2); // Omit object, include args, 2 levels back
-	if (!isset($back[1]['function'])) {	$back[1]['function'] = 'unavailable'; }
-	if (!isset($back[1]['args'])) {		$back[1]['args'] = array(); }
-	array_walk_recursive($back[1]['args'], function (&$value) {
+	$back = debug_backtrace(0,3); // Omit object, include args, 3 levels back
+	if (!isset($back[2]['function'])) {	$back[2]['function'] = 'unavailable'; }
+	if (!isset($back[2]['args'])) {		$back[2]['args'] = array(); }
+	array_walk_recursive($back[2]['args'], function (&$value) {
 		if (is_string($value) && mb_strlen($value) > 256) { // Truncate long strings
 			$value = mb_substr($value, 0, 256) . '...';
 		}
@@ -577,7 +615,7 @@ public function error_wsod( // Throw WSOD
 	string $mess,			// Message
 ) : void {
 	$back = $this->error_trace();
-	throw new Exception("ABCMS->WSOD->{$back[1]['function']}() {$mess}\n".print_r($back[1]['args'],TRUE));
+	throw new Exception("ABCMS->WSOD->{$back[1]['function']}() {$mess}\n".print_r($back[2]['args'],TRUE));
 	return;
 }
 public function error_log(	// Log error
@@ -586,7 +624,7 @@ public function error_log(	// Log error
 ) : void {
 	if ($debug && empty($this->inputs['urlquery']['debug'])) { return; } // Skip debug message if not debug mode
 	$back = $this->error_trace();
-	error_log(($form = "ABCMS->{$back[1]['function']}() {$mess}\n".print_r($back[1]['args'],TRUE)));
+	error_log(($form = "ABCMS->{$back[1]['function']}() {$mess}\n".print_r($back[2]['args'],TRUE)));
 	if (!empty($this->inputs['urlquery']['debug'])) { $this->debugs[] = $form; }
 	return;
 }
@@ -646,7 +684,16 @@ public function get_settings() : array {	// Get private settings for public
  *
  */
 // This function to be moved to /admin/setup and loop through all extensions 
-private function set_settings() : bool {
+private function set_settings(
+	bool	$boot = FALSE,	// Bootstrap load existing
+) : bool {
+	// Overwrite?
+	if ($boot && file_exists(ABCMS_SETTINGS)) {
+		if (FALSE===$this->get_json(ABCMS_SETTINGS, $this->settings)) {	$this->error_wsod("Fatal, settings file not found."); }
+		return TRUE;
+	}
+	// Start with zero
+	$this->settings = array();
 	// Register path variables
 	$this->input_varpath('debug',	'bool',		ABCMS_ROLE_PUBLIC);
 	// Register query / _GET variables
@@ -661,30 +708,59 @@ private function set_settings() : bool {
 	$this->output_extend('/nainoiainc/abcms/begin',				'',			'CLI-GET-POST',	'IEU',	'abcms->htmldefault',	ABCMS_ROLE_PUBLIC,	-10);
 	$this->output_extend('/nainoiainc/abcms/begin',				'admin',	'CLI-GET-POST',	'IEU',	'abcms->htmladmin',		ABCMS_ROLE_ADMINS,	-20);
 	$this->output_equate('/nainoiainc/abcms/begin',				'admin',	'/admin/');
-	$this->output_extend('/nainoiainc/abcms/begin',				'code',		'CLI-GET-POST',	'IEU',	'abcms->codeadmin',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN+10);
+	$this->output_extend('/nainoiainc/abcms/begin',				'code',		'CLI-GET-POST',	'IEU',	'abcms->admincode',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
 	$this->output_equate('/nainoiainc/abcms/begin',				'code',		'/admin/code');
 	// Frontend page extensions
 	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'home',		'CLI-GET-POST',	'IE',	'abcms->pagehome',		ABCMS_ROLE_PUBLIC,	-10);
+	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'home',		'CLI-GET-POST',	'OE',	'abcms->pagekickin',	ABCMS_ROLE_PUBLIC,	-10);
 	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'home',		'/');
 	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'home',		'/abcms');
 	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'contact',	'CLI-GET-POST',	'IE',	'abcms->pagecontact',	ABCMS_ROLE_PUBLIC,	-10);
 	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'contact',	'/abcms/contact');
 	// Admin page extensions
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'status',	'CLI-GET-POST',	'IE',	'abcms->pageadmin',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN+10);
+	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'status',	'CLI-GET-POST',	'IE',	'abcms->adminstatus',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
 	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'status',	'/admin');
 	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'status',	'/admin/status');
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'phpinfo',	'CLI-GET-POST',	'IE',	'abcms->pagephpinfo',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN+10);
+	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'phpinfo',	'CLI-GET-POST',	'IE',	'abcms->adminphpinfo',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
 	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'phpinfo',	'/admin/phpinfo');
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'help',		'CLI-GET-POST',	'IE',	'abcms->adminhelp',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN+10);
+	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'help',		'CLI-GET-POST',	'IE',	'abcms->adminhelp',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
 	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'help',		'/admin/help');
+	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'init',		'CLI-GET-POST',	'IE',	'abcms->admininit',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'init',		'/admin/init');
+	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'cron',		'CLI-GET-POST',	'IE',	'abcms->admincron',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'cron',		'/admin/cron');
+	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'browse',	'CLI-GET-POST',	'IE',	'abcms->adminbrowse',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'browse',	'/admin/browse');
 	// Variable Extensions
 	$variable['variable'] = "Yoo hooey!<br>";
-	$this->output_extend('/nainoiainc/abcms/variable',			'',			'CLI-GET-POST',	'IE',	'abcms->pagevariable',	ABCMS_ROLE_PUBLIC,	-10, $variable);	
+	$this->output_extend('/nainoiainc/abcms/variable',			'',			'CLI-GET-POST',	'IE',	'abcms->pagevariable',	ABCMS_ROLE_PUBLIC,	-10, ...$variable);	
+	$variable2['variable'] = array(
+		'a' => 1,
+		'b' => 2,
+		'c' => 3,
+		'd' => 4,
+		'e' => 5,
+		'f' => array(1,2,3,4,5),
+	);
+	$this->output_extend('/nainoiainc/abcms/variable2',			'',			'CLI-GET-POST',	'IE',	'abcms->pagevariable2',	ABCMS_ROLE_PUBLIC,	-10, ...$variable2);
 	// Test extensions
 	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'',			'CLI-GET-POST',	'IED',	'abcms->pagetest',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MAX);
 
-	// fast loading json
-	return $this->set_json(ABCMS_SETTINGS, $this->settings);
+	// Extension settings completed
+	// Settings strategy
+	// INIT.php run by composer or at will if ABCMS or plugin changes to rebuild the settings extension array
+	$this->settings_extend('/nainoiainc/abcms', array('test'=>'Changed','test2'=>'asdasdsa','test3'=>array('a'=>3,'b'=>2,'c'=>1),'test4'=>'new boy!'));
+	
+	// LOOP THROUGH ALL INIT NOW
+	// How extend settings and then record the settings in the input hash?
+	// Perhaps let extensions add values to the settings array so extension adds its own settings via extension? Yes!
+	// Then after execture all INIT then call settings_assign() for all extensions and see what results!
+
+	// Only write if bootstrap
+	if ($boot) {
+		if (FALSE===$this->set_json(ABCMS_SETTINGS, $this->settings)) {	$this->error_wsod("Fatal, settings file not written."); }
+	}
+	return TRUE;
 }
 // Test extension
 private function pagetest(mixed &...$unused) : ?bool {
@@ -695,11 +771,25 @@ private function pagevariable(string &$variable) : ?bool {
 	$variable .= "Yoo hoo baby!<br>";
 	return NULL;
 }
-// General html document creator available as function and method
-public function htmldoc(
-	mixed &...$args,
-) : ?bool {
-	return abcms_htmldoc(...$args);
+private function pagevariable2(array &$variable) : ?bool {
+	$variable = array(
+		'a' => 2,
+		'b' => 3,
+		'c' => 4,
+		'd' => 5,
+		'e' => 6,
+		'f' => array(2,3,4,5,6),
+	);
+	return NULL;
+}
+private function pagekickin(&...$vars) : ?bool {
+	$extra  = isset($vars[0]) ? "0 " : "x";
+	$extra .= isset($vars[1]) ? "1 " : "x";
+	$extra .= isset($vars[2]) ? "2 " : "x";
+	$extra .= isset($vars[3]) ? "3 " : "x";
+	$extra .= isset($vars[4]) ? "4 " : "x";
+	$vars[0] = preg_replace("#I am alive.#", "I am alive and kickin {$extra}!", $vars[0]);
+	return NULL;
 }
 // General user webpage template
 public function htmldefault(
@@ -712,8 +802,7 @@ public function htmldefault(
 	$page		= NULL;
 	$foot		= NULL;
 	$flag		= 1;
-	$allow		= TRUE;
-	return $this->htmldoc($admin, $css, $js, $head, $page, $foot, $flag, $allow);
+	return $this->htmldoc($admin, $css, $js, $head, $page, $foot, $flag);
 }
 // Admin webpage template
 private function htmladmin(
@@ -726,15 +815,16 @@ private function htmladmin(
 	$page		= NULL;
 	$foot		= NULL;
 	$flag		= -1;
-	$allow		= TRUE;
-	return $this->htmldoc($admin, $css, $js, $head, $page, $foot, $flag, $allow);
+	return $this->htmldoc($admin, $css, $js, $head, $page, $foot, $flag);
 }
 // User homepage
 private function pagehome(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	global $abcms_constant;
 	$errors = $this->see_errors();
 	$variable['variable'] = "Yoo hoo!<br>";
-	$this->output('/variable', 'CLI-GET-POST', '', ABCMS_ROLE_PUBLIC, -1, FALSE, ...$variable);
+	$returned = $this->output('/variable', 'CLI-GET-POST', '', ABCMS_ROLE_PUBLIC, -1, FALSE, ...$variable);
+	$variable2['variable'] = array();
+	$returned2 = $this->output('/variable2', 'CLI-GET-POST', '', ABCMS_ROLE_PUBLIC, -1, FALSE, ...$variable2);
+	$returned3 = $this->settings_get();
 ?>
 <h4>Homepage</h4>
 "A Basic Content Management System" (ABCMS)<br>
@@ -746,10 +836,12 @@ Run CLI "php index.php /abcms/help | html2text"<br>
 <br>
 <a href='/admin'>Admin Console</a><br>
 <br>
-<? echo $abcms_constant('ABCMS_GOOD'); ?> Hello World. I am alive.<br>
-<? echo $abcms_constant('ABCMS_GOOD'); ?> Thank you!<br>
+<? echo $GLOBALS['abcms_constant']('ABCMS_GOOD'); ?> Hello World. I am alive.<br>
+<? echo $GLOBALS['abcms_constant']('ABCMS_GOOD'); ?> Thank you!<br>
 <br>
-<?echo $variable['variable'];?>
+Variable1: <?echo $variable['variable'] . ' ' . $returned['variable'];?><br>
+Variable2: <?print_r($variable2);?><br>
+Settings: <?print_r($returned3);?><br>
 <br>
 <?echo $errors;?>
 <?	
@@ -757,18 +849,17 @@ Run CLI "php index.php /abcms/help | html2text"<br>
 }
 // User contact
 private function pagecontact(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	global $abcms_constant;
 	?><h4>Contact</h4>
 This is where to contact us.<?
 	echo $this->see_errors();
 	echo "<br><a href='/'>Home</a><br>";
 	return NULL;
 }
-private function codeadmin(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+private function admincode(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 	highlight_file($this->inputs['filename']);
 	return NULL;
 }
-private function pageadmin(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+private function adminstatus(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 	static $count = 3;
 	if ($count===3) { echo "<h4>Status</h4>"; }
 	echo ABCMS_GOOD."Helping you! {$count}<br>\n";
@@ -786,10 +877,15 @@ echo <<<EOF
 <a href='/admin/help'>/admin/help</a><br>
 <a href='/admin/code'>/admin/code</a><br>
 <a href='/admin/phpinfo'>/admin/phpinfo</a><br>
+<a href='/admin/init'>/admin/init</a><br>
+<a href='/admin/cron'>/admin/cron</a><br>
+<a href='/admin/browse'>/admin/browse</a><br>
 <br>
 <a href='/bogus'>/bogus</a><br>
 <a href='/abcms/bogus'>/abcms/bogus</a><br>
 <a href='/admin/bogus'>/admin/bogus</a><br>
+<br>
+{$GLOBALS['abcms_constant']('ABCMS_GOOD')} 
 EOF;	
 	return NULL;
 }
@@ -800,22 +896,41 @@ Get your help here.
 EOF;	
 	return NULL;
 }
-private function pagephpinfo(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+private function admininit(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+	$this->set_settings(); // redo, but is this needed?
+	$returned3 = array('test'=>'Test','test2'=>'','test3'=>array('a'=>1,'b'=>2,'c'=>3));
+	$this->settings_assign($returned3);
+	$this->settings_clean();
+	$result = ($this->set_json(ABCMS_SETTINGS, $this->settings) ? ABCMS_GOOD : ABCMS_BAD);
+
+echo <<<EOF
+<h4>Init</h4>
+Result: {$result}
+EOF;	
+	return NULL;
+}
+private function admincron(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+	echo "<h4>Cron</h4>Hello!";
+	return NULL;
+}
+private function adminphpinfo(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 	echo "<h4>PHP Info</h4>";
 	phpinfo();
 	return NULL;
 }
-private function browser(string $path = NULL) : void {
-	if (NULL===$path) { $path = $this->inputs['projectroot']; }
+private function adminbrowse(mixed &...$unused) : ?bool {
+	echo "<h4>Browser</h4>";
+	$path = $this->inputs['projectroot'];
 	$display = <<< EOF
-Filename: {$path}
-
+Filename: {$path}<br>
+<br>
 EOF;
 	$files = array_diff(scandir($path), array('..'));
 	foreach($files as $file) {
 		$display .= $file."<br>\n";
 	}
 	echo $display;
+	return NULL;
 }
 
 
@@ -918,11 +1033,18 @@ public function include_once(string $filename, ...$args) : mixed {
 	}
 	return FALSE;
 }
-
-// end object
-}; }
-
-return $_abcms;
+// Need because array_walk_recursive() cannot copy from multi-dimensional source, array_map() cannot edit destination
+public function array_walk_merge(array &$destiny, array $source) : void {
+	foreach($destiny as $key => $value) { // Overwrite
+		if (!isset($source[$key])) { continue; } // No source
+		else if (is_array($destiny[$key]) && is_array($source[$key])) { $this->array_walk_merge($destiny[$key], $source[$key]); } // Recurse branch
+		else { $destiny[$key] = $source[$key]; } // Overwrite leaf
+	}
+	foreach($source as $key => $value) { // Extend
+		if (!isset($destiny[$key])) { $destiny[$key] = $source[$key]; continue; } // Extend branch/leaf
+		else if (is_array($destiny[$key]) && is_array($source[$key])) { $this->array_walk_merge($destiny[$key], $source[$key]); } // Recurse branch
+	}
+	return;
 }
 
 
@@ -931,7 +1053,7 @@ return $_abcms;
  * SECTION: THEME
  *
  */
-function abcms_htmldoc(	// Default theme function and method
+public function htmldoc(	// Default theme function and method
 	bool $admin		= FALSE,// default or admin
 	?string $css	= NULL,	// Override css default
 	?string $js		= NULL,	// Override js default
@@ -939,10 +1061,7 @@ function abcms_htmldoc(	// Default theme function and method
 	?string $page	= NULL,	// Override page content default
 	?string $foot	= NULL,	// Override footer default
 	int $flag		= 1,	// Output control flag
-	bool $allow		= TRUE,	// Allow extensions below
 ) : ?bool {					// Return boolean
-global $abcms, $abcms_constant;
-$allow = ($allow && isset($abcms) && is_object($abcms) ? TRUE : FALSE);
 $title = (isset($_SERVER['HTTP_HOST']) && FALSE !== filter_var($_SERVER['HTTP_HOST'], FILTER_VALIDATE_DOMAIN) ? $_SERVER['HTTP_HOST'] : 'Unknown');
 ?>
 <!DOCTYPE html>
@@ -1046,14 +1165,14 @@ if ($admin) {
 }
 <?
 }
-if ($allow) {	$css = array($css); $abcms->output('/htmldefault_css', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$css); }
-else {			echo $css; }
+$css = array($css);
+$this->output('/htmldefault_css', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$css);
 ?>
 </style>
 <script type='text/javascript'>
 <?
-if ($allow) {	$js = array($js); $abcms->output('/htmldefault_js', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$js); }
-else {			echo $js; }
+$js = array($js);
+$this->output('/htmldefault_js', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$js);
 ?>
 </script>
 </head>
@@ -1061,9 +1180,9 @@ else {			echo $js; }
 <div id='main'>
 <div id='head'>
 <?
-if (!$head) {	$head = "<h2 style='font-size: 1.5em'>{$title}</h2>"; }
-if ($allow) {	$head = array($head); $abcms->output('/htmldefault_head', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$head); }
-else {			echo $head; }
+if (!$head) { $head = "<h2 style='font-size: 1.5em'>$title</h2>"; }
+$head = array($head);
+$this->output('/htmldefault_head', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$head);
 ?>
 </div>
 <div id='page'>
@@ -1071,26 +1190,33 @@ else {			echo $head; }
 if (!$page) {
 	$page = <<<EOF
 <h4>Status</h4>
-{$abcms_constant('ABCMS_GOOD')}Hello World. I am alive.<br>
-{$abcms_constant('ABCMS_BAD')}However, page requested not found.<br>
+{$GLOBALS['abcms_constant']('ABCMS_GOOD')}Hello World. I am alive.<br>
+{$GLOBALS['abcms_constant']('ABCMS_BAD')}However, page requested not found.<br>
 <br>
 Please contact the webmaster for help.
 EOF;
 }
-if ($allow) {	$page .= $abcms->see_errors();
-				$page = array($page); $abcms->output('/htmldefault_page', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$page); }
-else {			echo $page; }
+$page .= $this->see_errors();
+$page = array($page);
+$this->output('/htmldefault_page', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$page);
 ?>
 </div>
 <div id='foot'>
 <?
 if (!$foot) {	$foot = "<a href='/abcms/contact'>Contact</a>"; }
-if ($allow) {	$foot = array($foot); $abcms->output('/htmldefault_foot', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$foot); }
-else {			echo $foot; }
+$foot = array($foot);
+$this->output('/htmldefault_foot', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$foot);
 ?>
 </div>
 </div>
 </body>
 <?
 return NULL; // done
+}
+
+
+// end object
+}; }
+
+return $_abcms;
 }
