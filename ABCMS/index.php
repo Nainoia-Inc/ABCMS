@@ -710,6 +710,8 @@ private function set_settings(
 	$this->output_equate('/nainoiainc/abcms/begin',				'admin',	'/admin/');
 	$this->output_extend('/nainoiainc/abcms/begin',				'code',		'CLI-GET-POST',	'IEU',	'abcms->admincode',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
 	$this->output_equate('/nainoiainc/abcms/begin',				'code',		'/admin/code');
+	$this->output_extend('/nainoiainc/abcms/begin',				'settings',	'CLI-GET-POST',	'IEU',	'abcms->adminsettings',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_equate('/nainoiainc/abcms/begin',				'settings',	'/admin/settings');
 	// Frontend page extensions
 	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'home',		'CLI-GET-POST',	'IE',	'abcms->pagehome',		ABCMS_ROLE_PUBLIC,	-10);
 	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'home',		'CLI-GET-POST',	'OE',	'abcms->pagekickin',	ABCMS_ROLE_PUBLIC,	-10);
@@ -859,6 +861,10 @@ private function admincode(mixed &...$unused) : ?bool { // Non-function wrapper 
 	highlight_file($this->inputs['filename']);
 	return NULL;
 }
+private function adminsettings(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+	highlight_file(ABCMS_SETTINGS);
+	return NULL;
+}
 private function adminstatus(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 	static $count = 3;
 	if ($count===3) { echo "<h4>Status</h4>"; }
@@ -880,6 +886,7 @@ echo <<<EOF
 <a href='/admin/init'>/admin/init</a><br>
 <a href='/admin/cron'>/admin/cron</a><br>
 <a href='/admin/browse'>/admin/browse</a><br>
+<a href='/admin/settings'>/admin/settings</a><br>
 <br>
 <a href='/bogus'>/bogus</a><br>
 <a href='/abcms/bogus'>/abcms/bogus</a><br>
