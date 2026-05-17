@@ -13,26 +13,40 @@
 
 /*	SECTION: EXPLAINED
 
-	1. Constants allow sharing immutable values and they are fast
-	2. Try Catch allows fail safe error handling of the core abcms() function
-	3. Core dump exception allows developer debugging with all information
-	4. Instantiate and process inputs allows global onetime input handling
-	5. EVERYTHING is an extension with $abcms->output()
-	6. Data stored in files only for first version, then add MySQL
+	1. Constants allow fast global sharing of immutable values
+	2. Try Catch for error handling of the core abcms() function
+	3. Exception core dump gives developers all debug information
+	4. Instantiate and process inputs onetime for global handling
+	5. EVERYTHING is a routed extension with $abcms->output()
+	6. Data stored in files for first version, then add MySQL
+	7. OS file cache settings as fast as shared memory and simpler
 
 	All output is extendable which helps us think more simply about content management.
 	We have inputs, processing, and outputs. The output function serves as both a command
-	router and extension manager. The generic output function does not even require a default
+	router and extension manager. The generic output() function does not even require a default
 	function because it expects to be extended by you to do something meaningful. The ABCMS
-	engine looks for you to override the "/nainoiainc/abcms/begin" hook first. From there you
+	engine expects you to override the "/nainoiainc/abcms/begin" hook first. From there you
 	output what you want and also include your own extendable calls to output() yourself.
+	Since file and function locations are passed to the extension manager at execution
+	time this model is even faster than Composer lazy loading which matches every registered
+	object class with the file location on every call. Lazy loading does a lot of work.
+	And ABCMS also allows the extension of files, functions, methods, objects, and classes,
+	while Composer only allows the extension of classes.
 
-	I am still learning how to think about this cool tool. One thought is that Symfony Twig
-	and Laravel Blade template engines seem like an unneccessary reduction of template power.
-	With ABCMS PHP itself is the template engine. PHP is a powerful tool to mix HTML output
-	with procedural logic. In fact is there any more powerful combination of HTML and procedural
-	logic than PHP? So that is the template engine for ABCMS. Sure this requires that frontend
-	developers understand PHP and HTML, but that is also both simpler and more powerful.
+	ABCMS uses PHP as the template engine. PHP is designed to intermingle both HTML and
+	procedural function with conditional logic. And PHP is well known so that one does not need
+	to learn another language like Symfony Twig or Laravel Blade. Symfony and Laravel template
+	engines seem an unneccessary reduction of template power. So PHP is the template engine for
+	ABCMS. Frontend developers must understand PHP and HTML, but that is simpler and more powerful.
+	
+	The first version of ABCMS uses files alone for data storage. While SQL and other databases
+	allow flexible and fast data storage and retrieval not every website application needs this
+	level of data storage complexity. In fact SQL databases often encourage data storage complexity
+	with all the possible data storage rows, columns, types, and indices. However, if a unit
+	of data is only every accessed as a unit, such as a website page, why not store the entire
+	blob of page data in a single file? The page can then be quickly read as a single file rather
+	than many reads of many pieces of data to build the page. This is better for many applications.
+	An SQL database API will be added later for applications that require more complexity.
 */
 
 
@@ -860,22 +874,22 @@ Run CLI "php index.php /abcms/help | html2text"<br>
 <br>
 <a href='/admin'>Admin Console</a><br>
 <br>
-<? echo $GLOBALS['abcms_constant']('ABCMS_GOOD'); ?> Hello World. I am alive.<br>
-<? echo $GLOBALS['abcms_constant']('ABCMS_GOOD'); ?> Thank you!<br>
+<?php echo $GLOBALS['abcms_constant']('ABCMS_GOOD'); ?> Hello World. I am alive.<br>
+<?php echo $GLOBALS['abcms_constant']('ABCMS_GOOD'); ?> Thank you!<br>
 <br>
-Variable1: <?echo $variable['variable'] . ' ' . $returned['variable'];?><br>
-Variable2: <?print_r($variable2);?><br>
-Settings: <?print_r($returned3);?><br>
-UUIDV4: <?echo $this->get_uuidv4();?><br>
+Variable1: <?php echo $variable['variable'] . ' ' . $returned['variable'];?><br>
+Variable2: <?php print_r($variable2);?><br>
+Settings: <?php print_r($returned3);?><br>
+UUIDV4: <?php echo $this->get_uuidv4();?><br>
 <br>
-<?echo $errors;?>
-<?	
+<?php echo $errors;?>
+<?php	
 	return NULL;
 }
 // User contact
 private function pagecontact(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 	?><h4>Contact</h4>
-This is where to contact us.<?
+This is where to contact us.<?php
 	echo $this->see_errors();
 	echo "<br><a href='/'>Home</a><br>";
 	return NULL;
@@ -1105,8 +1119,8 @@ $title = (isset($_SERVER['HTTP_HOST']) && FALSE !== filter_var($_SERVER['HTTP_HO
 <html lang='en'>
 <head>
 <meta charset='utf-8'>
-<title><? echo $title; ?></title>
-<meta name='description' content='<? echo $title; ?>'>
+<title><?php echo $title; ?></title>
+<meta name='description' content='<?php echo $title; ?>'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <meta name='apple-mobile-web-app-capable' content='yes'>
 <style>
@@ -1169,7 +1183,7 @@ body {
 	margin: 0;
 }
 }
-<?
+<?php
 if ($admin) {
 ?>
 #main {
@@ -1200,14 +1214,14 @@ if ($admin) {
 	margin: 0;
 }
 }
-<?
+<?php
 }
 $css = array($css);
 $this->output('/htmldefault_css', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$css);
 ?>
 </style>
 <script type='text/javascript'>
-<?
+<?php
 $js = array($js);
 $this->output('/htmldefault_js', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$js);
 ?>
@@ -1216,14 +1230,14 @@ $this->output('/htmldefault_js', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLI
 <body>
 <div id='main'>
 <div id='head'>
-<?
+<?php
 if (!$head) { $head = "<h2 style='font-size: 1.5em'>$title</h2>"; }
 $head = array($head);
 $this->output('/htmldefault_head', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$head);
 ?>
 </div>
 <div id='page'>
-<?
+<?php
 if (!$page) {
 	$page = <<<EOF
 <h4>Status</h4>
@@ -1239,7 +1253,7 @@ $this->output('/htmldefault_page', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUB
 ?>
 </div>
 <div id='foot'>
-<?
+<?php
 if (!$foot) {	$foot = "<a href='/abcms/contact'>Contact</a>"; }
 $foot = array($foot);
 $this->output('/htmldefault_foot', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$foot);
@@ -1247,7 +1261,7 @@ $this->output('/htmldefault_foot', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUB
 </div>
 </div>
 </body>
-<?
+<?php
 return NULL; // done
 }
 
