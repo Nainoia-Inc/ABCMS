@@ -18,8 +18,8 @@
 	3. Exception core dump gives developers all debug information
 	4. Instantiate and process inputs onetime for global handling
 	5. EVERYTHING is a routed extension with $abcms->output()
-	6. Data stored in files for first version, then add MySQL
-	7. OS file cache settings as fast as shared memory and simpler
+	6. Data stored in files for first version, maybe MySQL later
+	7. Settings in OS cached file as fast as shared memory and simpler
 
 	All output is extendable which helps us think more simply about content management.
 	We have inputs, processing, and outputs. The output function serves as both a command
@@ -45,8 +45,8 @@
 	with all the possible data storage rows, columns, types, and indices. However, if a unit
 	of data is only every accessed as a unit, such as a website page, why not store the entire
 	blob of page data in a single file? The page can then be quickly read as a single file rather
-	than many reads of many pieces of data to build the page. This is better for many applications.
-	An SQL database API will be added later for applications that require more complexity.
+	than many reads of tiny pieces of data to build the page. This is better for many applications.
+	An SQL database API may be added later for applications that require more complexity.
 */
 
 
@@ -882,7 +882,11 @@ Variable2: <?php print_r($variable2);?><br>
 Settings: <?php print_r($returned3);?><br>
 UUIDV4: <?php echo $this->get_uuidv4();?><br>
 <br>
-<?php echo $errors;?>
+<?php echo $errors;
+
+$test = array('This is a test of the ob_get_clean() precedence');
+$this->output('/this_is_a_test', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, 1, FALSE, ...$test);
+?>
 <?php	
 	return NULL;
 }
