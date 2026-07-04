@@ -81,6 +81,9 @@ const ABCMS_BAD			= "<span style='color: red;'>\u{2612}</span> ";
 // Extensions
 const ABCMS_EXT_SELF	= "/nainoiainc/abcms";
 const ABCMS_EXT_SETS	= "/abcmsset";
+const ABCMS_EXT_ALPHA	= "/begin";
+const ABCMS_EXT_BEGIN	= "/nainoiainc/abcms".ABCMS_EXT_ALPHA;
+const ABCMS_EXT_PAGE	= "/nainoiainc/abcms/htmldefault_page";
 // Regex
 // Includefile?function #^(|/vendor/package/filepath)(|?(|classobject(::|->|()->))funcmeth)#
 const ABCMS_REGEX_FUNC	= "/^((\/[^?]+)\?)?((([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x{7f}-\x{ff}]*))?$/u";
@@ -91,6 +94,7 @@ const ABCMS_REGEX_PATH	= "/^(\/[^\/]*)(\/.+)?$/u";
 const ABCMS_REGEX_URLV	= "/\/([A-Za-z0-9\-_.~]+)=([A-Za-z0-9\-_.~]+)/u";
 const ABCMS_REGEX_VARS	= "/^[A-Za-z0-9\-_.~]+$/u";
 const ABCMS_REGEX_UUID	= "/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i";
+const ABCMS_REGEX_SECU	= "/<\/form>/ui";
 // Arrays
 const ABCMS_ARRAY_TYPE	= array('mixed','string','array','integer','float','bool','boolean','email','domain','uri','url','ip','mac','uuid');
 // Files
@@ -100,6 +104,11 @@ const ABCMS_SESSIONS	= "../private/nainoiainc/abcms/ABCMS.sessions";
 const ABCMS_SETTINGS	= "../private/nainoiainc/abcms/ABCMS.settings";
 // Flags
 const ABCMS_FLAG_JSON	= JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT;
+// Session
+const ABCMS_MAXROTA		= 60*15;
+const ABCMS_MAXIDLE		= 60*60*24*4;
+const ABCMS_MAXTIME		= 60*60*24*11;
+const ABCMS_SESSION		= 'ABCMS';
 // Roles
 const ABCMS_ROLE_PUBLIC	= 0;
 const ABCMS_ROLE_AUTHEN	= 1;
@@ -136,7 +145,7 @@ try {
 	abcms();
 	// CMS output controller
 	$abcms->output(
-		'/begin',			// Entry extension
+		ABCMS_EXT_ALPHA,	// Entry extension
 		'CLI-GET-POST',		// Methods extended
 		'abcms->htmldoc',	// Default function
 		ABCMS_ROLE_PUBLIC,	// Minimum role
@@ -164,7 +173,7 @@ EOF
 	if (!empty($abcms->inputs['urlquery']['debug'])) { $abcms->error_wsod("Debug coredump requested."); }
 }
 // Catch exceptions and coredump
-catch (Exception $e) {
+catch (\Throwable $e) {
 	// Initialize
 	$live		= (isset($abcms->inputs['auto']) ? TRUE : FALSE);
 	$exception	= (htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8') ?: 'Unknown exception.');
@@ -225,6 +234,7 @@ readonly	array $inputs;				// Sanitize inputs
 private		array $settings	= array();	// Application settings
 private		array $errors	= array();	// Runtime errors
 private		array $debugs	= array();	// Runtime debugs
+private		array $database	= array();	// Database
 readonly	array $GLOBALS;				// Readonly inputs
 // Construct object
 function __construct() {
@@ -239,6 +249,12 @@ function __construct() {
 	$this->inputs	= array(
 		// My filename
 		'filename' => (__FILE__),
+		// My File
+		'filemtime' => filemtime(__FILE__),
+		// Last modified
+		'getlastmod' => getlastmod(),
+		// Get my inode
+		'getmyinode' => getmyinode(),
 		// My documentroot
 		'documentroot' => (__DIR__),
 		// My project folder
@@ -247,6 +263,8 @@ function __construct() {
 		'project' => (basename(dirname(__DIR__))),
 		// My user role
 		'role' => ($role = ('cli' === PHP_SAPI ? ABCMS_ROLE_CLI : ABCMS_ROLE_ADMINS)),
+		// My user identity
+		'caller' => ($_SERVER['REMOTE_ADDR'] ?? '').($_SERVER['HTTP_USER_AGENT'] ?? ''),
 		// URL full
 		'urlfull' => ($urlfull =
 			// CLI domain
@@ -262,7 +280,7 @@ function __construct() {
 		// URL parse
 		'urlparsed' => ($urlparsed = parse_url($urlfull)),
 		// URL domain
-		'urldomain' => ($urlparsed['host']),
+		'urldomain' => (mb_strtolower($urlparsed['host'], 'UTF-8')),
 		// URL path variables 'v'
 		'urlvars' => (!preg_match_all(ABCMS_REGEX_URLV, $urlparsed['path'], $matches, PREG_PATTERN_ORDER) ?
 			// None
@@ -281,6 +299,8 @@ function __construct() {
 		'urlquery' => ($this->input_valid('q', ((!empty($urlparsed['query']) && mb_parse_str($urlparsed['query'], $result)) ? $result : array()), $role)),
 		// URL request method
 		'urlmethod' => ('cli' === PHP_SAPI ? 'CLI' : ((empty($_SERVER['REQUEST_METHOD']) || !in_array($_SERVER['REQUEST_METHOD'], ABCMS_REGEX_META)) ? 'GET' : $_SERVER['REQUEST_METHOD'])),
+		// POST variables 'p'
+		'postvars' => ($this->input_valid('p', $_POST, $role)),
 		// CLI command line execution
 		'cli' => ('cli' === PHP_SAPI ? TRUE : FALSE),
 		// CLI argument count
@@ -467,6 +487,7 @@ public function output(
 				$this->output_call($whoami, $extout['fun'], $out, ...$args); // Execute output filter
 			}
 			// ABCMS security output filter and injection, <FORM> security, and XSS checks, etc.
+			if (ABCMS_EXT_BEGIN == $hook) { $this->html_security($out); }
 			echo $out; // Echo filtered output
 		} while ($more); // Repeat hook extension until FALSE
 		if (isset($extin['ctl']['U'])) { break; } // Uno extension allowed
@@ -698,14 +719,175 @@ public function get_settings() : array {	// Get private settings for public
 
 
 
-/*	SECTION: AUTHENTICATION
+/*	SECTION: AUTHENTICATION / SESSION
 */
+private function session_start() : void {
+	// already started
+	if (session_status() === PHP_SESSION_ACTIVE) { return; }
+	// headers sent
+	if (headers_sent()) { $this->error_wsod("Session start failed, headers already sent.");	} 
+	// session storage
+	if (!($absolute = realpath(ABCMS_SESSIONS)) || (!is_dir($absolute) && !mkdir($absolute, 0777, true))) { $this->error_wsod("Session start failed, no save path."); }
+	// session options
+	$options = [
+		'save_path'			=> $absolute,		// or .htaccess: php_value session.save_path '/path'
+		'name'				=> 'SES',			// custom name
+		'save_handler'		=> 'files',			// session files
+		'gc_probability'	=> '1',				// garbage collection
+		'gc_divisor'		=> '100',			// garbage collection
+		'gc_maxlifetime'	=> ABCMS_MAXTIME,	// garbage collection
+		'cookie_lifetime'	=> ABCMS_MAXTIME,	// lifetime
+		'cookie_path'		=> '/',				// whole domain
+		'cookie_domain'		=> $this->inputs['urldomain'], // current domain only
+		'cookie_secure'		=> '1',				// HTTPS only
+		'cookie_httponly'	=> '1',				// No JS
+		'cookie_samesite'	=> 'Strict',		// No cross-site
+		'use_strict_mode'	=> '1',				// Reject unknown SIDs
+		'use_cookies'		=> '1',				// No SID in URL
+		'use_only_cookies'	=> '1',				// No SID in URL
+		'use_trans_sid'		=> '0',				// Disable URL rewriting
+		];
+	if (!session_start($options)) { $this->error_wsod("Session start failed.");	}
+	// session validate
+	$now = time();
+	if (!empty($_SESSION[ABCMS_SESSION]['valid'])) {
+		$valid = &$_SESSION[ABCMS_SESSION]['valid'];
+		$error = $caller = NULL;
+		// session cancel errors
+		if ($now > ($valid['active'] + ABCMS_MAXIDLE)) {										$error = 'Session cancelled, inactivity threshold.'; }
+		else if ($now > ($valid['create'] + ABCMS_MAXTIME)) {									$error = 'Session cancelled, maxtime exceeded.'; }
+		else if (($valid[$valid['cookie']] ?? 'a') !== ($_COOKIE[$valid['cookie']] ?? 'b')) {	$error = 'Session cancelled, secret missing.'; }
+		else if ($valid['caller'] !== ($caller = $this->get_hash($this->inputs['caller']))) {	$error = 'Session cancelled, IP/Agent mismatch.'; }
+		// fix bad session
+		if ($error) {
+			$this->error_log($error);
+			$this->set_cookie(session_name(), '', $now - 86400);	// remove session cookie
+			$this->set_cookie($valid['cookie'], '', $now - 86400);	// remove secret cookie
+			$_SESSION = [];
+			session_destroy();
+			session_start($options);
+		}
+		// rotate good session
+		else {
+			// rotate
+			if (!empty($this->settings['postvars']) ||
+				$now > ($valid['rotate'] + ABCMS_MAXROTA)) {
+				// session id
+				session_regenerate_id(true);
+				// secret cookie
+				$this->set_cookie($valid['cookie'], '', $now - 86400);
+				unset($valid[$valid['cookie']]);
+				$cookie = $this->get_unique();
+				$secret = $this->get_unique();
+				$valid['cookie'] = $cookie;
+				$valid[$cookie] = $secret;
+				$this->set_cookie($cookie, $secret, $now + ABCMS_MAXTIME);
+				// new rotated time
+				$valid['rotate'] = $now;
+			}
+			// update active time
+			$valid['active'] = $now;
+		}
+	}
+	// new session
+	if (empty($_SESSION[ABCMS_SESSION]['valid'])) {
+		$cookie = $this->get_unique();
+		$secret = $this->get_unique();
+		$_SESSION[ABCMS_SESSION]['valid'] = [
+			'create'	=> $now,
+			'active'	=> $now,
+			'rotate'	=> $now,
+			'caller'	=> ($caller ?? $this->get_hash($this->inputs['caller'])),
+			'cookie'	=> $cookie,
+			$cookie		=> $secret,
+		];
+		$this->set_cookie($cookie, $secret, $now + ABCMS_MAXTIME);
+	}
+	return;
+}
+// Set cookie
+public function set_cookie(
+	string	$cookie,	// cookie name
+	string	$value,		// cookie value
+	int		$expires,	// expiration date
+): bool {
+	// headers sent
+	if (headers_sent()) { $this->error_wsod("Set cookie failed, headers already sent."); }
+	// Set cookie
+	if (setcookie(
+		$cookie,
+		$value,
+		[
+			'expires'	=> $expires,					// Expiration time
+			'path'		=> '/',							// For entire website
+			'domain'	=> $this->inputs['urldomain'],	// For domain only
+			'secure'	=> TRUE,						// Only over HTTPS
+			'httponly'	=> TRUE,						// No javascript prevents XSS
+			'samesite'	=> 'Strict',					// Avoid CSRF attacks
+		])) {
+		return TRUE;
+	}
+	$this->error_log("Set cookie failed: {$cookie}");
+	return FALSE;
+}
 
 
 
 /*	SECTION: FORMS
 */
+// Form security
+private function html_security(string &$html) : void {
+if (!preg_match(ABCMS_REGEX_SECU, $html)) { return; }
+$this->session_start();
+$_SESSION[ABCMS_SESSION]['CSRF'] = $this->get_unique();
+$injection = <<<EOF
+<label></label><span>I am not a robot <input type='checkbox'	id='captchaBox' class='captcha-checkbox' required></span>
+<label style='display: none;''></label><input type='text'		id='honeypot' name='honeypot' autocomplete='off' style='display: none;'>
+<label></label><input type='hidden'		id='captchaToken' name='captchaToken' value=''>
+<label></label><input type='hidden'		id='csrf' name='csrf' value='{$_SESSION[ABCMS_SESSION]['CSRF']}'>
+<script>
+// security checks
+	let mouseMovedCount = 0;
+	const form = document.getElementById('securedForm');
+	const tokenInput = document.getElementById('captchaToken');
+	const honeyField = document.getElementById('honeypot');
+	const captchaBox = document.getElementById('captchaBox');
+// mouse movements
+	window.addEventListener('mousemove', function handleMovement() {
+		mouseMovedCount++;
+		if (mouseMovedCount > 10) {
+			tokenInput.value = 'verified_human_session_' + btoa(Date.now().toString());
+			window.removeEventListener('mousemove', handleMovement);
+		}
+	});
+// submission handling
+	form.addEventListener('submit', function(event) {
+	if (honeyField.value !== '') {
+		event.preventDefault();
+		alert('Spam detected! Form submission blocked.');
+		return;
+	}
+	if (!captchaBox.checked) {
+		event.preventDefault();
+		alert('Please check the 'I am not a robot' checkbox.');
+		return;
+	}
+	if (tokenInput.value === '') {
+		event.preventDefault();
+		alert('Human verification failed. Mouse movement metrics not detected.');
+		return;
+	}
+	});
+</script>
+</form>
 
+EOF;
+// inject the form security
+if (!($html = preg_replace(ABCMS_REGEX_SECU, $injection, $html))) {
+	$this->error_wsod("Form security injection failed.");
+}
+return;
+}
 
 
 /*	SECTION: SETUP
@@ -741,34 +923,38 @@ private function set_settings(
 	// 'U' = Uno/single extension, default multiple extensions cooperate 
 	// 'D' = Default included, default excluded if extended by $ord < 0
 	// Bootstrap extensions
-	$this->output_extend('/nainoiainc/abcms/begin',				'',			'CLI-GET-POST',	'IEU',	'abcms->htmldefault',	ABCMS_ROLE_PUBLIC,	-10);
-	$this->output_extend('/nainoiainc/abcms/begin',				'admin',	'CLI-GET-POST',	'IEU',	'abcms->htmladmin',		ABCMS_ROLE_ADMINS,	-20);
-	$this->output_equate('/nainoiainc/abcms/begin',				'admin',	'/admin/');
-	$this->output_extend('/nainoiainc/abcms/begin',				'code',		'CLI-GET-POST',	'IEU',	'abcms->admincode',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
-	$this->output_equate('/nainoiainc/abcms/begin',				'code',		'/admin/code');
-	$this->output_extend('/nainoiainc/abcms/begin',				'corelive',	'CLI-GET-POST',	'IEU',	'abcms->admincorelive',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
-	$this->output_equate('/nainoiainc/abcms/begin',				'corelive',	'/admin/corelive');
+	$this->output_extend(ABCMS_EXT_BEGIN,	'',			'CLI-GET-POST',	'IEU',	'abcms->htmldefault',	ABCMS_ROLE_PUBLIC,	-10);
+	$this->output_extend(ABCMS_EXT_BEGIN,	'admin',	'CLI-GET-POST',	'IEU',	'abcms->htmladmin',		ABCMS_ROLE_ADMINS,	-20);
+	$this->output_equate(ABCMS_EXT_BEGIN,	'admin',	'/admin/');
+	$this->output_extend(ABCMS_EXT_BEGIN,	'code',		'CLI-GET-POST',	'IEU',	'abcms->admincode',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_equate(ABCMS_EXT_BEGIN,	'code',		'/admin/code');
+	$this->output_extend(ABCMS_EXT_BEGIN,	'corelive',	'CLI-GET-POST',	'IEU',	'abcms->admincorelive',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_equate(ABCMS_EXT_BEGIN,	'corelive',	'/admin/corelive');
+	$this->output_extend(ABCMS_EXT_BEGIN,	'session',	'CLI-GET-POST',	'IEU',	'abcms->adminsession',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_equate(ABCMS_EXT_BEGIN,	'session',	'/admin/session');
 	// Frontend page extensions
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'home',		'CLI-GET-POST',	'IE',	'abcms->pagehome',		ABCMS_ROLE_PUBLIC,	-10);
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'home',		'CLI-GET-POST',	'OE',	'abcms->pagekickin',	ABCMS_ROLE_PUBLIC,	-10);
-	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'home',		'/');
-	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'home',		'/abcms');
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'contact',	'CLI-GET-POST',	'IE',	'abcms->pagecontact',	ABCMS_ROLE_PUBLIC,	-10);
-	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'contact',	'/abcms/contact');
+	$this->output_extend(ABCMS_EXT_PAGE,	'home',		'CLI-GET-POST',	'IE',	'abcms->pagehome',		ABCMS_ROLE_PUBLIC,	-10);
+	$this->output_extend(ABCMS_EXT_PAGE,	'home',		'CLI-GET-POST',	'OE',	'abcms->pagekickin',	ABCMS_ROLE_PUBLIC,	-10);
+	$this->output_equate(ABCMS_EXT_PAGE,	'home',		'/');
+	$this->output_equate(ABCMS_EXT_PAGE,	'home',		'/abcms');
+	$this->output_extend(ABCMS_EXT_PAGE,	'contact',	'CLI-GET-POST',	'IE',	'abcms->pagecontact',	ABCMS_ROLE_PUBLIC,	-10);
+	$this->output_equate(ABCMS_EXT_PAGE,	'contact',	'/abcms/contact');
+	$this->output_extend(ABCMS_EXT_PAGE,	'account',	'CLI-GET-POST',	'IE',	'abcms->pageaccount',	ABCMS_ROLE_PUBLIC,	-10);
+	$this->output_equate(ABCMS_EXT_PAGE,	'account',	'/abcms/account');
 	// Admin page extensions
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'status',	'CLI-GET-POST',	'IE',	'abcms->adminstatus',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
-	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'status',	'/admin');
-	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'status',	'/admin/status');
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'phpinfo',	'CLI-GET-POST',	'IE',	'abcms->adminphpinfo',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
-	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'phpinfo',	'/admin/phpinfo');
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'help',		'CLI-GET-POST',	'IE',	'abcms->adminhelp',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
-	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'help',		'/admin/help');
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'init',		'CLI-GET-POST',	'IE',	'abcms->admininit',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
-	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'init',		'/admin/init');
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'cron',		'CLI-GET-POST',	'IE',	'abcms->admincron',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
-	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'cron',		'/admin/cron');
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'browse',	'CLI-GET-POST',	'IE',	'abcms->adminbrowse',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
-	$this->output_equate('/nainoiainc/abcms/htmldefault_page',	'browse',	'/admin/browse');
+	$this->output_extend(ABCMS_EXT_PAGE,	'status',	'CLI-GET-POST',	'IE',	'abcms->adminstatus',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_equate(ABCMS_EXT_PAGE,	'status',	'/admin');
+	$this->output_equate(ABCMS_EXT_PAGE,	'status',	'/admin/status');
+	$this->output_extend(ABCMS_EXT_PAGE,	'phpinfo',	'CLI-GET-POST',	'IE',	'abcms->adminphpinfo',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_equate(ABCMS_EXT_PAGE,	'phpinfo',	'/admin/phpinfo');
+	$this->output_extend(ABCMS_EXT_PAGE,	'help',		'CLI-GET-POST',	'IE',	'abcms->adminhelp',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_equate(ABCMS_EXT_PAGE,	'help',		'/admin/help');
+	$this->output_extend(ABCMS_EXT_PAGE,	'init',		'CLI-GET-POST',	'IE',	'abcms->admininit',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_equate(ABCMS_EXT_PAGE,	'init',		'/admin/init');
+	$this->output_extend(ABCMS_EXT_PAGE,	'cron',		'CLI-GET-POST',	'IE',	'abcms->admincron',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_equate(ABCMS_EXT_PAGE,	'cron',		'/admin/cron');
+	$this->output_extend(ABCMS_EXT_PAGE,	'browse',	'CLI-GET-POST',	'IE',	'abcms->adminbrowse',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_equate(ABCMS_EXT_PAGE,	'browse',	'/admin/browse');
 	// Variable Extensions
 	$variable['variable'] = "Yoo hooey!<br>";
 	$this->output_extend('/nainoiainc/abcms/variable',			'',			'CLI-GET-POST',	'IE',	'abcms->pagevariable',	ABCMS_ROLE_PUBLIC,	-10, ...$variable);	
@@ -872,11 +1058,13 @@ Install with Composer or copy to document root<br>
 Everything is an extension with the abcms() router<br>
 Run CLI "php index.php /abcms/help | html2text"<br>
 <br>
+<a href='/abcms/account'>Account Profile</a><br>
 <a href='/admin'>Admin Console</a><br>
 <br>
 <?php echo $GLOBALS['abcms_constant']('ABCMS_GOOD'); ?> Hello World. I am alive.<br>
 <?php echo $GLOBALS['abcms_constant']('ABCMS_GOOD'); ?> Thank you!<br>
 <br>
+<?php echo date('Y-m-d H:i:s', $this->filemtime); ?><br>
 Variable1: <?php echo $variable['variable'] . ' ' . $returned['variable'];?><br>
 Variable2: <?php print_r($variable2);?><br>
 Settings: <?php print_r($returned3);?><br>
@@ -890,7 +1078,6 @@ $this->output('/this_is_a_test', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLI
 <?php	
 	return NULL;
 }
-// User contact
 private function pagecontact(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 	?><h4>Contact</h4>
 This is where to contact us.<?php
@@ -898,12 +1085,51 @@ This is where to contact us.<?php
 	echo "<br><a href='/'>Home</a><br>";
 	return NULL;
 }
+private function pageaccount(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+?>
+<h4>Account</h4>
+<form action='' method='post' accept-charset='UTF-8' class='form-grid'>
+<label></label><div>Login:</div>
+<label for='Account_Email'>Email:</label>				<input type='email'		id='Account_Email'		name='Account_Email'	value='' required>
+<label for='Account_Security'>Security Email:</label>	<input type='email'		id='Account_Security'	name='Account_Security'	value='' required>
+<label for='Account_Password'>Password:</label>			<input type='password'	id='Account_Password'	name='Account_Password'	value='' required>
+<label></label><div>Identity:</div>
+<label for='Account_First'>Firstname:</label>			<input type='text'		id='Account_First'		name='Account_First'	value='' required>
+<label for='Account_Last'>Lastname:</label>				<input type='text'		id='Account_Last'		name='Account_Last'		value='' required>
+<label for='Account_Cell'>Cell Phone:</label>			<input type='tel'		id='Account_Cell'		name='Account_Cell'		value='' required>
+<label for='Account_Phone'>Additional Phone:</label>	<input type='tel'		id='Account_Phone'		name='Account_Phone'	value='' required>
+<label></label><div>Billing:</div>
+<label for='Bill_Address'>Address:</label>				<input type='text'		id='Bill_Address'		name='Bill_Address'		value='' required>
+<label for='Bill_Address2'>Address2:</label>			<input type='text'		id='Bill_Address2'		name='Bill_Address2'	value=''>
+<label for='Bill_City'>City:</label>					<input type='text'		id='Bill_City'			name='Bill_City'		value='' required>
+<label for='Bill_State'>State:</label>					<input type='text'		id='Bill_State'			name='Bill_State'		value='' required>
+<label for='Bill_Zipcode'>Zipcode:</label>				<input type='text'		id='Bill_Zipcode'		name='Bill_Zipcode'		value='' required>
+<label for='Bill_Country'>Country:</label>				<input type='text'		id='Bill_Country'		name='Bill_Country'		value='' required>
+<label></label><div>Shipping:</div>
+<label for='Ship_Address'>Address:</label>				<input type='text'		id='Ship_Address'		name='Ship_Address'		value=''>
+<label for='Ship_Address2'>Address2:</label>			<input type='text'		id='Ship_Address2'		name='Ship_Address2'	value=''>
+<label for='Ship_City'>City:</label>					<input type='text'		id='Ship_City'			name='Ship_City'		value=''>
+<label for='Ship_State'>Ship_State:</label>				<input type='text'		id='Ship_State'			name='Ship_State'		value=''>
+<label for='Ship_Zipcode'>Ship_Zipcode:</label>			<input type='text'		id='Ship_Zipcode'		name='Ship_Zipcode'		value=''>
+<label for='Ship_Country'>Ship_Country:</label>			<input type='text'		id='Ship_Country'		name='Ship_Country'		value=''>
+<label></label>											<input type='submit'	id='Submit'				name='Submit'			value='Submit'>
+</form>
+
+<?php
+return NULL;
+}
 private function admincode(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 	highlight_file($this->inputs['filename']);
 	return NULL;
 }
 private function admincorelive(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	echo "<pre>" . print_r($this, TRUE) . "</pre>";
+	$this->session_start();
+	echo "<pre>" . print_r($this, TRUE) . print_r($_SESSION, TRUE) . "</pre>";
+	return NULL;
+}
+private function adminsession(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+	$this->session_start();
+	echo "<pre>" . print_r($_SESSION, TRUE) . "</pre>";
 	return NULL;
 }
 private function adminstatus(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
@@ -928,6 +1154,7 @@ echo <<<EOF
 <a href='/admin/cron'>/admin/cron</a><br>
 <a href='/admin/browse'>/admin/browse</a><br>
 <a href='/admin/corelive'>/admin/corelive</a><br>
+<a href='/admin/session'>/admin/session</a><br>
 <br>
 <a href='/bogus'>/bogus</a><br>
 <a href='/abcms/bogus'>/abcms/bogus</a><br>
@@ -1102,7 +1329,14 @@ public function get_uuidv4() : string {
     // Output the 36 character UUID.
     return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
 }
-
+// Unique token for CSRF, 128 bytes
+public function get_unique(): string {
+	return bin2hex(random_bytes(64));
+}
+// Unique hash for getlastmod() + $string, not for permanent storage, 128 bytes
+public function get_hash(?string $input): string {
+	return hash('sha512', $this->inputs['getmyinode'].$this->inputs['getlastmod'].$input);
+}
 
 
 
@@ -1128,12 +1362,25 @@ $title = (isset($_SERVER['HTTP_HOST']) && FALSE !== filter_var($_SERVER['HTTP_HO
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <meta name='apple-mobile-web-app-capable' content='yes'>
 <style>
+a:hover {
+	color: #0096FF !important;
+}
+form.form-grid {
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	gap: 15px;
+	align-items: center;
+	max-width: 600px;
+}
+label {
+	text-align: right;
+}
+input:required {
+	border: 1px solid red;
+}
 #head a, #foot a {
 	text-decoration: none;
 	color: white;
-}
-a:hover {
-	color: #0096FF !important;
 }
 body {
 	margin: 0;
