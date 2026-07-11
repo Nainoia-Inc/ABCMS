@@ -47,6 +47,12 @@
 	blob of page data in a single file? The page can then be quickly read as a single file rather
 	than many reads of tiny pieces of data to build the page. This is better for many applications.
 	An SQL database API may be added later for applications that require more complexity.
+
+	Session security strategy breaks convention with a slightly longer session lifetime. However,
+	threat is migtigated with the addition of a custom 128 byte security cookie name and token value
+	for validating the session along with a reasonable inactive and maxlifetime session threshhold.
+	There is no "Remember Me" option for longer active logins because password lockers make it easier
+	to login anyway.
 */
 
 
@@ -94,7 +100,7 @@ const ABCMS_REGEX_PATH	= "/^(\/[^\/]*)(\/.+)?$/u";
 const ABCMS_REGEX_URLV	= "/\/([A-Za-z0-9\-_.~]+)=([A-Za-z0-9\-_.~]+)/u";
 const ABCMS_REGEX_VARS	= "/^[A-Za-z0-9\-_.~]+$/u";
 const ABCMS_REGEX_UUID	= "/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i";
-const ABCMS_REGEX_SECU	= "/<\/form>/ui";
+const ABCMS_REGEX_SECU	= "/(<input\s+[^>]*?type=['\"]submit['\"]|<button)(>|\s+[^>]*?>)/ui";
 // Arrays
 const ABCMS_ARRAY_TYPE	= array('mixed','string','array','integer','float','bool','boolean','email','domain','uri','url','ip','mac','uuid');
 // Files
@@ -185,7 +191,7 @@ catch (\Throwable $e) {
 		}
 	}
 	// HTML dialog
-	echo ob_get_clean() ?: "<br> Apologies. CMS object unavailable.";
+	echo ob_get_clean() ?: "<br> Apologies. CMS object unavailable. <a href='/'>Try again</a>.";
 	echo <<< EOF
 <dialog open style='position: absolute; inset: 0; margin: auto; width: 350px; height: 100px; background-color: red; color: white; text-align: center; padding: 7px;'>
 Terribly sorry.<br>
@@ -230,6 +236,7 @@ if (NULL === $_abcms) {
 if (isset($GLOBALS['abcms'])) {						$this->error_wsod("Core already defined."); }
 // $abcms object assigned
 $GLOBALS['abcms'] = $_abcms = new class {
+readonly	array $boots;				// Bootstrap inputs
 readonly	array $inputs;				// Sanitize inputs
 private		array $settings	= array();	// Application settings
 private		array $errors	= array();	// Runtime errors
@@ -245,24 +252,8 @@ function __construct() {
 	if (FALSE === $this->set_settings(TRUE)){		$this->error_wsod("Application settings not found."); }
 	// Readonly inputs
 	$this->GLOBALS	= isset($GLOBALS) ? $GLOBALS : array();
-	// Sanitize inputs
-	$this->inputs	= array(
-		// My filename
-		'filename' => (__FILE__),
-		// My File
-		'filemtime' => filemtime(__FILE__),
-		// Last modified
-		'getlastmod' => getlastmod(),
-		// Get my inode
-		'getmyinode' => getmyinode(),
-		// My documentroot
-		'documentroot' => (__DIR__),
-		// My project folder
-		'projectroot' => (dirname(__DIR__)),
-		// My project name
-		'project' => (basename(dirname(__DIR__))),
-		// My user role
-		'role' => ($role = ('cli' === PHP_SAPI ? ABCMS_ROLE_CLI : ABCMS_ROLE_ADMINS)),
+	// Bootstrap inputs validate session, but session user validates inputs
+	$this->boots = array(
 		// My user identity
 		'caller' => ($_SERVER['REMOTE_ADDR'] ?? '').($_SERVER['HTTP_USER_AGENT'] ?? ''),
 		// URL full
@@ -281,6 +272,27 @@ function __construct() {
 		'urlparsed' => ($urlparsed = parse_url($urlfull)),
 		// URL domain
 		'urldomain' => (mb_strtolower($urlparsed['host'], 'UTF-8')),
+		// URL request method
+		'urlmethod' => ('cli' === PHP_SAPI ? 'CLI' : ((empty($_SERVER['REQUEST_METHOD']) || !in_array($_SERVER['REQUEST_METHOD'], ABCMS_REGEX_META)) ? 'GET' : $_SERVER['REQUEST_METHOD'])),
+	);
+	// Conditional session
+	$this->session_start();
+	// Sanitize inputs
+	$this->inputs = array(
+		// My user
+		'user' => (empty($_SESSION[ABCMS_SESSION]['user']) ? NULL : $_SESSION[ABCMS_SESSION]['user']),
+		// My user role
+		'role' => ($role = ('cli' === PHP_SAPI ? ABCMS_ROLE_CLI : (empty($_SESSION[ABCMS_SESSION]['user']['user']['role']) ?? ABCMS_ROLE_PUBLIC))),
+		// Current time()
+		'time' => time(),
+		// My user identity
+		'caller' => ($_SERVER['REMOTE_ADDR'] ?? '').($_SERVER['HTTP_USER_AGENT'] ?? ''),
+		// URL full
+		'urlfull' => $urlfull,
+		// URL parse
+		'urlparsed' => $urlparsed,
+		// URL domain
+		'urldomain' => $this->boots['urldomain'],
 		// URL path variables 'v'
 		'urlvars' => (!preg_match_all(ABCMS_REGEX_URLV, $urlparsed['path'], $matches, PREG_PATTERN_ORDER) ?
 			// None
@@ -298,7 +310,7 @@ function __construct() {
 		// URL query variables 'q' from parse_str() because CLI has no $_GET
 		'urlquery' => ($this->input_valid('q', ((!empty($urlparsed['query']) && mb_parse_str($urlparsed['query'], $result)) ? $result : array()), $role)),
 		// URL request method
-		'urlmethod' => ('cli' === PHP_SAPI ? 'CLI' : ((empty($_SERVER['REQUEST_METHOD']) || !in_array($_SERVER['REQUEST_METHOD'], ABCMS_REGEX_META)) ? 'GET' : $_SERVER['REQUEST_METHOD'])),
+		'urlmethod' => $this->boots['urlmethod'],
 		// POST variables 'p'
 		'postvars' => ($this->input_valid('p', $_POST, $role)),
 		// CLI command line execution
@@ -307,14 +319,16 @@ function __construct() {
 		'argc' => $_SERVER['argc'],
 		// CLI arguments
 		'argv' => $_SERVER['argv'],
-		// Composer auto-loader
-		'auto' => (file_exists(($auto = (__DIR__ . '/../vendor/autoload.php'))) ? $auto : FALSE),
+		// Auto-Loader
+		'auto' => $this->settings['core']['auto'],
 	);
 	// Require Composer
 	if ($this->inputs['auto']) { require_once($this->inputs['auto']); }
 	// Variables within path warning
 	if (0 !== stripos($urlparsed['path'], $this->inputs['urlstripped'])) { $this->set_errors("URL questioned, variables within path"); }
 	// Done
+	$this->set_errors("TEST ERROR 1");
+	$this->set_errors("TEST ERROR 2");
 	return;
 }
 // Disallowed methods
@@ -721,89 +735,132 @@ public function get_settings() : array {	// Get private settings for public
 
 /*	SECTION: AUTHENTICATION / SESSION
 */
-private function session_start() : void {
+public function session_start(
+	?bool $start = NULL, // FALSE==destroy, NULL==conditional start, TRUE==start
+) : bool { // FALSE==no session, TRUE==valid session
+	// initialize options
+	$caller = $error = $destroy = FALSE;
+	static $now = NULL;
+	static $exp = NULL;
+	static $options = NULL;
+	if (NULL === $options) {
+		$now = time();
+		$exp = $now - 86400;
+		$options = [
+			'save_path'			=> $this->settings['core']['session_folder'], // or .htaccess: php_value session.save_path '/path'
+			'name'				=> $this->settings['core']['session_cookie'], // custom name
+			'save_handler'		=> 'files', // session files
+			'gc_probability'	=> '1', // garbage collection
+			'gc_divisor'		=> '100', // garbage collection
+			'gc_maxlifetime'	=> ABCMS_MAXTIME, // garbage collection
+			'cookie_lifetime'	=> ABCMS_MAXTIME, // lifetime
+			'cookie_path'		=> '/', // whole domain
+			'cookie_domain'		=> $this->boots['urldomain'], // current domain only
+			'cookie_secure'		=> '1', // HTTPS only
+			'cookie_httponly'	=> '1', // No JS
+			'cookie_samesite'	=> 'Strict', // No cross-site
+			'use_strict_mode'	=> '1', // Reject unknown SIDs
+			'use_cookies'		=> '1', // No SID in URL
+			'use_only_cookies'	=> '1', // No SID in URL
+			'use_trans_sid'		=> '0', // Disable URL rewriting
+			];
+	}
+	// destroy session
+	if (FALSE === $start) {
+		// no session, we are done
+		if (!isset($_COOKIE[$this->settings['core']['session_cookie']]) || !session_start($options)) { return FALSE; }
+		// destroy session
+		$error = 'You are logged out.';
+		$destroy = TRUE;
+		goto DESTROY;
+	}
 	// already started
-	if (session_status() === PHP_SESSION_ACTIVE) { return; }
-	// headers sent
-	if (headers_sent()) { $this->error_wsod("Session start failed, headers already sent.");	} 
-	// session storage
-	if (!($absolute = realpath(ABCMS_SESSIONS)) || (!is_dir($absolute) && !mkdir($absolute, 0777, true))) { $this->error_wsod("Session start failed, no save path."); }
-	// session options
-	$options = [
-		'save_path'			=> $absolute,		// or .htaccess: php_value session.save_path '/path'
-		'name'				=> 'SES',			// custom name
-		'save_handler'		=> 'files',			// session files
-		'gc_probability'	=> '1',				// garbage collection
-		'gc_divisor'		=> '100',			// garbage collection
-		'gc_maxlifetime'	=> ABCMS_MAXTIME,	// garbage collection
-		'cookie_lifetime'	=> ABCMS_MAXTIME,	// lifetime
-		'cookie_path'		=> '/',				// whole domain
-		'cookie_domain'		=> $this->inputs['urldomain'], // current domain only
-		'cookie_secure'		=> '1',				// HTTPS only
-		'cookie_httponly'	=> '1',				// No JS
-		'cookie_samesite'	=> 'Strict',		// No cross-site
-		'use_strict_mode'	=> '1',				// Reject unknown SIDs
-		'use_cookies'		=> '1',				// No SID in URL
-		'use_only_cookies'	=> '1',				// No SID in URL
-		'use_trans_sid'		=> '0',				// Disable URL rewriting
-		];
+	if (($status = session_status()) === PHP_SESSION_ACTIVE && $start) { return TRUE; }
+	// already headers
+	if (headers_sent()) { $this->error_wsod("Session start failed, headers already sent.");	}
+	// conditional lazy start
+	if (NULL === $start &&
+		!isset($_COOKIE[$this->settings['core']['session_logins']]) &&
+		'POST' !== $this->boots['urlmethod']) {
+		return FALSE;
+	}
+	// start session
 	if (!session_start($options)) { $this->error_wsod("Session start failed.");	}
-	// session validate
-	$now = time();
-	if (!empty($_SESSION[ABCMS_SESSION]['valid'])) {
-		$valid = &$_SESSION[ABCMS_SESSION]['valid'];
-		$error = $caller = NULL;
-		// session cancel errors
-		if ($now > ($valid['active'] + ABCMS_MAXIDLE)) {										$error = 'Session cancelled, inactivity threshold.'; }
-		else if ($now > ($valid['create'] + ABCMS_MAXTIME)) {									$error = 'Session cancelled, maxtime exceeded.'; }
-		else if (($valid[$valid['cookie']] ?? 'a') !== ($_COOKIE[$valid['cookie']] ?? 'b')) {	$error = 'Session cancelled, secret missing.'; }
-		else if ($valid['caller'] !== ($caller = $this->get_hash($this->inputs['caller']))) {	$error = 'Session cancelled, IP/Agent mismatch.'; }
-		// fix bad session
-		if ($error) {
-			$this->error_log($error);
-			$this->set_cookie(session_name(), '', $now - 86400);	// remove session cookie
-			$this->set_cookie($valid['cookie'], '', $now - 86400);	// remove secret cookie
-			$_SESSION = [];
-			session_destroy();
-			session_start($options);
-		}
-		// rotate good session
-		else {
-			// rotate
-			if (!empty($this->settings['postvars']) ||
-				$now > ($valid['rotate'] + ABCMS_MAXROTA)) {
-				// session id
-				session_regenerate_id(true);
-				// secret cookie
-				$this->set_cookie($valid['cookie'], '', $now - 86400);
-				unset($valid[$valid['cookie']]);
-				$cookie = $this->get_unique();
-				$secret = $this->get_unique();
-				$valid['cookie'] = $cookie;
-				$valid[$cookie] = $secret;
-				$this->set_cookie($cookie, $secret, $now + ABCMS_MAXTIME);
-				// new rotated time
-				$valid['rotate'] = $now;
+	if (!empty($_SESSION[ABCMS_SESSION]['valid'])) { $valid = &$_SESSION[ABCMS_SESSION]['valid']; } else { $valid = NULL; }
+	// validate session
+	if (!$valid) { if('POST' === $this->boots['urlmethod']) {																				$error = 'Session terminated, POST with invalid session.';	$destroy = TRUE; }}
+	else {
+	if ('POST' === $this->boots['urlmethod'] && ($_POST['csrf'] ?? 'a') !== ($_SESSION[ABCMS_SESSION]['form']['csrf_valu'] ?? NULL)) {		$error = 'Session terminated, CSRF failure.';				$destroy = TRUE; }
+	else if ('POST' === $this->boots['urlmethod'] && !empty($_POST[$_SESSION[ABCMS_SESSION]['form']['void_name']])) {						$error = 'Session terminated, void value failure.';			$destroy = TRUE; }
+	else if ('POST' === $this->boots['urlmethod'] &&
+		(($_POST[$_SESSION[ABCMS_SESSION]['form']['full_name']] ?? 'a') !== ($_SESSION[ABCMS_SESSION]['form']['full_valu'] ?? NULL))) {		$error = 'Session terminated, full value failure.';			$destroy = TRUE; }
+	else if ('POST' === $this->boots['urlmethod'] &&
+		(($_POST[$_SESSION[ABCMS_SESSION]['form']['test_name']] ?? 'a') !== ($_SESSION[ABCMS_SESSION]['form']['test_valu'] ?? NULL))) {		$error = 'Session terminated, test value failure.';			$destroy = TRUE; }
+	else if (($_COOKIE[$valid['cookie']] ?? 'a') !== ($valid[$valid['cookie']] ?? NULL)) {													$error = 'Session terminated, secret missing.';				$destroy = TRUE; }
+	else if ($valid['caller'] !== ($caller = $this->get_hash($this->boots['caller']))) {													$error = 'Session terminated, IP/Agent mismatch.';			$destroy = TRUE; }
+	else if (isset($_COOKIE[$this->settings['core']['session_logins']]) &&
+		(($_COOKIE[$this->settings['core']['session_logins']] ?? 'a') !== ($_SESSION[ABCMS_SESSION]['user']['logins'] ?? NULL) ||
+		!($_SESSION[ABCMS_SESSION]['user']['user'] = $this->get_database('user', $_SESSION[ABCMS_SESSION]['user']['userid'])))) {			$error = 'Session terminated, login missing.';				$destroy = TRUE; }
+	else if (!isset($_COOKIE[$this->settings['core']['session_logins']]) &&
+		!empty($_SESSION[ABCMS_SESSION]['user'])) {																							$error = 'Session terminated, login expired.';				$destroy = TRUE; }
+	else if ($now > ($valid['active'] + ABCMS_MAXIDLE)) {																					$error = 'You are logged out, inactivity threshold.'; }
+	else if ($now > ($valid['create'] + ABCMS_MAXTIME)) {																					$error = 'You are logged out, maxtime threshold.'; }
+	}
+	// fix bad session
+	if ($error) {
+		// remove session cookie, logins, and secret
+DESTROY:$this->set_cookie($this->settings['core']['session_cookie'], '', $exp);
+		$this->set_cookie($this->settings['core']['session_logins'], '', $exp);
+		if (!empty($valid['cookie'])) { $this->set_cookie($valid['cookie'], '', $exp); }
+		// destroy session
+		$_SESSION = [];
+		if (!session_destroy()) { $this->error_wsod("Session destroy failed.");	}
+		$this->set_errors($error);
+		if ($destroy) { $this->error_log($error); return FALSE; }
+		if (!session_start($options)) { $this->error_wsod("Session restart failed."); }
+	}
+	// update active session
+	else if ($valid) {
+		// rotate if needed
+		if ('POST' === $this->boots['urlmethod'] || $now > ($valid['rotate'] + ABCMS_MAXROTA)) {
+			// session id
+			if (!session_regenerate_id(true)) { $this->error_wsod("Session regeneration failed."); }
+			// secret cookie
+			$this->set_cookie($valid['cookie'], '', $exp);
+			unset($valid[$valid['cookie']]);
+			unset($_COOKIE[$valid['cookie']]);
+			$cookie = $this->get_uniq();
+			$secret = $this->get_uniq();
+			$valid['cookie'] = $cookie;
+			$valid[$cookie] = $secret;
+			$this->set_cookie($cookie, $secret, $valid['create'] + ABCMS_MAXTIME);
+			// login cookie
+			if (!empty($_SESSION[ABCMS_SESSION]['user'])) {
+				$secret = $this->get_uniq();
+				$_SESSION[ABCMS_SESSION]['user']['logins'] = $secret;
+				$this->set_cookie($this->settings['core']['session_logins'], $secret, $valid['create'] + ABCMS_MAXTIME);
 			}
-			// update active time
-			$valid['active'] = $now;
+			// new rotated time
+			$valid['rotate'] = $now;
 		}
+		// update active time
+		$valid['active'] = $now;
 	}
 	// new session
 	if (empty($_SESSION[ABCMS_SESSION]['valid'])) {
-		$cookie = $this->get_unique();
-		$secret = $this->get_unique();
+		$cookie = $this->get_uniq();
+		$secret = $this->get_uniq();
 		$_SESSION[ABCMS_SESSION]['valid'] = [
 			'create'	=> $now,
 			'active'	=> $now,
 			'rotate'	=> $now,
-			'caller'	=> ($caller ?? $this->get_hash($this->inputs['caller'])),
+			'caller'	=> ($caller ?: $this->get_hash($this->boots['caller'])),
 			'cookie'	=> $cookie,
 			$cookie		=> $secret,
 		];
 		$this->set_cookie($cookie, $secret, $now + ABCMS_MAXTIME);
 	}
-	return;
+	return TRUE;
 }
 // Set cookie
 public function set_cookie(
@@ -814,19 +871,21 @@ public function set_cookie(
 	// headers sent
 	if (headers_sent()) { $this->error_wsod("Set cookie failed, headers already sent."); }
 	// Set cookie
-	if (setcookie(
+	if (!empty($cookie) && setcookie(
 		$cookie,
 		$value,
 		[
 			'expires'	=> $expires,					// Expiration time
 			'path'		=> '/',							// For entire website
-			'domain'	=> $this->inputs['urldomain'],	// For domain only
+			'domain'	=> $this->boots['urldomain'],	// For domain only
 			'secure'	=> TRUE,						// Only over HTTPS
 			'httponly'	=> TRUE,						// No javascript prevents XSS
 			'samesite'	=> 'Strict',					// Avoid CSRF attacks
 		])) {
+		$_COOKIE[$cookie] = $value;
 		return TRUE;
 	}
+	unset($_COOKIE[$cookie]); // failed so unset
 	$this->error_log("Set cookie failed: {$cookie}");
 	return FALSE;
 }
@@ -837,56 +896,49 @@ public function set_cookie(
 */
 // Form security
 private function html_security(string &$html) : void {
-if (!preg_match(ABCMS_REGEX_SECU, $html)) { return; }
-$this->session_start();
-$_SESSION[ABCMS_SESSION]['CSRF'] = $this->get_unique();
-$injection = <<<EOF
-<label></label><span>I am not a robot <input type='checkbox'	id='captchaBox' class='captcha-checkbox' required></span>
-<label style='display: none;''></label><input type='text'		id='honeypot' name='honeypot' autocomplete='off' style='display: none;'>
-<label></label><input type='hidden'		id='captchaToken' name='captchaToken' value=''>
-<label></label><input type='hidden'		id='csrf' name='csrf' value='{$_SESSION[ABCMS_SESSION]['CSRF']}'>
-<script>
-// security checks
-	let mouseMovedCount = 0;
-	const form = document.getElementById('securedForm');
-	const tokenInput = document.getElementById('captchaToken');
-	const honeyField = document.getElementById('honeypot');
-	const captchaBox = document.getElementById('captchaBox');
-// mouse movements
-	window.addEventListener('mousemove', function handleMovement() {
-		mouseMovedCount++;
-		if (mouseMovedCount > 10) {
-			tokenInput.value = 'verified_human_session_' + btoa(Date.now().toString());
-			window.removeEventListener('mousemove', handleMovement);
-		}
-	});
-// submission handling
-	form.addEventListener('submit', function(event) {
-	if (honeyField.value !== '') {
-		event.preventDefault();
-		alert('Spam detected! Form submission blocked.');
-		return;
-	}
-	if (!captchaBox.checked) {
-		event.preventDefault();
-		alert('Please check the 'I am not a robot' checkbox.');
-		return;
-	}
-	if (tokenInput.value === '') {
-		event.preventDefault();
-		alert('Human verification failed. Mouse movement metrics not detected.');
-		return;
-	}
-	});
-</script>
-</form>
-
+	// not form, done
+	if (!preg_match(ABCMS_REGEX_SECU, $html)) { return; }
+	// failed session, done
+	if (!$this->session_start(TRUE)) { return; }
+	// form security
+	$_SESSION[ABCMS_SESSION]['form']['csrf_name']	= $this->get_uniq();
+	$_SESSION[ABCMS_SESSION]['form']['crsf_valu']	= $this->get_uniq();
+	$_SESSION[ABCMS_SESSION]['form']['void_name']	= $this->get_uniq();
+	$_SESSION[ABCMS_SESSION]['form']['full_name']	= $this->get_uniq();
+	$_SESSION[ABCMS_SESSION]['form']['full_valu']	= $this->get_uniq();
+	$_SESSION[ABCMS_SESSION]['form']['test_name']	= $this->get_uniq();
+	$_SESSION[ABCMS_SESSION]['form']['test_valu']	= 'abc';
+	// injection
+	if (!empty($_SESSION[ABCMS_SESSION]['user'])) {
+		$injection = <<<EOF
+<div>
+<input type='hidden' name='csrf'												value='{$_SESSION[ABCMS_SESSION]['form']['crsf_valu']}'>
+<input type='hidden' name='{$_SESSION[ABCMS_SESSION]['form']['crsf_name']}'		value='{$_SESSION[ABCMS_SESSION]['form']['crsf_valu']}'>
+<input type='hidden' name='{$_SESSION[ABCMS_SESSION]['form']['void_name']}'		value='{$_SESSION[ABCMS_SESSION]['form']['full_valu']}'>
+<input type='hidden' name='{$_SESSION[ABCMS_SESSION]['form']['full_name']}'		value=''>
+\$1\$2</div>
 EOF;
-// inject the form security
-if (!($html = preg_replace(ABCMS_REGEX_SECU, $injection, $html))) {
-	$this->error_wsod("Form security injection failed.");
-}
-return;
+	}
+	else {
+		$injection = <<<EOF
+<div>
+<input type='hidden' name='csrf'												value='{$_SESSION[ABCMS_SESSION]['form']['crsf_valu']}'>
+<input type='hidden' name='{$_SESSION[ABCMS_SESSION]['form']['crsf_name']}'		value='{$_SESSION[ABCMS_SESSION]['form']['crsf_valu']}'>
+<input type='hidden' name='{$_SESSION[ABCMS_SESSION]['form']['void_name']}'		value='{$_SESSION[ABCMS_SESSION]['form']['full_valu']}'>
+<input type='hidden' name='{$_SESSION[ABCMS_SESSION]['form']['full_name']}'		value=''>
+Enter CAPTCHA <input name='{$_SESSION[ABCMS_SESSION]['form']['test_name']}'		value='{$_SESSION[ABCMS_SESSION]['form']['test_valu']}'>
+\$1 onclick="
+	this.form.{$_SESSION[ABCMS_SESSION]['form']['void_name']}.valu = '';
+	this.form.{$_SESSION[ABCMS_SESSION]['form']['full_name']}.valu = '{$_SESSION[ABCMS_SESSION]['form']['full_valu']}';
+	return TRUE;
+"
+\$2
+</div>
+EOF;
+	}
+	// inject the form security
+	if (!($html = preg_replace(ABCMS_REGEX_SECU, $injection, $html))) { $this->error_wsod("Form security injection failed."); }
+	return;
 }
 
 
@@ -913,6 +965,18 @@ private function set_settings(
 	}
 	// Start with zero
 	$this->settings = array();
+	// Core application settings
+	touch(__FILE__);
+	$this->settings['core']['filename']			= (__FILE__); // My filename
+	$this->settings['core']['getmyinode']		= getmyinode(); // My inode
+	$this->settings['core']['getlastmod']		= getlastmod(); // My modified date
+	$this->settings['core']['documentroot']		= (__DIR__); // My documentroot
+	$this->settings['core']['projectroot']		= (dirname(__DIR__)); // My project folder
+	$this->settings['core']['project']			= (basename(dirname(__DIR__))); // My project name
+	$this->settings['core']['auto']				= (($auto = realpath(__DIR__ . '/../vendor/autoload.php')) ? $auto : FALSE); // Composer auto-loader
+	$this->settings['core']['session_folder']	= (realpath(ABCMS_SESSIONS) ?: ABCMS_SESSIONS); // My session folder
+	$this->settings['core']['session_cookie']	= $this->get_hash('session_cookie'); // My session cookie name
+	$this->settings['core']['session_logins']	= $this->get_hash('session_logins'); // My login cookie name
 	// Register variables
 	$this->input_varpath('debug',	'bool',		ABCMS_ROLE_PUBLIC);
 	$this->input_varget('debug',	'bool',		ABCMS_ROLE_ADMINS);
@@ -941,6 +1005,8 @@ private function set_settings(
 	$this->output_equate(ABCMS_EXT_PAGE,	'contact',	'/abcms/contact');
 	$this->output_extend(ABCMS_EXT_PAGE,	'account',	'CLI-GET-POST',	'IE',	'abcms->pageaccount',	ABCMS_ROLE_PUBLIC,	-10);
 	$this->output_equate(ABCMS_EXT_PAGE,	'account',	'/abcms/account');
+	$this->output_extend(ABCMS_EXT_PAGE,	'logout',	'CLI-GET-POST',	'IE',	'abcms->pagelogout',	ABCMS_ROLE_PUBLIC,	-10);
+	$this->output_equate(ABCMS_EXT_PAGE,	'logout',	'/abcms/logout');
 	// Admin page extensions
 	$this->output_extend(ABCMS_EXT_PAGE,	'status',	'CLI-GET-POST',	'IE',	'abcms->adminstatus',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
 	$this->output_equate(ABCMS_EXT_PAGE,	'status',	'/admin');
@@ -1064,11 +1130,10 @@ Run CLI "php index.php /abcms/help | html2text"<br>
 <?php echo $GLOBALS['abcms_constant']('ABCMS_GOOD'); ?> Hello World. I am alive.<br>
 <?php echo $GLOBALS['abcms_constant']('ABCMS_GOOD'); ?> Thank you!<br>
 <br>
-<?php echo date('Y-m-d H:i:s', $this->filemtime); ?><br>
 Variable1: <?php echo $variable['variable'] . ' ' . $returned['variable'];?><br>
 Variable2: <?php print_r($variable2);?><br>
 Settings: <?php print_r($returned3);?><br>
-UUIDV4: <?php echo $this->get_uuidv4();?><br>
+UUIDV4: <?php echo $this->get_uuid();?><br>
 <br>
 <?php echo $errors;
 
@@ -1078,40 +1143,72 @@ $this->output('/this_is_a_test', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLI
 <?php	
 	return NULL;
 }
+private function pageerror(mixed &...$html) : void {
+$this->session_start(FALSE); // destroy session and logout
+if (($string = implode('', $html))) { echo $string; return; }
+echo <<<EOF
+<h4>Status</h4>
+You have been logged out.<br>
+<br>
+Please contact the webmaster for help.
+EOF;
+echo $this->see_errors();
+return;
+}
+private function pagelogout(mixed &...$unused) : void {
+$this->session_start(FALSE); // destroy session and logout
+echo <<<EOF
+<h4>Status</h4>
+You have been logged out.<br>
+<br>
+Please contact the webmaster for help.
+EOF;
+echo $this->see_errors();
+return;
+}
 private function pagecontact(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	?><h4>Contact</h4>
-This is where to contact us.<?php
+?><h4>Contact</h4>
+This is where to contact us.
+<?php
 	echo $this->see_errors();
 	echo "<br><a href='/'>Home</a><br>";
 	return NULL;
 }
+
+
+
 private function pageaccount(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+if ('POST' === $this->boots['urlmethod']) {
+	$this->set_database('user', $_POST);
+	//$_SESSION['user']['user'] = $this->get_database('user', $_POST);
+}
 ?>
 <h4>Account</h4>
 <form action='' method='post' accept-charset='UTF-8' class='form-grid'>
 <label></label><div>Login:</div>
-<label for='Account_Email'>Email:</label>				<input type='email'		id='Account_Email'		name='Account_Email'	value='' required>
-<label for='Account_Security'>Security Email:</label>	<input type='email'		id='Account_Security'	name='Account_Security'	value='' required>
-<label for='Account_Password'>Password:</label>			<input type='password'	id='Account_Password'	name='Account_Password'	value='' required>
+<label for='Account_Email'		>Email:</label>			<input type='email'		id='Account_Email'		name='Account_Email'	value='<?php echo ($_POST['Account_Email']		?? ''); ?>'>
+<label for='Account_Security'	>Email2:</label>		<input type='email'		id='Account_Email2'		name='Account_Email2'	value='<?php echo ($_POST['Account_Email2']		?? ''); ?>'>
+<label for='Account_Password'	>Password:</label>		<input type='password'	id='Account_Password'	name='Account_Password'	value='<?php echo ($_POST['Account_Password']	?? ''); ?>'>
 <label></label><div>Identity:</div>
-<label for='Account_First'>Firstname:</label>			<input type='text'		id='Account_First'		name='Account_First'	value='' required>
-<label for='Account_Last'>Lastname:</label>				<input type='text'		id='Account_Last'		name='Account_Last'		value='' required>
-<label for='Account_Cell'>Cell Phone:</label>			<input type='tel'		id='Account_Cell'		name='Account_Cell'		value='' required>
-<label for='Account_Phone'>Additional Phone:</label>	<input type='tel'		id='Account_Phone'		name='Account_Phone'	value='' required>
+<label for='Account_First'		>Firstname:</label>		<input type='text'		id='Account_First'		name='Account_First'	value='<?php echo ($_POST['Account_First']		?? ''); ?>'>
+<label for='Account_Last'		>Lastname:</label>		<input type='text'		id='Account_Last'		name='Account_Last'		value='<?php echo ($_POST['Account_Last']		?? ''); ?>'>
+<label for='Account_Company'	>Company:</label>		<input type='text'		id='Account_Company'	name='Account_Company'	value='<?php echo ($_POST['Account_Company']	?? ''); ?>'>
+<label for='Account_Cell'		>Cell Phone:</label>	<input type='tel'		id='Account_Cell'		name='Account_Cell'		value='<?php echo ($_POST['Account_Cell']		?? ''); ?>'>
+<label for='Account_Phone'		>Phone:</label>			<input type='tel'		id='Account_Phone'		name='Account_Phone'	value='<?php echo ($_POST['Account_Phone']		?? ''); ?>'>
 <label></label><div>Billing:</div>
-<label for='Bill_Address'>Address:</label>				<input type='text'		id='Bill_Address'		name='Bill_Address'		value='' required>
-<label for='Bill_Address2'>Address2:</label>			<input type='text'		id='Bill_Address2'		name='Bill_Address2'	value=''>
-<label for='Bill_City'>City:</label>					<input type='text'		id='Bill_City'			name='Bill_City'		value='' required>
-<label for='Bill_State'>State:</label>					<input type='text'		id='Bill_State'			name='Bill_State'		value='' required>
-<label for='Bill_Zipcode'>Zipcode:</label>				<input type='text'		id='Bill_Zipcode'		name='Bill_Zipcode'		value='' required>
-<label for='Bill_Country'>Country:</label>				<input type='text'		id='Bill_Country'		name='Bill_Country'		value='' required>
+<label for='Bill_Address'		>Address:</label>		<input type='text'		id='Bill_Address'		name='Bill_Address'		value='<?php echo ($_POST['Bill_Address']		?? ''); ?>'>
+<label for='Bill_Address2'		>Address2:</label>		<input type='text'		id='Bill_Address2'		name='Bill_Address2'	value='<?php echo ($_POST['Bill_Address2']		?? ''); ?>'>
+<label for='Bill_City'			>City:</label>			<input type='text'		id='Bill_City'			name='Bill_City'		value='<?php echo ($_POST['Bill_City']			?? ''); ?>'>
+<label for='Bill_State'			>State:</label>			<input type='text'		id='Bill_State'			name='Bill_State'		value='<?php echo ($_POST['Bill_State']			?? ''); ?>'>
+<label for='Bill_Zipcode'		>Zipcode:</label>		<input type='text'		id='Bill_Zipcode'		name='Bill_Zipcode'		value='<?php echo ($_POST['Bill_Zipcode']		?? ''); ?>'>
+<label for='Bill_Country'		>Country:</label>		<input type='text'		id='Bill_Country'		name='Bill_Country'		value='<?php echo ($_POST['Bill_Country']		?? ''); ?>'>
 <label></label><div>Shipping:</div>
-<label for='Ship_Address'>Address:</label>				<input type='text'		id='Ship_Address'		name='Ship_Address'		value=''>
-<label for='Ship_Address2'>Address2:</label>			<input type='text'		id='Ship_Address2'		name='Ship_Address2'	value=''>
-<label for='Ship_City'>City:</label>					<input type='text'		id='Ship_City'			name='Ship_City'		value=''>
-<label for='Ship_State'>Ship_State:</label>				<input type='text'		id='Ship_State'			name='Ship_State'		value=''>
-<label for='Ship_Zipcode'>Ship_Zipcode:</label>			<input type='text'		id='Ship_Zipcode'		name='Ship_Zipcode'		value=''>
-<label for='Ship_Country'>Ship_Country:</label>			<input type='text'		id='Ship_Country'		name='Ship_Country'		value=''>
+<label for='Ship_Address'		>Address:</label>		<input type='text'		id='Ship_Address'		name='Ship_Address'		value='<?php echo ($_POST['Ship_Address']		?? ''); ?>'>
+<label for='Ship_Address2'		>Address2:</label>		<input type='text'		id='Ship_Address2'		name='Ship_Address2'	value='<?php echo ($_POST['Ship_Address2']		?? ''); ?>'>
+<label for='Ship_City'			>City:</label>			<input type='text'		id='Ship_City'			name='Ship_City'		value='<?php echo ($_POST['Ship_City']			?? ''); ?>'>
+<label for='Ship_State'			>Ship_State:</label>	<input type='text'		id='Ship_State'			name='Ship_State'		value='<?php echo ($_POST['Ship_State']			?? ''); ?>'>
+<label for='Ship_Zipcode'		>Ship_Zipcode:</label>	<input type='text'		id='Ship_Zipcode'		name='Ship_Zipcode'		value='<?php echo ($_POST['Ship_Zipcode']		?? ''); ?>'>
+<label for='Ship_Country'		>Ship_Country:</label>	<input type='text'		id='Ship_Country'		name='Ship_Country'		value='<?php echo ($_POST['Ship_Country']		?? ''); ?>'>
 <label></label>											<input type='submit'	id='Submit'				name='Submit'			value='Submit'>
 </form>
 
@@ -1119,16 +1216,16 @@ private function pageaccount(mixed &...$unused) : ?bool { // Non-function wrappe
 return NULL;
 }
 private function admincode(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	highlight_file($this->inputs['filename']);
+	highlight_file($this->settings['core']['filename']);
 	return NULL;
 }
 private function admincorelive(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	$this->session_start();
+	$this->session_start(TRUE);
 	echo "<pre>" . print_r($this, TRUE) . print_r($_SESSION, TRUE) . "</pre>";
 	return NULL;
 }
 private function adminsession(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	$this->session_start();
+	$this->session_start(TRUE);
 	echo "<pre>" . print_r($_SESSION, TRUE) . "</pre>";
 	return NULL;
 }
@@ -1195,7 +1292,7 @@ private function adminphpinfo(mixed &...$unused) : ?bool { // Non-function wrapp
 }
 private function adminbrowse(mixed &...$unused) : ?bool {
 	echo "<h4>Browser</h4>";
-	$path = $this->inputs['projectroot'];
+	$path = $this->settings['core']['projectroot'];
 	$display = <<< EOF
 Filename: {$path}<br>
 <br>
@@ -1230,9 +1327,7 @@ public function replace(mixed &...$args) : bool {
 }
 // Wrapper around construct so extendable
 public function echo(?string &...$args) : void {
-	for($x=0,$z=count($args); $x<$z; ++$x){
-		echo $args[$x];
-	}
+	echo implode('',$args);
 	return;
 }
 // Wrapper around construct so extendable
@@ -1283,6 +1378,24 @@ public function get_json(string $filename, mixed &$data) : bool {
 	}
 	return TRUE;
 }
+// Set Database
+public function set_database(string $filename, mixed $data) : mixed {
+	$plug = array(
+		'first'	=> 'Jeff',
+		'last'	=> 'Martin',
+		'role'	=>	ABCMS_ROLE_ADMINS,
+	);
+	return TRUE;
+}
+// Get Database
+public function get_database(string $filename, mixed $data) : mixed {
+	$plug = array(
+		'first'	=> 'Jeff',
+		'last'	=> 'Martin',
+		'role'	=>	ABCMS_ROLE_ADMINS,
+	);
+	return $plug;
+}
 // Include always
 public function include(string $filename, ...$args) : mixed {
 	if (!file_exists($filename)) {
@@ -1318,7 +1431,7 @@ public function array_walk_merge(array &$destiny, array $source) : void {
 	return;
 }
 // RFC 4122 compliant Version 4 UUIDs, globally unique
-public function get_uuidv4() : string {
+public function get_uuid() : string {
 	// Generate 16 bytes (128 bits) of random data
 	$data = random_bytes(16);
 	if (strlen($data) !== 16) { $this->error_wsod("Sixteen bytes unavailable for uuidv4."); }
@@ -1329,13 +1442,17 @@ public function get_uuidv4() : string {
     // Output the 36 character UUID.
     return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
 }
-// Unique token for CSRF, 128 bytes
-public function get_unique(): string {
-	return bin2hex(random_bytes(64));
+// Unique token, 64 bytes
+public function get_uniq(): string {
+	return chr(rand(97,122)).chr(rand(97,122)).bin2hex(random_bytes(31));
 }
-// Unique hash for getlastmod() + $string, not for permanent storage, 128 bytes
+// Unique DB ID, 32 bytes
+public function get_dbid(): string {
+	return chr(rand(97,122)).chr(rand(97,122)).bin2hex(random_bytes(15));
+}
+// Unique hash for getmyinode() + getlastmod() + $string, not for permanent storage, 64 bytes
 public function get_hash(?string $input): string {
-	return hash('sha512', $this->inputs['getmyinode'].$this->inputs['getlastmod'].$input);
+	return hash('sha256', $this->settings['core']['getmyinode'].$this->settings['core']['getlastmod'].$input);
 }
 
 
@@ -1489,18 +1606,18 @@ $this->output('/htmldefault_head', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUB
 </div>
 <div id='page'>
 <?php
-if (!$page) {
-	$page = <<<EOF
+if (!$page) { $page = <<<EOF
 <h4>Status</h4>
-{$GLOBALS['abcms_constant']('ABCMS_GOOD')}Hello World. I am alive.<br>
+{$GLOBALS['abcms_constant']('ABCMS_GOOD')}Hello World. I am alive!<br>
 {$GLOBALS['abcms_constant']('ABCMS_BAD')}However, page requested not found.<br>
+<br>
+You have been logged out.<br>
 <br>
 Please contact the webmaster for help.
 EOF;
 }
-$page .= $this->see_errors();
-$page = array($page);
-$this->output('/htmldefault_page', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$page);
+$page = array($page, $this->see_errors());
+$this->output('/htmldefault_page', 'CLI-GET-POST', 'abcms->pageerror', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$page);
 ?>
 </div>
 <div id='foot'>
