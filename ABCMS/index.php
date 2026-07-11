@@ -327,8 +327,6 @@ function __construct() {
 	// Variables within path warning
 	if (0 !== stripos($urlparsed['path'], $this->inputs['urlstripped'])) { $this->set_errors("URL questioned, variables within path"); }
 	// Done
-	$this->set_errors("TEST ERROR 1");
-	$this->set_errors("TEST ERROR 2");
 	return;
 }
 // Disallowed methods
@@ -1109,7 +1107,6 @@ private function htmladmin(
 }
 // User homepage
 private function pagehome(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	$errors = $this->see_errors();
 	$variable['variable'] = "Yoo hoo!<br>";
 	$returned = $this->output('/variable', 'CLI-GET-POST', '', ABCMS_ROLE_PUBLIC, -1, FALSE, ...$variable);
 	$variable2['variable'] = array();
@@ -1125,6 +1122,7 @@ Everything is an extension with the abcms() router<br>
 Run CLI "php index.php /abcms/help | html2text"<br>
 <br>
 <a href='/abcms/account'>Account Profile</a><br>
+<a href='/abcms/logout'>Logout</a><br>
 <a href='/admin'>Admin Console</a><br>
 <br>
 <?php echo $GLOBALS['abcms_constant']('ABCMS_GOOD'); ?> Hello World. I am alive.<br>
@@ -1135,12 +1133,7 @@ Variable2: <?php print_r($variable2);?><br>
 Settings: <?php print_r($returned3);?><br>
 UUIDV4: <?php echo $this->get_uuid();?><br>
 <br>
-<?php echo $errors;
-
-$test = array('This is a test of the ob_get_clean() precedence');
-$this->output('/this_is_a_test', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, 1, FALSE, ...$test);
-?>
-<?php	
+<?php
 	return NULL;
 }
 private function pageerror(mixed &...$html) : void {
@@ -1152,7 +1145,6 @@ You have been logged out.<br>
 <br>
 Please contact the webmaster for help.
 EOF;
-echo $this->see_errors();
 return;
 }
 private function pagelogout(mixed &...$unused) : void {
@@ -1163,14 +1155,12 @@ You have been logged out.<br>
 <br>
 Please contact the webmaster for help.
 EOF;
-echo $this->see_errors();
 return;
 }
 private function pagecontact(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 ?><h4>Contact</h4>
 This is where to contact us.
 <?php
-	echo $this->see_errors();
 	echo "<br><a href='/'>Home</a><br>";
 	return NULL;
 }
@@ -1235,7 +1225,6 @@ private function adminstatus(mixed &...$unused) : ?bool { // Non-function wrappe
 	echo ABCMS_GOOD."Helping you! {$count}<br>\n";
 	--$count;
 	if ($count>0) { return TRUE; }
-	echo $this->see_errors();
 echo <<<EOF
 <br>
 <a href='/'>Home</a><br>
@@ -1584,14 +1573,12 @@ if ($admin) {
 }
 <?php
 }
-$css = array($css);
-$this->output('/htmldefault_css', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$css);
+$this->output('/htmldefault_css', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($css));
 ?>
 </style>
 <script type='text/javascript'>
 <?php
-$js = array($js);
-$this->output('/htmldefault_js', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$js);
+$this->output('/htmldefault_js', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($js));
 ?>
 </script>
 </head>
@@ -1600,8 +1587,7 @@ $this->output('/htmldefault_js', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLI
 <div id='head'>
 <?php
 if (!$head) { $head = "<h2 style='font-size: 1.5em'>$title</h2>"; }
-$head = array($head);
-$this->output('/htmldefault_head', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$head);
+$this->output('/htmldefault_head', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($head));
 ?>
 </div>
 <div id='page'>
@@ -1616,15 +1602,14 @@ You have been logged out.<br>
 Please contact the webmaster for help.
 EOF;
 }
-$page = array($page, $this->see_errors());
-$this->output('/htmldefault_page', 'CLI-GET-POST', 'abcms->pageerror', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$page);
+$this->output('/htmldefault_page', 'CLI-GET-POST', 'abcms->pageerror', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($page));
+echo $this->see_errors();
 ?>
 </div>
 <div id='foot'>
 <?php
 if (!$foot) {	$foot = "<a href='/abcms/contact'>Contact</a>"; }
-$foot = array($foot);
-$this->output('/htmldefault_foot', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...$foot);
+$this->output('/htmldefault_foot', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($foot));
 ?>
 </div>
 </div>
