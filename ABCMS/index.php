@@ -2,11 +2,10 @@
 /*	SECTION: OVERVIEW
 
 	"A Basic Content Management System" (ABCMS)
-	AKA "Aionian Bible Content Management System" at AionianBible.org
+	AKA "Aionian Bible Content Management System" @ AionianBible.org
 	PHP web developer toolkit and CMS in a single file
 	Everything is an extension with the abcms() router
-	Install with Composer or copy to document root
-	Run CLI "php index.php /abcms/help | html2text"
+	Install with Composer or run me in a document root
 */
 
 
@@ -17,42 +16,50 @@
 	2. Try Catch for error handling of the core abcms() function
 	3. Exception core dump gives developers all debug information
 	4. Instantiate and process inputs onetime for global handling
-	5. EVERYTHING is a routed extension with $abcms->output()
-	6. Data stored in files for first version, maybe MySQL later
-	7. Settings in OS cached file as fast as shared memory and simpler
+	5. Everthing is a routed extension with $abcms->output()
+	6. Data stored in OS cached files fast as shared memory and simpler
+	7. SQLite and MYSQL to be considered later for scalability
+	8. Session security through opt-in, validation, CSRF, and login
 
 	All output is extendable which helps us think more simply about content management.
 	We have inputs, processing, and outputs. The output function serves as both a command
-	router and extension manager. The generic output() function does not even require a default
-	function because it expects to be extended by you to do something meaningful. The ABCMS
-	engine expects you to override the "/nainoiainc/abcms/begin" hook first. From there you
-	output what you want and also include your own extendable calls to output() yourself.
-	Since file and function locations are passed to the extension manager at execution
-	time this model is even faster than Composer lazy loading which matches every registered
-	object class with the file location on every call. Lazy loading does a lot of work.
-	And ABCMS also allows the extension of files, functions, methods, objects, and classes,
-	while Composer only allows the extension of classes.
+	router and extension manager. The generic output() function does not even require a
+	default function because it expects to be extended by you to do something meaningful.
+	The ABCMS engine expects you to override the "/nainoiainc/abcms/begin" hook first.
+	From there you output what you want and also include your own extendable calls to
+	output() yourself. Since file and function locations are passed to the extension
+	manager at execution time this model is even faster than Composer lazy loading which
+	matches every registered object class with the file location on every call. Lazy
+	loading does a lot of work! ABCMS also allows the extension of files, functions,
+	methods, objects, and classes, while Composer only allows the extension of classes.
 
 	ABCMS uses PHP as the template engine. PHP is designed to intermingle both HTML and
-	procedural function with conditional logic. And PHP is well known so that one does not need
-	to learn another language like Symfony Twig or Laravel Blade. Symfony and Laravel template
-	engines seem an unneccessary reduction of template power. So PHP is the template engine for
-	ABCMS. Frontend developers must understand PHP and HTML, but that is simpler and more powerful.
+	procedural function with conditional logic. And PHP is well known so that one does
+	not need to learn another language like Symfony Twig or Laravel Blade. Symfony and
+	Laravel template engines seem an unneccessary reduction of PHP template power. So
+	PHP is the template engine for ABCMS. Frontend developers must understand PHP and
+	HTML, but that is simpler and more powerful.
 	
-	The first version of ABCMS uses files alone for data storage. While SQL and other databases
-	allow flexible and fast data storage and retrieval not every website application needs this
-	level of data storage complexity. In fact SQL databases often encourage data storage complexity
-	with all the possible data storage rows, columns, types, and indices. However, if a unit
-	of data is only every accessed as a unit, such as a website page, why not store the entire
-	blob of page data in a single file? The page can then be quickly read as a single file rather
-	than many reads of tiny pieces of data to build the page. This is better for many applications.
-	An SQL database API may be added later for applications that require more complexity.
+	The first version of ABCMS uses files alone for data storage. While SQL and other
+	databases allow flexible and fast data storage and retrieval not every website
+	application needs this level of data storage complexity. In fact SQL databases often
+	encourage data storage complexity with all the possible data storage rows, columns,
+	types, and indices. However, if a unit of data is only every accessed as a unit, such
+	as a website page, why not store the entire	blob of page data in a single file? The
+	page can then be quickly read as a single file rather than many reads of tiny pieces
+	of data to build the page. This is better for many applications. An SQL database API
+	may be added later for applications that require more complexity.
 
-	Session security strategy breaks convention with a slightly longer session lifetime. However,
-	threat is migtigated with the addition of a custom 128 byte security cookie name and token value
-	for validating the session along with a reasonable inactive and maxlifetime session threshhold.
-	There is no "Remember Me" option for longer active logins because password lockers make it easier
-	to login anyway.
+	Session security strategy breaks convention with a slightly longer session lifetime.
+	However, threat is migtigated with the addition of a custom 64 byte security cookie
+	name and token value for validating the session along with reasonable inactive and
+	maxlifetime session threshholds. There is no "Remember Me" option for longer active
+	logins because password lockers make it easier to login anyway. Additional form 
+	security is injected into every <form> with a CSRF token, honeypot, void pot,
+	image captcha, javascript expected delay, and rapid submission triggers. Finally,
+	the $_SESSION is not protected from rogue extensions. So extension are discouraged
+	from using $_SESSION, but if needed sequester yourself to $_SESSION[extension-name'].
+	Users must be allowed to opt-in or opt-out of session cookies.
 */
 
 
@@ -102,26 +109,27 @@ const ABCMS_REGEX_VARS	= "/^[A-Za-z0-9\-_.~]+$/u";
 const ABCMS_REGEX_UUID	= "/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i";
 const ABCMS_REGEX_FORM	= "/(<input\s+[^>]*?type\s*=\s*['\"]submit['\"]|<button)(>|\s+[^>]*?>)/ui";
 // Arrays
-const ABCMS_ARRAY_TYPE	= array('mixed','string','array','integer','float','bool','boolean','email','domain','uri','url','ip','mac','uuid');
+const ABCMS_ARRAY_TYPE	= array('mixed','string','array','integer','float','bool','boolean','email','domain','uri','url','ip','mac','uuid','path');
 // Files
 const ABCMS_ABCMSLOG	= "../private/nainoiainc/abcms/ABCMS.errorlog";
 const ABCMS_COREDUMP	= "../private/nainoiainc/abcms/ABCMS.coredump";
 const ABCMS_SESSIONS	= "../private/nainoiainc/abcms/ABCMS.sessions";
 const ABCMS_SETTINGS	= "../private/nainoiainc/abcms/ABCMS.settings";
+const ABCMS_DATABASE	= "../private/nainoiainc/abcms/ABCMS.database";
 // Flags
 const ABCMS_FLAG_JSON	= JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT;
-// Session
-const ABCMS_MAXROTA		= 60*15;
-const ABCMS_MAXIDLE		= 60*60*24*4;
-const ABCMS_MAXTIME		= 60*60*24*11;
-const ABCMS_MAXFORM		= 60*60;
-const ABCMS_SESSION		= 'ABCMS';
-const ABCMS_EXPIRES		= 1;
-const ABCMS_SUBMITDELAY	= 3;
-const ABCMS_FORMSOPEN	= 12;
-const ABCMS_SESSIONSLAP = 10;
-const ABCMS_SESSIONHITS = 20;
-const ABCMS_SESSIONTIME = 20;
+// Session session_start
+const ABCMS_SES			= ABCMS_EXT_SELF;
+const ABCMS_SES_ROTA	= 60*15;
+const ABCMS_SES_IDLE	= 60*60*24*4;
+const ABCMS_SES_LIFE	= 60*60*24*11;
+const ABCMS_SES_FORM	= 60*60;
+const ABCMS_SES_XPIR	= 1;
+const ABCMS_SES_DELY	= 3;
+const ABCMS_SES_OPEN	= 12;
+const ABCMS_SES_SLAP	= 60;
+const ABCMS_SES_HITS	= 20;
+const ABCMS_SES_TIME	= 20;
 // Roles
 const ABCMS_ROLE_PUBLIC	= 0;
 const ABCMS_ROLE_AUTHEN	= 1;
@@ -157,8 +165,6 @@ const ABCMS_EXTORD_MAX	=  9999;
 try {
 	// construct $abcms
 	abcms();
-	// coredump debug
-	abcms_dump(NULL, 'file');
 	// output controller
 	$abcms->output(
 		ABCMS_EXT_ALPHA,	// entry extension
@@ -261,23 +267,23 @@ function abcms() : object {
 static $_abcms = NULL;
 if (NULL === $_abcms) {
 // $abcms already set
-if (isset($GLOBALS['abcms'])) {						$this->error_wsod("Core already defined."); }
+if (isset($GLOBALS['abcms'])) {						throw new Exception("Core already defined."); }
 // $abcms object assigned
 $GLOBALS['abcms'] = $_abcms = new class {
-readonly	array $GLOBALS;				// readonly $GLOBALS copy
-readonly	array $boots;				// bootstrap input before session
-readonly	array $input;				// sanitized input after session
-readonly	array $settings;			// read application settings
-private		array $compiles = array();	// compile application settings
-private		array $database	= array();	// database
-private		array $errors	= array();	// runtime errors
-private		array $debugs	= array();	// runtime debugs
-private		bool $success	= FALSE;	// Form POST success
-
+readonly	array	$GLOBALS;				// readonly $GLOBALS copy
+readonly	array	$boots;					// bootstrap input before session
+readonly	array	$input;					// sanitized input after session
+readonly	array	$settings;				// read application settings
+private		array	$compiles	= array();	// compile application settings
+private		array	$database	= array();	// database
+private		array	$errors		= array();	// runtime errors
+private		array	$debugs		= array();	// runtime debugs
+private		bool	$formvalid	= FALSE;	// form tested valid
+private		bool	$formhuman	= FALSE;	// form tested human
 // Construct object
 function __construct() {
 	// WSOD errors
-	if (PHP_VERSION < '8.2.0') {					$this->error_wsod("Script version insufficient."); }
+	if (PHP_VERSION < '8.2.0') {					$this->error_wsod("Script version must be >= 8.2.0."); }
 	if (!chdir(__DIR__)) {							$this->error_wsod("Working directory not found."); }
 	if (!ini_set('error_log', ABCMS_ABCMSLOG)) {	$this->error_wsod("Error location not found."); }
 	if (FALSE === $this->set_settings(TRUE)){		$this->error_wsod("Application settings not found."); }
@@ -308,15 +314,17 @@ function __construct() {
 		'urlmethod' => ('cli' === PHP_SAPI ? 'CLI' : ((empty($_SERVER['REQUEST_METHOD']) || !in_array($_SERVER['REQUEST_METHOD'], ABCMS_REGEX_META)) ? 'GET' : $_SERVER['REQUEST_METHOD'])),
 	);
 	// lazy session start
-	$this->session_start(0);
+	$session = $this->session_start(0);
 	// copy $GLOBAL with session, if possible
 	$this->GLOBALS	= $GLOBALS;
 	// sanitize inputs with session user
 	$this->input = array(
+		// session result
+		'session' => $session,
 		// my user
-		'user' => $_SESSION[ABCMS_SESSION]['user']??NULL,
+		'user' => $_SESSION[ABCMS_SES]['user']??NULL,
 		// my role
-		'role' => ($role = ('cli' === PHP_SAPI ? ABCMS_ROLE_CLI : $_SESSION[ABCMS_SESSION]['user']['role']??ABCMS_ROLE_PUBLIC)),
+		'role' => ($role = ('cli' === PHP_SAPI ? ABCMS_ROLE_CLI : $_SESSION[ABCMS_SES]['user']['role']??ABCMS_ROLE_PUBLIC)),
 		// URL path variables 'v'
 		'urlvars' => (!preg_match_all(ABCMS_REGEX_URLV, $urlparsed['path'], $matches, PREG_PATTERN_ORDER) ?
 			// None
@@ -745,6 +753,11 @@ public function get_debugs() : array {		// Get private debugs for public
 public function get_errors() : array {		// Get private errors for public
 	return $this->errors;
 }
+public function error_get_last() : ?string {// Get last error message
+	$error = error_get_last();
+	return ($error ? "{$error['message']} [type={$error['type']}] in {$error['file']} on line {$error['line']}" : NULL);
+}
+
 public function see_errors() : ?string {	// Format private errors for public
 	if (!empty($this->errors)) { return '<br><br>Errors:<br>'.implode('<br>',$this->errors); }
 	return NULL;
@@ -756,15 +769,18 @@ public function get_settings() : array {	// Get private settings for public
 
 
 
+
 /*	SECTION: AUTHENTICATION / SESSION
 */
 public function session_start(
-	int $cmd,	// 'destroy'<0, 'conditional'=0, 'start'>0
-) : bool {		// FALSE=destroyed, TRUE=started
+	int $cmd,	// 1=start, -1=destroy, 0=conditional
+) : bool {		// TRUE=started, FALSE=destroyed
 	// initialize options
-	$session_active = (session_status() === PHP_SESSION_ACTIVE);
+	$session_active = (session_status() === PHP_SESSION_ACTIVE ? TRUE : FALSE);
 	$valid = NULL;
+	$slap = 0;
 	static $now = NULL;
+	static $posthandled = FALSE;
 	static $options = NULL;
 	if (NULL === $options) {
 		$now = $this->boots['time'];
@@ -774,8 +790,8 @@ public function session_start(
 			'save_handler'		=> 'files',										// session files
 			'gc_probability'	=> '1',											// garbage collection
 			'gc_divisor'		=> '100',										// garbage collection
-			'gc_maxlifetime'	=> ABCMS_MAXTIME,								// garbage collection
-			'cookie_lifetime'	=> ABCMS_MAXTIME,								// cookie lifetime
+			'gc_maxlifetime'	=> ABCMS_SES_LIFE,								// garbage collection
+			'cookie_lifetime'	=> ABCMS_SES_LIFE,								// cookie lifetime
 			'cookie_path'		=> '/',											// whole domain
 			'cookie_domain'		=> $this->boots['urldomain'],					// current sub.domain only
 			'cookie_secure'		=> '1',											// HTTPS only
@@ -788,90 +804,87 @@ public function session_start(
 			];
 	}
 	// destroy session
-	if ($cmd < 0) {
-		$this->set_errors('You are logged out.');
-		goto DOIT;
-	}
+	if ($cmd < 0) { $error = 'You are logged out.'; goto DOIT; }
 	// already started
 	if ($session_active) { return TRUE; }
 	// already headers
 	if (headers_sent()) { $this->error_wsod("Session start failed, headers already sent.");	}
-	// lazy/conditional start
-	$post = ('POST' === $this->boots['urlmethod'] ? TRUE : FALSE);
-	if ($cmd === 0 &&													// lazy requested
+	// conditional start, post validation first time only
+	$post = ('POST' === $this->boots['urlmethod'] && !$posthandled ? TRUE : FALSE);
+	if (0 === $cmd &&													// conditional
 		!isset($_COOKIE[$this->settings['core']['session_logins']]) &&	// no login cookie
 		!$post) {														// no $_POST
 		return FALSE;
 	}
 	// start session
-	// potential race if concurrent access by same user and 1st access destroys the session
-	// will session_start() returns be reasonable?
 	if (!session_start($options)) { $this->error_wsod("Session start failed.");	}
+	// initialize flags
+	$session_active = TRUE;
 	$_COOKIE[$options['name']] = session_id(); 
-	$uagent = $error = $slap = NULL;
-	$csrf = ($post && !empty($_POST['csrf']) ? $_POST['csrf'] : FALSE);
-	if (!empty($_SESSION[ABCMS_SESSION]['valid'])) { $valid = &$_SESSION[ABCMS_SESSION]['valid']; }
+	$uagent = $error = $formhuman = NULL;
+	$csrf = ($post && !empty($_POST['csrf']) ? $_POST['csrf'] : '');
+	if (!empty($_SESSION[ABCMS_SES]['valid'])) { $valid = &$_SESSION[ABCMS_SES]['valid']; }
 	// validate session
 	if (!$valid) {
 		// POST requires CSRF session
-		if ($post) {																													$error = 'Session ended, POST requires session.';	$slap = TRUE; }
+		if ($post) {																											$error = 'Session ended, POST requires session.';	$slap = 400; }
 	}
 	else {
 		// rapid hit counter
-		$got20 = FALSE; $valid['counts'][] = $now; if (count($valid['counts']) > ABCMS_SESSIONHITS) { array_shift($valid['counts']); $got20 = TRUE; }
+		$got20 = FALSE; $valid['counts'][] = $now; if (count($valid['counts']) > ABCMS_SES_HITS) { array_shift($valid['counts']); $got20 = TRUE; }
 		// uagent inconsistent
-		if ($valid['uagent'] !== ($uagent = $this->get_hash($this->boots['uagent']))) {													$error = 'Session ended, IP/Agent unknown.';		$slap = TRUE; }
+		if ($valid['uagent'] !== ($uagent = $this->get_hash($this->boots['uagent']))) {											$error = 'Session ended, IP/Agent unknown.';		$slap = 400; }
 		// secrets differ
-		else if ((($_COOKIE[$valid['cookie']]??'x')?:'x') !== $valid['secret']) {														$error = 'Session ended, secrets differ.';			$slap = TRUE; }
+		else if (!hash_equals($valid['secret'], ($_COOKIE[$valid['cookie']]??'x'))) {											$error = 'Session ended, secrets differ.';			$slap = 400; }
 		// rapid hits
-		else if ($got20 && $valid['counts'][ABCMS_SESSIONHITS-1] - $valid['counts'][0] < ABCMS_SESSIONTIME) {							$error = 'Session ended, rapid hits.';				$slap = TRUE; }
+		else if ($got20 && $valid['counts'][ABCMS_SES_HITS-1] - $valid['counts'][0] < ABCMS_SES_TIME) {							$error = 'Session ended, rapid hits.';				$slap = 429; }
 		// POST CSRF1 failed
-		else if ($post && $csrf !== ($_SESSION[ABCMS_SESSION]['form'][$csrf]['csrf_valu']??'')) {										$error = 'Session ended, CSRF1 failed.';			$slap = TRUE; }
+		else if ($post && (!$csrf || !hash_equals(($_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu']??''), $csrf))) {			$error = 'Session ended, CSRF1 failed.';			$slap = 400; }
 		// POST CSRF2 failed
-		else if ($csrf && ((($_POST[$_SESSION[ABCMS_SESSION]['form'][$csrf]['csrf_name']]??'x')?:'x') !==
-			($_SESSION[ABCMS_SESSION]['form'][$csrf]['csrf_valu']??''))) {																$error = 'Session ended, CSRF2 failed.';			$slap = TRUE; }
+		else if ($csrf && !hash_equals(($_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu']??''),
+			(($_POST[$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_name']]??'x')?:'x'))) {											$error = 'Session ended, CSRF2 failed.';			$slap = 400; }
 		// POST VOID populated
-		else if ($csrf && !empty($_POST[$_SESSION[ABCMS_SESSION]['form'][$csrf]['void_name']])) {										$error = "Session ended, CAPTCHA1 failed.";			$slap = TRUE; }
+		else if ($csrf && !empty($_POST[$_SESSION[ABCMS_SES]['form'][$csrf]['void_name']])) {									$error = "Session ended, CAPTCHA1 failed.";			$slap = 400; }
 		// POST FULL differs
-		else if ($csrf && ((($_POST[$_SESSION[ABCMS_SESSION]['form'][$csrf]['full_name']]??'x')?:'x') !==
-			($_SESSION[ABCMS_SESSION]['form'][$csrf]['full_valu']??''))) {																$error = 'Session ended, CAPTCHA2 failed.';			$slap = TRUE; }
-		// POST image mismatch
-		else if (empty($_SESSION[ABCMS_SESSION]['user']) && $csrf &&
-			((($_POST[$_SESSION[ABCMS_SESSION]['form'][$csrf]['test_name']]??'x')?:'x') !==
-			($_SESSION[ABCMS_SESSION]['form'][$csrf]['test_valu']??''))) {																$error = 'Session ended, CAPTCHA3 failed.';			$slap = TRUE; }
+		else if ($csrf && !hash_equals(($_SESSION[ABCMS_SES]['form'][$csrf]['full_valu']??''),
+			(($_POST[$_SESSION[ABCMS_SES]['form'][$csrf]['full_name']]??'x')?:'x'))) {											$error = 'Session ended, CAPTCHA2 failed.';			$slap = 400; }
 		// POST too rapid
-		else if ($csrf && ($now - ($_SESSION[ABCMS_SESSION]['form'][$csrf]['mark_time']??$now)) < ABCMS_SUBMITDELAY) {					$error = "Session ended, rapid submission.";		$slap = TRUE; }
-		// login expired
-		else if (!isset($_COOKIE[$this->settings['core']['session_logins']]) && !empty($_SESSION[ABCMS_SESSION]['user'])) {				$error = 'Session ended, login expired.'; }
+		else if ($csrf && ($now - ($_SESSION[ABCMS_SES]['form'][$csrf]['mark_time']??$now)) < ABCMS_SES_DELY) {					$error = "Session ended, rapid submission.";		$slap = 400; }
 		// login failed
 		else if (isset($_COOKIE[$this->settings['core']['session_logins']]) &&
-			(($_COOKIE[$this->settings['core']['session_logins']]?:'x') !== ($_SESSION[ABCMS_SESSION]['session_logins']??'') ||
-			empty($_SESSION[ABCMS_SESSION]['user']) ||
+			(($_COOKIE[$this->settings['core']['session_logins']]?:'x') !== ($_SESSION[ABCMS_SES]['session_logins']??'') ||
+			empty($_SESSION[ABCMS_SES]['user']) ||
 			// reload user for every page load to confirm permissions
-			!($_SESSION[ABCMS_SESSION]['user'] = $this->get_database('user', $_SESSION[ABCMS_SESSION]['user']['userid'])))) {			$error = 'Session ended, login failed.';			$slap = TRUE; }
+			!($_SESSION[ABCMS_SES]['user'] = $this->get_database('user', $_SESSION[ABCMS_SES]['user']['userid'])))) {			$error = 'Session ended, login failed.';			$slap = 400; }
+		// login expired
+		else if (!isset($_COOKIE[$this->settings['core']['session_logins']]) && !empty($_SESSION[ABCMS_SES]['user'])) {			$error = 'Session ended, login expired.'; }
 		// max idle time exceeded
-		else if ($now > ($valid['active'] + ABCMS_MAXIDLE)) {																			$error = 'Session ended, inactivity threshold.'; }
+		else if ($now > ($valid['active'] + ABCMS_SES_IDLE)) {																	$error = 'Session ended, inactivity threshold.'; }
 		// max time exceeded
-		else if ($now > ($valid['create'] + ABCMS_MAXTIME)) {																			$error = 'Session ended, maxtime threshold.'; }
+		else if ($now > ($valid['create'] + ABCMS_SES_LIFE)) {																	$error = 'Session ended, maxtime threshold.'; }
+		// POST image mismatch
+		else if ($csrf && empty($_SESSION[ABCMS_SES]['user']) &&
+			(($_SESSION[ABCMS_SES]['form'][$csrf]['test_valu']??'') !==
+			(($_POST[$_SESSION[ABCMS_SES]['form'][$csrf]['test_name']]??'x')?:'x'))) {											$this->set_errors('Session ended, CAPTCHA3 failed.'); }
+		else {																													$formhuman = TRUE; }
 	}
+	$posthandled = TRUE;
 	// destroy session by request or for corruption
 	if ($error) {
-		// set errors and slap suspects
+DOIT:	// set errors
 		$this->set_errors($error);
-		if ($slap) { sleep(ABCMS_SESSIONSLAP); $this->error_log($error); }
-DOIT:	// start session if needed
+		// start session to destroy
 		if (!$session_active) { $session_active = session_start($options); }
-		// remove session cookies: sessionid, secret, and logins
-		$this->set_cookie($options['name'], '', ABCMS_EXPIRES);									// session cookie
-		if (isset($_SESSION[ABCMS_SESSION]['valid']['cookie'])) {
-			$this->set_cookie($_SESSION[ABCMS_SESSION]['valid']['cookie'], '', ABCMS_EXPIRES);	// secret cookie
-		}
-		$this->set_cookie($this->settings['core']['session_logins'], '', ABCMS_EXPIRES);		// login cookie
-		// PHP says mark sessions invalid for garbage collection to prevent races
-		// however I do not want garbage laying around
+		// remove cookies
+		$this->set_cookie($options['name'], '', ABCMS_SES_XPIR); // session cookie
+		if (isset($_SESSION[ABCMS_SES]['valid']['cookie'])) { $this->set_cookie($_SESSION[ABCMS_SES]['valid']['cookie'], '', ABCMS_SES_XPIR); } // secret cookie
+		$this->set_cookie($this->settings['core']['session_logins'], '', ABCMS_SES_XPIR); // login cookie
+		// PHP says mark sessions for garbage collection to prevent races, but don't want garbage around
 		$_SESSION = [];
 		if ($session_active && !session_destroy()) { $this->error_log("Session destroy failed.");	}
-		// why restart a clean session? do when needed
+		// slap the evil
+		if ($slap) { http_response_code($slap); header('Retry-After: '.ABCMS_SES_SLAP); exit; }
+		// session destroyed
 		return FALSE;
 	}
 	// update valid session
@@ -880,37 +893,38 @@ DOIT:	// start session if needed
 		if ($post) {
 			// purge timedout forms
 			$timedout = 0;
-			foreach($_SESSION[ABCMS_SESSION]['form'] as $key => $form) {
-				if (($now - ($form['mark_time']??0)) > ABCMS_MAXFORM) {
-					unset($_SESSION[ABCMS_SESSION]['form'][$key]);
+			foreach($_SESSION[ABCMS_SES]['form'] as $key => $form) {
+				if (($now - ($form['mark_time']??0)) > ABCMS_SES_FORM) {
+					unset($_SESSION[ABCMS_SES]['form'][$key]);
 					++$timedout;
 				}
 			}
 			if ($timedout) { $this->set_errors("Open forms timed out: {$timedout}"); }
-			// reward successful POST
-			if (isset($_SESSION[ABCMS_SESSION]['form'][$csrf])) {
-				unset($_SESSION[ABCMS_SESSION]['form'][$csrf]);
-				$this->success = TRUE;
+			// reward valid POST
+			if (isset($_SESSION[ABCMS_SES]['form'][$csrf])) {
+				unset($_SESSION[ABCMS_SES]['form'][$csrf]);
+				$this->formvalid = TRUE;
+				$this->formhuman = ($formhuman ? TRUE :FALSE);
 			}
 			// purge excessive forms
-			if (($excess = count($_SESSION[ABCMS_SESSION]['form'])) > ABCMS_FORMSOPEN) {
-				unset($_SESSION[ABCMS_SESSION]['form']);
+			if (($excess = count($_SESSION[ABCMS_SES]['form'])) > ABCMS_SES_OPEN) {
+				unset($_SESSION[ABCMS_SES]['form']);
 				$this->set_errors("Too many open forms closed: {$excess}");
 			}
 		}
 		// rotate if post?? or exceed rotate time or my $user updated
-		if ($now > ($valid['rotate'] + ABCMS_MAXROTA)) {
+		if ($now > ($valid['rotate'] + ABCMS_SES_ROTA)) {
 			// session cookie
 			if (!session_regenerate_id(true)) { $this->error_wsod("Session regeneration failed."); }
 			$_COOKIE[$options['name']] = session_id();
 			// secret cookie
 			$valid['cookie'] = $this->get_uniq();
 			$valid['secret'] = $this->get_uniq();
-			$this->set_cookie($valid['cookie'], $valid['secret'], $valid['create'] + ABCMS_MAXTIME);
+			$this->set_cookie($valid['cookie'], $valid['secret'], $valid['create'] + ABCMS_SES_LIFE);
 			// login cookie
-			if (!empty($_SESSION[ABCMS_SESSION]['session_logins'])) {
-				$_SESSION[ABCMS_SESSION]['session_logins'] = $this->get_uniq();
-				$this->set_cookie($this->settings['core']['session_logins'], $_SESSION[ABCMS_SESSION]['session_logins'], $valid['create'] + ABCMS_MAXTIME);
+			if (!empty($_SESSION[ABCMS_SES]['session_logins'])) {
+				$_SESSION[ABCMS_SES]['session_logins'] = $this->get_uniq();
+				$this->set_cookie($this->settings['core']['session_logins'], $_SESSION[ABCMS_SES]['session_logins'], $valid['create'] + ABCMS_SES_LIFE);
 			}
 			// rotated time
 			$valid['rotate'] = $now;
@@ -920,7 +934,7 @@ DOIT:	// start session if needed
 	}
 	// validate new session
 	else {
-		$_SESSION[ABCMS_SESSION] = [
+		$_SESSION[ABCMS_SES] = [
 			'valid' => [
 				'create'	=> $now,
 				'active'	=> $now,
@@ -934,7 +948,7 @@ DOIT:	// start session if needed
 			'session_logins'=> NULL,
 			'user'			=> [],
 		];
-		$this->set_cookie($_SESSION[ABCMS_SESSION]['valid']['cookie'], $_SESSION[ABCMS_SESSION]['valid']['secret'], $now + ABCMS_MAXTIME);
+		$this->set_cookie($_SESSION[ABCMS_SES]['valid']['cookie'], $_SESSION[ABCMS_SES]['valid']['secret'], $now + ABCMS_SES_LIFE);
 	}
 	return TRUE;
 }
@@ -979,30 +993,30 @@ private function html_security(string &$html) : void {
 	if (!$this->session_start(1)) { return; }
 	// tokens
 	$csrf = $this->get_uniq();
-	$_SESSION[ABCMS_SESSION]['form'][$csrf]['mark_time'] = $this->boots['time'];
-	$_SESSION[ABCMS_SESSION]['form'][$csrf]['csrf_name'] = $this->get_uniq();
-	$_SESSION[ABCMS_SESSION]['form'][$csrf]['csrf_valu'] = $csrf;
-	$_SESSION[ABCMS_SESSION]['form'][$csrf]['void_name'] = $this->get_uniq();
-	$_SESSION[ABCMS_SESSION]['form'][$csrf]['full_name'] = $this->get_uniq();
-	$_SESSION[ABCMS_SESSION]['form'][$csrf]['full_valu'] = $this->get_uniq();
-	$_SESSION[ABCMS_SESSION]['form'][$csrf]['test_name'] = $this->get_uniq();
-	$_SESSION[ABCMS_SESSION]['form'][$csrf]['test_valu'] = 'abc';
-	static $delay = ABCMS_SUBMITDELAY * 1000;
+	$_SESSION[ABCMS_SES]['form'][$csrf]['mark_time'] = $this->boots['time'];
+	$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_name'] = $this->get_uniq();
+	$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu'] = $csrf;
+	$_SESSION[ABCMS_SES]['form'][$csrf]['void_name'] = $this->get_uniq();
+	$_SESSION[ABCMS_SES]['form'][$csrf]['full_name'] = $this->get_uniq();
+	$_SESSION[ABCMS_SES]['form'][$csrf]['full_valu'] = $this->get_uniq();
+	$_SESSION[ABCMS_SES]['form'][$csrf]['test_name'] = $this->get_uniq();
+	$_SESSION[ABCMS_SES]['form'][$csrf]['test_valu'] = 'abc';
+	static $delay = ABCMS_SES_DELY * 1000;
 	// html
-	$captcha = (!empty($_SESSION[ABCMS_SESSION]['user']) ? NULL : "Enter CAPTCHA <input name='{$_SESSION[ABCMS_SESSION]['form'][$csrf]['test_name']}' value='{$_SESSION[ABCMS_SESSION]['form'][$csrf]['test_valu']}'>\n");
+	$captcha = (!empty($_SESSION[ABCMS_SES]['user']) ? NULL : "Enter CAPTCHA <input name='{$_SESSION[ABCMS_SES]['form'][$csrf]['test_name']}' value='{$_SESSION[ABCMS_SES]['form'][$csrf]['test_valu']}'>\n");
 	$injection = <<<EOF
 <div>
-<input type='hidden' name='csrf'													value='{$_SESSION[ABCMS_SESSION]['form'][$csrf]['csrf_valu']}'>
-<input type='hidden' name='{$_SESSION[ABCMS_SESSION]['form'][$csrf]['csrf_name']}'	value='{$_SESSION[ABCMS_SESSION]['form'][$csrf]['csrf_valu']}'>
-<input type='hidden' name='{$_SESSION[ABCMS_SESSION]['form'][$csrf]['void_name']}'	value='{$_SESSION[ABCMS_SESSION]['form'][$csrf]['full_valu']}'>
-<input type='hidden' name='{$_SESSION[ABCMS_SESSION]['form'][$csrf]['full_name']}'	value=''>
+<input type='hidden' name='csrf'													value='{$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu']}'>
+<input type='hidden' name='{$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_name']}'	value='{$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu']}'>
+<input type='hidden' name='{$_SESSION[ABCMS_SES]['form'][$csrf]['void_name']}'	value='{$_SESSION[ABCMS_SES]['form'][$csrf]['full_valu']}'>
+<input type='hidden' name='{$_SESSION[ABCMS_SES]['form'][$csrf]['full_name']}'	value=''>
 {$captcha}
 \$1 onclick="
 this.disabled=true;
 event.preventDefault();
 setTimeout(() => {
-	this.form.{$_SESSION[ABCMS_SESSION]['form'][$csrf]['void_name']}.value = '';
-	this.form.{$_SESSION[ABCMS_SESSION]['form'][$csrf]['full_name']}.value = '{$_SESSION[ABCMS_SESSION]['form'][$csrf]['full_valu']}';
+	this.form.{$_SESSION[ABCMS_SES]['form'][$csrf]['void_name']}.value = '';
+	this.form.{$_SESSION[ABCMS_SES]['form'][$csrf]['full_name']}.value = '{$_SESSION[ABCMS_SES]['form'][$csrf]['full_valu']}';
 	HTMLFormElement.prototype.submit.call(this.form);
  }, {$delay});
 "
@@ -1018,7 +1032,6 @@ private function html_debug(string &$html = NULL) : void {
 	if (NULL === $html) { echo "ABCMS_HTML_DEBUG"; return; }
 	$injection = 
 		$this->see_errors().
-		'<br>success:<br>'.($this->success ? 'TRUE': 'FALSE').
 		'<br>boots:<br><pre>'.print_r($this->boots,TRUE).'</pre>'.
 		'<br>input:<br><pre>'.print_r($this->input,TRUE).'</pre>'.
 		'<br>settings[core]:<br><pre>'.print_r($this->settings['core'],TRUE).'</pre>'.
@@ -1049,7 +1062,7 @@ private function set_settings(
 	// Overwrite?
 	if ($boot && file_exists(ABCMS_SETTINGS)) {
 		if (NULL === ($this->settings = json_decode(file_get_contents(ABCMS_SETTINGS), TRUE))) {
-			$this->error_wsod("System, ".json_last_error_msg().", ".error_get_last());
+			$this->error_wsod("System, ".json_last_error_msg().", ".$this->error_get_last());
 		}
 		return TRUE;
 	}
@@ -1130,7 +1143,6 @@ private function set_settings(
 	// Settings strategy
 	// INIT.php run by composer or at will if ABCMS or plugin changes to rebuild the settings extension array
 	$this->settings_extend('/nainoiainc/abcms', array('test'=>'Changed','test2'=>'asdasdsa','test3'=>array('a'=>3,'b'=>2,'c'=>1),'test4'=>'new boy!'));
-	
 	// LOOP THROUGH ALL INIT NOW
 	// How extend settings and then record the settings in the input hash?
 	// Perhaps let extensions add values to the settings array so extension adds its own settings via extension? Yes!
@@ -1261,24 +1273,25 @@ This is where to contact us.
 
 
 private function pageaccount(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+echo "<h4>Account</h4>";
 if (!$this->session_start(1)) {
-	echo "<h4>Account</h4>Form security session failed";
+	echo "Session failure!";
 	return NULL;
 }
-else if ('POST' === $this->boots['urlmethod']) {
-	echo "<h4>Account</h4>Success = {$this->success}";
-	if ($this->success) {
-		// TEMP CODE to save and get user record
-		$this->set_database('user', $_POST);
-		$_SESSION[ABCMS_SESSION]['user'] = $this->get_database('user', $_POST);
-		$_SESSION[ABCMS_SESSION]['session_logins'] = $this->get_uniq();
-		$this->set_cookie($this->settings['core']['session_logins'], $_SESSION[ABCMS_SESSION]['session_logins'], $_SESSION[ABCMS_SESSION]['valid']['create'] + ABCMS_MAXTIME);
-		echo "<br>Session Login = ".$this->settings['core']['session_logins'].' / '.($_COOKIE[$this->settings['core']['session_logins']]??'NA').' / '.$_SESSION[ABCMS_SESSION]['session_logins'];
-	}
-	return NULL;
+else if ($this->formhuman) {
+	echo "Submittal success!";
+	$this->set_database('user', $_POST);
+	$_SESSION[ABCMS_SES]['user'] = $this->get_database('user', $_POST);
+	$_SESSION[ABCMS_SES]['session_logins'] = $this->get_uniq();
+	$this->set_cookie($this->settings['core']['session_logins'], $_SESSION[ABCMS_SES]['session_logins'], $_SESSION[ABCMS_SES]['valid']['create'] + ABCMS_SES_LIFE);
+}
+else if ($this->formvalid) {
+	echo "CAPTCHA snafu, try again!";
+}
+else {
+	echo "Enter information below!";
 }
 ?>
-<h4>Account</h4>
 <form action='' method='post' accept-charset='UTF-8' class='form-grid'>
 <label></label><div>Login:</div>
 <label for='Account_Email'		>Email:</label>			<input type='email'		id='Account_Email'		name='Account_Email'	value='<?php echo ($_POST['Account_Email']		?? ''); ?>'>
@@ -1433,7 +1446,7 @@ public function get_path(?string $path = NULL) : ?string {
 // Set file, TODO error check that reading and writing in my own extension directory!!
 public function set_file(string $filename, string $value) : bool {
 	if (FALSE === file_put_contents($filename, $value)) {
-		$this->error_log("System, ".error_get_last());
+		$this->error_log("System, ".$this->error_get_last());
 		return FALSE;
 	}
 	return TRUE;
@@ -1441,7 +1454,7 @@ public function set_file(string $filename, string $value) : bool {
 // Get file, TODO error check that reading and writing in my own extension directory!!
 public function get_file(string $filename, string &$data) : bool {
 	if (!file_exists($filename) || FALSE === ($data = file_get_contents($filename))) {
-		$this->error_log("System, ".error_get_last());
+		$this->error_log("System, ".$this->error_get_last());
 		return FALSE;
 	}
 	return TRUE;
@@ -1449,7 +1462,7 @@ public function get_file(string $filename, string &$data) : bool {
 // Set json
 public function set_json(string $filename, mixed $value) : bool {
 	if (FALSE === $this->set_file($filename, json_encode($value, ABCMS_FLAG_JSON))) {
-		$this->error_log("System file_put_contents(), ".error_get_last());
+		$this->error_log("System file_put_contents(), ".$this->error_get_last());
 		return FALSE;
 	}
 	if (json_last_error() !== JSON_ERROR_NONE) {
@@ -1461,7 +1474,7 @@ public function set_json(string $filename, mixed $value) : bool {
 // Get json
 public function get_json(string $filename, mixed &$data) : bool {
 	if (!file_exists($filename) || NULL === ($data = json_decode(file_get_contents($filename), TRUE))) {
-		$this->error_log("System, ".json_last_error_msg().", ".error_get_last());
+		$this->error_log("System, ".json_last_error_msg().", ".$this->error_get_last());
 		return FALSE;
 	}
 	return TRUE;
@@ -1527,15 +1540,18 @@ public function get_uuid() : string {
 }
 // Unique token, 64 bytes
 public function get_uniq(): string {
-	return chr(rand(97,122)).chr(rand(97,122)).bin2hex(random_bytes(31));
+	return chr(random_int(97,122)).chr(random_int(97,122)).bin2hex(random_bytes(31));
 }
 // Unique DB ID, 32 bytes
 public function get_dbid(): string {
-	return chr(rand(97,122)).chr(rand(97,122)).bin2hex(random_bytes(15));
+	return chr(random_int(97,122)).chr(random_int(97,122)).bin2hex(random_bytes(15));
 }
 // Unique hash for getmyinode() + getlastmod() + $string, not for permanent storage, 64 bytes
 public function get_hash(?string $input): string {
-	return hash('sha256', $this->settings['core']['getmyinode'].$this->settings['core']['getlastmod'].$input);
+	if (isset($this->settings)) {
+		return hash('sha256', $this->settings['core']['getmyinode'].$this->settings['core']['getlastmod'].$input);
+	}
+	return hash('sha256', getmyinode().getlastmod().$input);
 }
 
 
