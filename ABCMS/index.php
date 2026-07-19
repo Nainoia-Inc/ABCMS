@@ -838,24 +838,26 @@ public function session_start(
 		else if (!hash_equals($valid['secret'], ($_COOKIE[$valid['cookie']]??'x'))) {											$error = 'Session ended, secrets differ.';			$slap = 400; }
 		// rapid hits
 		else if ($got20 && $valid['counts'][ABCMS_SES_HITS-1] - $valid['counts'][0] < ABCMS_SES_TIME) {							$error = 'Session ended, rapid hits.';				$slap = 429; }
-		// POST CSRF1 failed
-		else if ($post && (!$csrf || !hash_equals(($_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu']??''), $csrf))) {			$error = 'Session ended, CSRF1 failed.';			$slap = 400; }
-		// POST CSRF2 failed
+		// POST CSRF1 missing
+		else if ($post && !$csrf) {																								$error = 'Session ended, CSRF1 missing.';			$slap = 400; }
+		// POST CSRF1 not equal, end session, but don't slap, could be 2nd submit of multi-form page
+		else if ($post && !hash_equals(($_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu']??''), $csrf)) {						$error = 'Session ended, CSRF1 wrong.'; }
+		// POST CSRF2 not equal
 		else if ($csrf && !hash_equals(($_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu']??''),
-			(($_POST[$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_name']]??'x')?:'x'))) {											$error = 'Session ended, CSRF2 failed.';			$slap = 400; }
+			(($_POST[$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_name']]??'x')?:'x'))) {											$error = 'Session ended, CSRF2 wrong.';				$slap = 400; }
 		// POST VOID populated
-		else if ($csrf && !empty($_POST[$_SESSION[ABCMS_SES]['form'][$csrf]['void_name']])) {									$error = "Session ended, CAPTCHA1 failed.";			$slap = 400; }
+		else if ($csrf && !empty($_POST[$_SESSION[ABCMS_SES]['form'][$csrf]['void_name']])) {									$error = "Session ended, CAPTCHA1 wrong.";			$slap = 400; }
 		// POST FULL differs
 		else if ($csrf && !hash_equals(($_SESSION[ABCMS_SES]['form'][$csrf]['full_valu']??''),
-			(($_POST[$_SESSION[ABCMS_SES]['form'][$csrf]['full_name']]??'x')?:'x'))) {											$error = 'Session ended, CAPTCHA2 failed.';			$slap = 400; }
+			(($_POST[$_SESSION[ABCMS_SES]['form'][$csrf]['full_name']]??'x')?:'x'))) {											$error = 'Session ended, CAPTCHA2 wrong.';			$slap = 400; }
 		// POST too rapid
 		else if ($csrf && ($now - ($_SESSION[ABCMS_SES]['form'][$csrf]['mark_time']??$now)) < ABCMS_SES_DELY) {					$error = "Session ended, rapid submission.";		$slap = 400; }
-		// login failed
+		// login failed, end session, but don't slap
 		else if (isset($_COOKIE[$this->settings['core']['session_logins']]) &&
 			(($_COOKIE[$this->settings['core']['session_logins']]?:'x') !== ($_SESSION[ABCMS_SES]['session_logins']??'') ||
 			empty($_SESSION[ABCMS_SES]['user']) ||
 			// reload user for every page load to confirm permissions
-			!($_SESSION[ABCMS_SES]['user'] = $this->get_database('user', $_SESSION[ABCMS_SES]['user']['userid'])))) {			$error = 'Session ended, login failed.';			$slap = 400; }
+			!($_SESSION[ABCMS_SES]['user'] = $this->get_database('user', $_SESSION[ABCMS_SES]['user']['userid'])))) {			$error = 'Session ended, login failed.'; }
 		// login expired
 		else if (!isset($_COOKIE[$this->settings['core']['session_logins']]) && !empty($_SESSION[ABCMS_SES]['user'])) {			$error = 'Session ended, login expired.'; }
 		// max idle time exceeded
@@ -865,7 +867,7 @@ public function session_start(
 		// POST image mismatch
 		else if ($csrf && empty($_SESSION[ABCMS_SES]['user']) &&
 			(($_SESSION[ABCMS_SES]['form'][$csrf]['test_valu']??'') !==
-			(($_POST[$_SESSION[ABCMS_SES]['form'][$csrf]['test_name']]??'x')?:'x'))) {											$this->set_errors('Session ended, CAPTCHA3 failed.'); }
+			(($_POST[$_SESSION[ABCMS_SES]['form'][$csrf]['test_name']]??'x')?:'x'))) {											$this->set_errors('Session ended, CAPTCHA3 wrong.'); }
 		else {																													$formhuman = TRUE; }
 	}
 	$posthandled = TRUE;
@@ -1151,7 +1153,7 @@ private function set_settings(
 	// clean up
 	$this->settings_clean();
 	if (FALSE===$this->set_json(ABCMS_SETTINGS, $this->compiles)) {	$this->error_wsod("Settings write failure."); }
-	$this->settings = $this->compiles;
+	if ($boot) { $this->settings = $this->compiles; }
 	unset($this->compiles);
 	return TRUE;
 }
@@ -1296,7 +1298,7 @@ else {
 <label></label><div>Login:</div>
 <label for='Account_Email'		>Email:</label>			<input type='email'		id='Account_Email'		name='Account_Email'	value='<?php echo ($_POST['Account_Email']		?? ''); ?>'>
 <label for='Account_Security'	>Email2:</label>		<input type='email'		id='Account_Email2'		name='Account_Email2'	value='<?php echo ($_POST['Account_Email2']		?? ''); ?>'>
-<label for='Account_Password'	>Password:</label>		<input type='password'	id='Account_Password'	name='Account_Password'	value='<?php echo ($_POST['Account_Password']	?? ''); ?>'>
+<label for='Account_Password'	>Password:</label>		<input type='password'	id='Account_Password'	name='Account_Password'	value=''>
 <label></label><div>Identity:</div>
 <label for='Account_First'		>Firstname:</label>		<input type='text'		id='Account_First'		name='Account_First'	value='<?php echo ($_POST['Account_First']		?? ''); ?>'>
 <label for='Account_Last'		>Lastname:</label>		<input type='text'		id='Account_Last'		name='Account_Last'		value='<?php echo ($_POST['Account_Last']		?? ''); ?>'>
