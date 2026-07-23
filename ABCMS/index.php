@@ -1,11 +1,13 @@
 <?php
-/*	SECTION INTRODUCTION: A Basic Content Management System and PHP toolkit.
+/*************************************************************************************************
+SECTION INTRODUCTION: A Basic Content Management System and PHP toolkit.
 */
 
 
 
 
-/*	SECTION CONSTANTS: Immutable constants for clarity and speed.
+/*************************************************************************************************
+SECTION CONSTANTS: Immutable constants for clarity and speed.
 */
 // General
 const ABCMS_GOOD		= "<span style='color: green;'>\u{2611}</span> ";
@@ -66,7 +68,8 @@ const ABCMS_EXTORD_MAX	=  9999;
 
 
 
-/*	SECTION GLOBALS: Global scope variables.
+/*************************************************************************************************
+SECTION GLOBALS: Global scope variables.
 */
 $abcms_constant = 'constant';	// Interpolate constants in strings.
 $abcms = NULL;					// $abcms assigned in abcms() __construct.
@@ -76,7 +79,8 @@ $abcms = NULL;					// $abcms assigned in abcms() __construct.
 
 
 
-/*	SECTION TRY/CATCH: Run the CMS.
+/*************************************************************************************************
+SECTION TRY/CATCH: Run the CMS.
 */
 // try ABCMS
 try {
@@ -125,7 +129,8 @@ return TRUE;
 
 
 
-/*	SECTION CONSTRUCT: Instantiate object and validate inputs.
+/*************************************************************************************************
+SECTION CONSTRUCT: Instantiate object and validate inputs.
 */
 // abcms() function returns $abcms object
 function abcms() : object {
@@ -324,7 +329,8 @@ private function input_valid(
 
 
 
-/*	SECTION OUTPUT: Everything is a routed extension.
+/*************************************************************************************************
+SECTION OUTPUT: Everything is a routed extension.
 */
 // Hooked function output path router extension manager
 public function output(
@@ -389,10 +395,10 @@ public function output(
 			}
 			// ABCMS security output filter and injection, <FORM> security, and XSS checks, etc.
 			if (ABCMS_EXT_BEGIN == $hook) {
-				$this->html_security($out);
-				$this->html_debug($out); // TEMP CODE
+				$this->html_security($out);	// inject security
+				$this->html_debug($out);	// TEMP CODE
 			}
-			echo $out; // Echo filtered output
+			echo $out; // Echo compiled output
 		} while ($more); // Repeat hook extension until FALSE
 		if (isset($extin['ctl']['U'])) { break; } // Uno extension allowed
 	}
@@ -549,7 +555,8 @@ public function output_equate(
 
 
 
-/*	SECTION SETUP: Assign boot settings with core and extension input.
+/*************************************************************************************************
+SECTION SETUP: Compile boot settings with core and extension preferences.
 */
 // Read or create the core settings JSON file. 
 private function set_settings(
@@ -684,7 +691,8 @@ public function settings_get(
 
 
 
-/*	SECTION RESPONSES: Return request responses.
+/*************************************************************************************************
+SECTION RESPONSES: Return request responses.
 */
 // Backtrace simplified
 private function error_trace() : array {
@@ -749,7 +757,8 @@ public function get_settings() : array {	// Get private settings for public
 
 
 
-/*	SECTION SESSION: Secure sessions with opt-in/out, validation, CSRF, CAPTCHA, tricks, and login.
+/*************************************************************************************************
+SECTION SESSION: Secure sessions with opt-in/out, validation, CSRF, CAPTCHA, tricks, and login.
 */
 public function session_start(
 	int $cmd,	// 1=start, -1=destroy, 0=conditional
@@ -767,9 +776,9 @@ public function session_start(
 			'save_path'			=> $this->settings['core']['session_folder'],	// or .htaccess: php_value session.save_path '/path'
 			'name'				=> $this->settings['core']['session_cookie'],	// custom name
 			'save_handler'		=> 'files',										// session files
-			'gc_probability'	=> '1',											// garbage collection
-			'gc_divisor'		=> '100',										// garbage collection
-			'gc_maxlifetime'	=> ABCMS_SES_LIFE,								// garbage collection
+			'gc_probability'	=> '1',											// garbage collection, turn off and replace with cron!
+			'gc_divisor'		=> '100',										// garbage collection, turn off and replace with cron!
+			'gc_maxlifetime'	=> ABCMS_SES_LIFE,								// garbage collection, turn off and replace with cron!
 			'cookie_lifetime'	=> ABCMS_SES_LIFE,								// cookie lifetime
 			'cookie_path'		=> '/',											// whole domain
 			'cookie_domain'		=> $this->boots['urldomain'],					// current sub.domain only
@@ -797,6 +806,10 @@ public function session_start(
 	}
 	// start session
 	if (!session_start($options)) { $this->error_wsod("Session start failed.");	}
+	// Too many sessions open?
+	if (0 && "to many sessions") {
+		// Remove oldest sessions to get under the limit
+	}
 	// initialize flags
 	$session_active = TRUE;
 	$_COOKIE[$options['name']] = session_id(); 
@@ -899,7 +912,7 @@ DOIT:	// set errors
 		// rotate if exceed rotate time or my $user updated
 		if ($now > ($valid['rotate'] + ABCMS_SES_ROTA)) {
 			// session cookie
-			if (!session_regenerate_id(true)) { $this->error_wsod("Session regeneration failed."); }
+			if (!session_regenerate_id(TRUE)) { $this->error_wsod("Session regeneration failed."); }
 			$_COOKIE[$options['name']] = session_id();
 			// secret cookie
 			$valid['cookie'] = $this->get_uniq();
@@ -968,7 +981,8 @@ public function set_cookie(
 
 
 
-/*	SECTION DATABASE: Store data in JSON, CSV, SQLite, or MySQL.
+/*************************************************************************************************
+SECTION DATABASE: Store data in JSON, CSV, SQLite, or MySQL.
 */
 // Set Database
 public function set_database(string $filename, mixed $data) : mixed {
@@ -987,7 +1001,8 @@ public function get_database(string $filename, mixed $data) : mixed {
 
 
 
-/*	SECTION FORMS: Create, secure, and process forms.
+/*************************************************************************************************
+SECTION FORMS: Create, secure, and process forms.
 */
 // form security
 private function html_security(string &$html) : void {
@@ -1010,7 +1025,7 @@ private function html_security(string &$html) : void {
 	$captcha = (!empty($_SESSION[ABCMS_SES]['user']) ? NULL : "Enter CAPTCHA <input name='{$_SESSION[ABCMS_SES]['form'][$csrf]['test_name']}' value='{$_SESSION[ABCMS_SES]['form'][$csrf]['test_valu']}'>\n");
 	$injection = <<<EOF
 <div>
-<input type='hidden' name='csrf'													value='{$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu']}'>
+<input type='hidden' name='csrf'												value='{$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu']}'>
 <input type='hidden' name='{$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_name']}'	value='{$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu']}'>
 <input type='hidden' name='{$_SESSION[ABCMS_SES]['form'][$csrf]['void_name']}'	value='{$_SESSION[ABCMS_SES]['form'][$csrf]['full_valu']}'>
 <input type='hidden' name='{$_SESSION[ABCMS_SES]['form'][$csrf]['full_name']}'	value=''>
@@ -1049,13 +1064,16 @@ private function html_debug(string &$html = NULL) : void {
 
 
 
-/*	SECTION CRON: Execute rountine core and extension maintenance functions.
+/*************************************************************************************************
+SECTION CRON: Execute rountine core and extension maintenance functions.
 */
+// replace PHP session garbage collection with CRON job to purge stale and excess sessions
 
 
 
 
-/*	SECTION ADMIN: Display Admin application.
+/*************************************************************************************************
+SECTION ADMIN: Display /Admin/HASH/* application.
 */
 // Admin webpage template
 private function htmladmin(
@@ -1162,7 +1180,22 @@ EOF;
 
 
 
-/*	SECTION HOMEPAGE: Display Public application.
+/*************************************************************************************************
+SECTION WEBSERVANT: Display /Admin/HASH/Webservant/ application.
+*/
+
+
+
+
+/*************************************************************************************************
+SECTION UPDATER: Display /Admin/HASH/Updater/ application.
+*/
+
+
+
+
+/*************************************************************************************************
+SECTION HOMEPAGE: Display /ABCMS/* application.
 */
 public function htmldefault(
 	mixed &...$unused,
@@ -1231,7 +1264,7 @@ if (!$this->session_start(1)) {
 	echo "Session failure!";
 	return NULL;
 }
-else if ($this->formhuman && $_POST['Account_Password']??'' == 'abcms' ) {
+else if ($this->formhuman && ($_POST['Account_Password']??'') == 'abcms' ) {
 	echo "Submittal success!";
 	$this->set_database('user', $_POST);
 	$_SESSION[ABCMS_SES]['user'] = $this->get_database('user', $_POST);
@@ -1247,35 +1280,12 @@ else if ($this->formhuman) {
 else if ($this->formvalid) {
 	echo "CAPTCHA snafu, try again!";
 }
-else {
-	echo "Enter information below!";
-}
+else { ; }
 ?>
 <form action='' method='post' accept-charset='UTF-8' class='form-grid'>
-<label></label><div>Login:</div>
-<label for='Account_Email'		>Email:</label>			<input type='email'		id='Account_Email'		name='Account_Email'	value='<?php echo ($_POST['Account_Email']		?? ''); ?>'>
-<label for='Account_Security'	>Email2:</label>		<input type='email'		id='Account_Email2'		name='Account_Email2'	value='<?php echo ($_POST['Account_Email2']		?? ''); ?>'>
+<label for='Account_Email'		>Email:</label>			<input type='email'		id='Account_Email'		name='Account_Email'	value='<?php echo $this->hsc(($_POST['Account_Email']??''));	?>'>
+<label for='Account_Security'	>Email2:</label>		<input type='email'		id='Account_Email2'		name='Account_Email2'	value='<?php echo $this->hsc(($_POST['Account_Email2']??''));	?>'>
 <label for='Account_Password'	>Password:</label>		<input type='password'	id='Account_Password'	name='Account_Password'	value=''>
-<label></label><div>Identity:</div>
-<label for='Account_First'		>Firstname:</label>		<input type='text'		id='Account_First'		name='Account_First'	value='<?php echo ($_POST['Account_First']		?? ''); ?>'>
-<label for='Account_Last'		>Lastname:</label>		<input type='text'		id='Account_Last'		name='Account_Last'		value='<?php echo ($_POST['Account_Last']		?? ''); ?>'>
-<label for='Account_Company'	>Company:</label>		<input type='text'		id='Account_Company'	name='Account_Company'	value='<?php echo ($_POST['Account_Company']	?? ''); ?>'>
-<label for='Account_Cell'		>Cell Phone:</label>	<input type='tel'		id='Account_Cell'		name='Account_Cell'		value='<?php echo ($_POST['Account_Cell']		?? ''); ?>'>
-<label for='Account_Phone'		>Phone:</label>			<input type='tel'		id='Account_Phone'		name='Account_Phone'	value='<?php echo ($_POST['Account_Phone']		?? ''); ?>'>
-<label></label><div>Billing:</div>
-<label for='Bill_Address'		>Address:</label>		<input type='text'		id='Bill_Address'		name='Bill_Address'		value='<?php echo ($_POST['Bill_Address']		?? ''); ?>'>
-<label for='Bill_Address2'		>Address2:</label>		<input type='text'		id='Bill_Address2'		name='Bill_Address2'	value='<?php echo ($_POST['Bill_Address2']		?? ''); ?>'>
-<label for='Bill_City'			>City:</label>			<input type='text'		id='Bill_City'			name='Bill_City'		value='<?php echo ($_POST['Bill_City']			?? ''); ?>'>
-<label for='Bill_State'			>State:</label>			<input type='text'		id='Bill_State'			name='Bill_State'		value='<?php echo ($_POST['Bill_State']			?? ''); ?>'>
-<label for='Bill_Zipcode'		>Zipcode:</label>		<input type='text'		id='Bill_Zipcode'		name='Bill_Zipcode'		value='<?php echo ($_POST['Bill_Zipcode']		?? ''); ?>'>
-<label for='Bill_Country'		>Country:</label>		<input type='text'		id='Bill_Country'		name='Bill_Country'		value='<?php echo ($_POST['Bill_Country']		?? ''); ?>'>
-<label></label><div>Shipping:</div>
-<label for='Ship_Address'		>Address:</label>		<input type='text'		id='Ship_Address'		name='Ship_Address'		value='<?php echo ($_POST['Ship_Address']		?? ''); ?>'>
-<label for='Ship_Address2'		>Address2:</label>		<input type='text'		id='Ship_Address2'		name='Ship_Address2'	value='<?php echo ($_POST['Ship_Address2']		?? ''); ?>'>
-<label for='Ship_City'			>City:</label>			<input type='text'		id='Ship_City'			name='Ship_City'		value='<?php echo ($_POST['Ship_City']			?? ''); ?>'>
-<label for='Ship_State'			>Ship_State:</label>	<input type='text'		id='Ship_State'			name='Ship_State'		value='<?php echo ($_POST['Ship_State']			?? ''); ?>'>
-<label for='Ship_Zipcode'		>Ship_Zipcode:</label>	<input type='text'		id='Ship_Zipcode'		name='Ship_Zipcode'		value='<?php echo ($_POST['Ship_Zipcode']		?? ''); ?>'>
-<label for='Ship_Country'		>Ship_Country:</label>	<input type='text'		id='Ship_Country'		name='Ship_Country'		value='<?php echo ($_POST['Ship_Country']		?? ''); ?>'>
 <label></label>											<input type='submit'	id='submit'				name='submit'			value='submit'>
 </form>
 
@@ -1324,19 +1334,15 @@ private function pagekickin(&...$vars) : ?bool {
 
 
 
-/*	SECTION WEBSERVANT: Display Webmaster application.
+/*************************************************************************************************
+SECTION WEBFILES: Display /ABCMS/Webfiles/ application.
 */
 
 
 
 
-/*	SECTION WEBPAGES: Display Webpage application.
-*/
-
-
-
-
-/*	SECTION UTILITIES: Define essential utility methods.
+/*************************************************************************************************
+SECTION UTILITIES: Define essential utility methods.
 */
 // Wrap the echo() construct to use as extension function.
 public function echo(?string &...$args) : void {
@@ -1396,6 +1402,7 @@ public function include(string $filename, ...$args) : mixed {
 	if (!file_exists($filename)) {
 		$this->error_wsod("Include does not exist.");
 	}
+	// Indistinguishable between FALSE from failed include() and FALSE from successful include() returning FALSE
 	return include($filename);
 }
 // Include once, PHP should provide a native no fault include_once() function
@@ -1452,11 +1459,223 @@ public function get_hash(?string $input): string {
 	}
 	return hash('sha256', getmyinode().getlastmod().$input);
 }
+// htmlspecialchars() wrapper
+public function hsc(?string $string): string {
+	return htmlspecialchars(($string??''), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML401, 'UTF-8');
+}
 
 
 
 
-/*	SECTION THEME: Define default webpage template.
+/*************************************************************************************************
+SECTION EMAIL: Define SMTP email utility.
+ */
+// Adapted by Claude.AI from https://github.com/arkanis/smtp_send.
+// Licensed as arkanis/smtp_send (c) 2014-2021 Stephan Soller, MIT License.
+function abcms_smtp_send(
+	string	$from,			// Envelope + header From address.
+	string	$fromName,		// Display name for the From header.
+	array	$to,			// Recipient address(es),  one required.
+	array	$cc,			// Cc address(es), included in headers + envelope.
+	array	$bcc,			// Bcc address(es), envelope only, never in headers.
+	string	$subject,		// Subject line (UTF-8, base64-encoded automatically).
+	string	$htmlBody,		// HTML body.
+	?string	$textBody,		// Optional plain-text alternative part.
+	array	$attachments,	// Absolute file paths to attachments.
+	string	$smtpServer,	// Hostname, or "tls://host" for implicit TLS (port 465).
+	int		$smtpPort,		// e.g. 587 (STARTTLS), 465 (implicit TLS), or 25.
+	array	$options = [],	// Array
+							// 'user'          => SMTP username (omit/empty to skip auth),
+							// 'pass'          => SMTP password,
+							// 'timeout'       => socket timeout seconds, default ini default_socket_timeout,
+							// 'client_domain' => EHLO identity, default gethostname(),
+							// 'ssl'           => stream SSL context options for STARTTLS, e.g. ['verify_peer'=>FALSE],
+							// 'debug'         => bool, echo the raw SMTP conversation,
+): mixed {					// TRUE if email deliver, error string otherwise
+	// Option defaults
+	$options['timeout']       ??= (int)ini_get('default_socket_timeout');
+	$options['client_domain'] ??= (gethostname() ?: 'localhost');
+	$options['ssl']           ??= [];
+	$options['debug']         ??= FALSE;
+
+	// define done() and SMTP command() functions
+	$socket = NULL;
+	$command = function (?string $line) use (&$socket, $options) {
+		if ($options['debug'] && $line !== NULL) { error_log("ABCMS SMTP > {$line}\n"); }
+		if ($line !== NULL) { fwrite($socket, "{$line}\r\n"); }
+		$status = NULL;
+		$text = [];
+		while (($rline = fgets($socket)) !== FALSE) {
+			if ($options['debug']) { error_log("ABCMS SMTP < {$rline}"); }
+			$status = substr($rline, 0, 3);
+			$text[] = trim(substr($rline, 4));
+			if (substr($rline, 3, 1) === ' ') { break; } // last line of a multi-line reply
+		}
+		if (stream_get_meta_data($socket)['timed_out']) {
+			$text[] = '(SMTP server stopped responding — read timed out)';
+			$status = NULL;
+		}
+		return [$status, $text];
+	};
+	$done = function (mixed $result) use (&$socket, $command) {
+		if ($socket) { $command('QUIT'); fclose($socket); }
+		return $result;
+	};
+
+	// Sanitize header-bound fields (defense in depth)
+	// Even though we base64-encode the subject and never let addresses touch
+	// headers unescaped, strip CR/LF from anything that lands in a header so
+	// a stray newline can never inject an extra header or command.
+	$fromName = preg_replace("/[\r\n]+/", '', $fromName);
+	$subject  = preg_replace("/[\r\n]+/", '', $subject);
+	if (empty($to)) { return $done("Email failed: at least one 'to' recipient is required."); }
+
+	// SMTP command-injection guard on every address
+	// If an address contains an unescaped ">" it could break out of
+	// "RCPT TO:<...>" and inject further SMTP commands.
+	$allRecipients = array_unique(array_merge($to, $cc, $bcc));
+	foreach (array_merge([$from], $allRecipients) as $addr) {
+		// if address does not contains '>' then cannot break 'RCPT TO:<...>' and inject SMTP commands.
+		if (FALSE === strpos($addr, '>')) { continue; }
+		// otherwise test if properly quoted per RFC 5321, e.g. "foo\>bar"@example.com
+		if (!preg_match('/^"(?:\\\\.|[^\\\\"])*"@[^@>]+$/', $addr)) { return $done("Email failed: unsafe address rejected: {$addr}"); }
+	}
+
+	// Connect to SMTP socket
+	if (!($socket = @fsockopen($smtpServer, $smtpPort, $errno, $errstr, $options['timeout']))) {
+		return $done("Email failed: SMTP connection failed: {$errstr} ({$errno})");
+	}
+	if (!stream_set_timeout($socket, $options['timeout'])) { // prevent hangs on every read/write
+		return $done("Email failed: set stream timeout failed.");
+	}
+
+	// SMTP Handshake
+	[$status] = $command(NULL); // consume greeting
+	if ($status != 220) { return $done("Email failed: no greeting from SMTP server."); }
+	[$status, $capabilities] = $command('EHLO ' . $options['client_domain']);
+	if ($status != 250) { return $done("Email failed: EHLO rejected."); }
+
+	// STARTTLS if offered and not already an implicit-TLS transport
+	if (in_array('STARTTLS', $capabilities, TRUE)) {
+		[$status] = $command('STARTTLS');
+		if ($status == 220) {
+			stream_context_set_option($socket, ['ssl' => $options['ssl']]);
+			if (!stream_socket_enable_crypto($socket, TRUE, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
+				return $done("Email failed: TLS negotiation failed.");
+			}
+			if (!stream_set_timeout($socket, $options['timeout'])) { // redo just in case
+				return $done("Email failed: set stream timeout failed.");
+			}
+			[$status, $capabilities] = $command('EHLO ' . $options['client_domain']);
+			if ($status != 250) { return $done("Email failed: EHLO after STARTTLS rejected."); }
+		}
+	}
+
+	// AUTH (PLAIN preferred, LOGIN fallback), only if credentials given
+	if (!empty($options['user']) && isset($options['pass'])) {
+		$authLine = current(preg_grep('/^auth /i', $capabilities)) ?: '';
+		$methods = array_slice(preg_split('/\s+/', strtolower($authLine)), 1);
+		if (in_array('plain', $methods, TRUE)) {
+			[$status] = $command('AUTH PLAIN ' . base64_encode("\0{$options['user']}\0{$options['pass']}"));
+			if ($status != 235) { return $done('Email failed: AUTH PLAIN rejected.'); }
+		}
+		else if (in_array('login', $methods, TRUE)) {
+			[$status] = $command('AUTH LOGIN');
+			if ($status != 334) { return $done('Email failed: AUTH LOGIN not accepted.'); }
+			[$status] = $command(base64_encode($options['user']));
+			if ($status != 334) { return $done('Email failed: AUTH username rejected.'); }
+			[$status] = $command(base64_encode($options['pass']));
+			if ($status != 235) { return $done('Email failed: AUTH password rejected.'); }
+		}
+		else {
+			return $done('Email failed: server offers no supported AUTH method.');
+		}
+	}
+
+	// Envelope: MAIL FROM + RCPT TO for to+cc+bcc combined
+	[$status] = $command("MAIL FROM:<{$from}>");
+	if ($status != 250) { return $done('Email failed: MAIL FROM rejected.'); }
+	foreach ($allRecipients as $recipient) {
+		[$status] = $command("RCPT TO:<{$recipient}>");
+		if ($status != 250) { return $done("Email failed: RCPT TO rejected for {$recipient}."); }
+	}
+	[$status] = $command('DATA');
+	if ($status != 354) { return $done('Email failed: DATA not accepted.'); }
+
+	// Build MIME message
+	$mixedBoundary = 'abcms_mixed_' . bin2hex(random_bytes(16));
+	$altBoundary   = 'abcms_alt_'   . bin2hex(random_bytes(16));
+	// Header begins
+	$headers  = "Date: " . date('r') . "\r\n";
+	$headers .= "From: =?UTF-8?B?" . base64_encode($fromName) . "?= <{$from}>\r\n";
+	$headers .= 'To: ' . implode(', ', array_map(fn($r) => "<{$r}>", $to)) . "\r\n";
+	if (!empty($cc)) {
+		$headers .= 'Cc: ' . implode(', ', array_map(fn($r) => "<{$r}>", $cc)) . "\r\n";
+	}
+	// Bcc intentionally omitted from headers; recipients already got RCPT TO above.
+	$headers .= "Subject: =?UTF-8?B?" . base64_encode($subject) . "?=\r\n";
+	$headers .= "Message-ID: <" . bin2hex(random_bytes(16)) . '@' . preg_replace('#^tls://#', '', $smtpServer) . ">\r\n";
+	$headers .= "MIME-Version: 1.0\r\n";
+	$headers .= "Content-Type: multipart/mixed; boundary=\"{$mixedBoundary}\"\r\n";
+	// text/html (with optional text/plain alternative)
+	$body = "--{$mixedBoundary}\r\n";
+	if ($textBody !== NULL) {
+		$body .= "Content-Type: multipart/alternative; boundary=\"{$altBoundary}\"\r\n\r\n";
+		$body .= "--{$altBoundary}\r\n";
+		$body .= "Content-Type: text/plain; charset=UTF-8\r\n";
+		$body .= "Content-Transfer-Encoding: base64\r\n\r\n";
+		$body .= chunk_split(base64_encode($textBody));
+		$body .= "--{$altBoundary}\r\n";
+		$body .= "Content-Type: text/html; charset=UTF-8\r\n";
+		$body .= "Content-Transfer-Encoding: base64\r\n\r\n";
+		$body .= chunk_split(base64_encode($htmlBody));
+		$body .= "--{$altBoundary}--\r\n";
+	}
+	else {
+		$body .= "Content-Type: text/html; charset=UTF-8\r\n";
+		$body .= "Content-Transfer-Encoding: base64\r\n\r\n";
+		$body .= chunk_split(base64_encode($htmlBody));
+	}
+
+	// Add attachments
+	foreach ($attachments as $filePath) {
+		if (!is_file($filePath) || !is_readable($filePath)) { return $done("Email failed: attachment not readable: {$filePath}"); }
+		$fileName = preg_replace("/[\r\n]+/", '', basename($filePath));
+		$fileName = str_replace('"', '', $fileName); // keep the Content-Disposition value well-formed
+		$content  = file_get_contents($filePath);
+		if ($content === FALSE) { return $done("Email failed: could not read attachment contents: {$filePath}"); }
+		$finfo    = finfo_open(FILEINFO_MIME_TYPE);
+		$mimeType = ($finfo ? finfo_file($finfo, $filePath) : FALSE) ?: 'application/octet-stream';
+		if ($finfo) finfo_close($finfo);
+		$body .= "--{$mixedBoundary}\r\n";
+		$body .= "Content-Type: {$mimeType}; name=\"{$fileName}\"\r\n";
+		$body .= "Content-Transfer-Encoding: base64\r\n";
+		$body .= "Content-Disposition: attachment; filename=\"{$fileName}\"\r\n\r\n";
+		$body .= chunk_split(base64_encode($content));
+	}
+	$body .= "--{$mixedBoundary}--\r\n";
+
+	// Normalize line endings and dot-stuff in the DATA section (RFC 5321 §4.5.2)
+	$payload = $headers . "\r\n" . $body;
+	$payload = preg_replace("/\r\n|\r|\n/", "\r\n", $payload);
+	$payload = preg_replace("/^\./m", '..', $payload);
+	if (substr($payload, -2) !== "\r\n") $payload .= "\r\n";
+
+	// Write the email
+	if ($options['debug']) { error_log("ABCMS SMTP > [message body omitted, " . strlen($payload) . " bytes]"); }
+	fwrite($socket, $payload);
+	[$status] = $command('.');
+	if ($status != 250) { return $done('Email failed: server rejected the message body.'); }
+
+	// Done
+	return $done(TRUE);
+}
+
+
+
+
+/*************************************************************************************************
+SECTION THEME: Define default webpage template.
 */
 public function htmldoc(	// Default theme function and method
 	bool	$admin	= FALSE,// default or admin
@@ -1473,13 +1692,67 @@ $title = (isset($_SERVER['HTTP_HOST']) && FALSE !== filter_var($_SERVER['HTTP_HO
 <html lang='en'>
 <head>
 <meta charset='utf-8'>
-<title><?php echo $title; ?></title>
-<meta name='description' content='<?php echo $title; ?>'>
+<title><?php echo $this->hsc($title); ?></title>
+<meta name='description' content='<?php echo $this->hsc($title); ?>'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
-<meta name='apple-mobile-web-app-capable' content='yes'>
+<meta name='mobile-web-app-capable' content='yes'>
+<meta name="theme-color" content="#404040">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+<link rel="icon" href="data:,">
 <style>
 a:hover {
 	color: #0096FF !important;
+}
+body {
+	color: #000000;
+	font-family: Arial, sans-serif;
+	margin: 0;
+	padding: 0;
+}
+#page {
+	background-color: #F0F0F0;
+	display: flex;
+	flex-direction: column;
+	min-height: 100vh;
+	margin: 0;
+}
+header {
+	color: #FFFFFF;
+	background-color: #404040;
+	text-align: center;
+	padding: 5px 2%;
+	width: 96%;
+	min-width: 360px;
+	max-width: 1024px;
+	border-radius: 7px;
+	margin: 5px auto;
+}
+main {
+	background-color: #FFFFFF;
+	flex: 1;
+	height: 100%;
+	width: 96%;
+	min-width: 360px;
+	max-width: 1024px;
+	margin: 0 auto;
+	padding: 12px 2%;
+	border-radius: 7px;
+}
+footer {
+	color: #FFFFFF;
+	background-color: #404040;
+	text-align: center;
+	padding: 3px 2%;
+	font-weight: 700;
+	width: 96%;
+	min-width: 360px;
+	max-width: 1024px;
+	border-radius: 7px;
+	margin: 5px auto;
+}
+header a, footer a {
+	color: #FFFFFF;
+	text-decoration: none;
 }
 form.form-grid {
 	display: grid;
@@ -1492,60 +1765,10 @@ label {
 	text-align: right;
 }
 input:required {
-	border: 1px solid red;
-}
-#head a, #foot a {
-	text-decoration: none;
-	color: white;
-}
-body {
-	margin: 0;
-	padding: 0;
-	font-family: Arial,sans-serif;
-}
-#main {
-	display: flex;
-	flex-direction: column;
-	min-height: 100vh;
-	margin: 0;
-	background-color: #F0F0F0;
-}
-#head {
-	background-color: #404040;
-	color: #FFFFFF;
-	text-align: center;
-	padding: 5px 2%;
-	width: 96%;
-	min-width: 360px;
-	max-width: 1024px;
-	border-radius: 7px;
-	margin: 5px auto;
-}
-#page {
-	flex: 1;
-	height: 100%;
-	width: 96%;
-	min-width: 360px;
-	max-width: 1024px;
-	margin: 0 auto;
-	padding: 12px 2%;
-	background-color: #FFFFFF;
-	border-radius: 7px;
-}
-#foot {
-	background-color: #404040;
-	color: #FFFFFF;
-	text-align: center;
-	padding: 3px 2%;
-	font-weight: 700;
-	width: 96%;
-	min-width: 360px;
-	max-width: 1024px;
-	border-radius: 7px;
-	margin: 5px auto;
+	border: 1px solid blue;
 }
 @media screen and (max-width: 1065px) {
-#head, #page, #foot {
+header, main, footer {
 	border-radius: 0;
 	margin: 0;
 }
@@ -1553,30 +1776,30 @@ body {
 <?php
 if ($admin) {
 ?>
-#main {
+#page {
+	border-color: #404040;
 	border-width: 0 25px 0 25px;
 	border-style: solid;
-	border-color: #404040;
 }
-#head {
+header {
 	max-width: 100%;
 	border-radius: 0;
 	margin: 0 auto 5px auto;
 }
-#page {
+main {
 	border-radius: 0;
 }
-#foot {
+footer {
 	max-width: 100%;
 	border-radius: 0;
 	margin: 5px auto 0 auto;
 }
 @media screen and (max-width: 1115px) {
-#head {
+header {
 	border-radius: 0;
 	margin: 0;
 }
-#foot {
+footer {
 	border-radius: 0;
 	margin: 0;
 }
@@ -1593,14 +1816,14 @@ $this->output('/htmldefault_js', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLI
 </script>
 </head>
 <body>
-<div id='main'>
-<div id='head'>
+<div id='page'>
+<header class='page-container'>
 <?php
 if (!$head) { $head = "<h2 style='font-size: 1.5em'>$title</h2>"; }
 $this->output('/htmldefault_head', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($head));
 ?>
-</div>
-<div id='page'>
+</header>
+<main class='page-container'>
 <?php
 if (!$page) { $page = <<<EOF
 <h4>Status</h4>
@@ -1615,13 +1838,13 @@ EOF;
 $this->output('/htmldefault_page', 'CLI-GET-POST', 'abcms->pageerror', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($page));
 $this->html_debug();
 ?>
-</div>
-<div id='foot'>
+</main>
+<footer class='page-container'>
 <?php
 if (!$foot) {	$foot = "<a href='/abcms/contact'>Contact</a>"; }
 $this->output('/htmldefault_foot', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($foot));
 ?>
-</div>
+</footer>
 </div>
 </body>
 <?php
@@ -1629,16 +1852,17 @@ return NULL; // done
 }
 
 
+
 // end object
 }; }
-
 return $_abcms;
 }
 
 
 
 
-/*	SECTION ADDITIONAL: Define global functions beyond abcms().
+/*************************************************************************************************
+SECTION ADDITIONAL: Define global functions beyond abcms().
 */
 // Coredump global function in case $abcms instantiation fails.
 function abcms_dump(
