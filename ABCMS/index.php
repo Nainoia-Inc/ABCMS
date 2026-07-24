@@ -583,6 +583,11 @@ private function set_settings(
 	$this->compiles['core']['session_folder']	= (realpath(ABCMS_SESSIONS) ?: ABCMS_SESSIONS); // My session folder
 	$this->compiles['core']['session_cookie']	= $this->get_hash('session_cookie'); // My session cookie name
 	$this->compiles['core']['session_logins']	= $this->get_hash('session_logins'); // My login cookie name
+	$this->compiles['core']['smtp_host']		= NULL; // SMTP server
+	$this->compiles['core']['smtp_port']		= NULL; // SMTP port
+	$this->compiles['core']['smtp_user']		= NULL; // SMTP username
+	$this->compiles['core']['smtp_pass']		= NULL; // SMTP password
+	$this->compiles['core']['smtp_ehlo']		= NULL; // SMTP EHLO
 	// Register variables
 	$this->input_varpath('debug',	'bool',		ABCMS_ROLE_ADMINS);
 	$this->input_varget('debug',	'bool',		ABCMS_ROLE_ADMINS);
@@ -1265,11 +1270,31 @@ if (!$this->session_start(1)) {
 	return NULL;
 }
 else if ($this->formhuman && ($_POST['Account_Password']??'') == 'abcms' ) {
-	echo "Submittal success!";
 	$this->set_database('user', $_POST);
 	$_SESSION[ABCMS_SES]['user'] = $this->get_database('user', $_POST);
 	$_SESSION[ABCMS_SES]['session_logins'] = $this->get_uniq();
 	$this->set_cookie($this->settings['core']['session_logins'], $_SESSION[ABCMS_SES]['session_logins'], $_SESSION[ABCMS_SES]['valid']['create'] + ABCMS_SES_LIFE);
+
+	$email = $this->smtp(
+		'jeff@dgjc.org',										// From
+		'Jeff Martin',											// Name
+		['jeff@dgjc.org'],										// Recipients
+		['jmartin@prwa.com'],									// CCs
+		['nainoia-inc@signedon.net'],							// BCCs
+		'ABCMS test login email',								// Subject
+		'<h2>Success!</h2><p>Yay!</p><br><br><br>',				// HTML body
+		'Success!\r\n\r\nWe did it it!\r\n',					// Plain text
+		[__FILE__],												// Attachments
+		[	'smtp'	=> $this->hsc(($_POST['Account_One']??'')),	// SMTP host
+			'port'	=> 465,										// SMTP port
+			'user'	=> $this->hsc(($_POST['Account_Two']??'')),	// SMTP user
+			'pass'	=> $this->hsc(($_POST['Account_Tre']??'')),	// SMTP pass
+			'ehlo'	=> $this->boots['urldomain'],				// SMTP EHLO
+			'debug'	=> TRUE,									// Debug
+		],
+	);
+
+	echo "Submittal success! ({$email})";
 }
 else if ($this->formhuman) {
 	$this->set_cookie($this->settings['core']['session_logins'], '', 1);
@@ -1285,6 +1310,9 @@ else { ; }
 <form action='' method='post' accept-charset='UTF-8' class='form-grid'>
 <label for='Account_Email'		>Email:</label>			<input type='email'		id='Account_Email'		name='Account_Email'	value='<?php echo $this->hsc(($_POST['Account_Email']??''));	?>'>
 <label for='Account_Security'	>Email2:</label>		<input type='email'		id='Account_Email2'		name='Account_Email2'	value='<?php echo $this->hsc(($_POST['Account_Email2']??''));	?>'>
+<label for='Account_Security'	>One:</label>			<input type='text'		id='Account_One'		name='Account_One'		value='<?php echo $this->hsc(($_POST['Account_One']??''));		?>'>
+<label for='Account_Security'	>Two:</label>			<input type='text'		id='Account_Two'		name='Account_Two'		value='<?php echo $this->hsc(($_POST['Account_Two']??''));		?>'>
+<label for='Account_Security'	>Tre:</label>			<input type='text'		id='Account_Tre'		name='Account_Tre'		value='<?php echo $this->hsc(($_POST['Account_Tre']??''));		?>'>
 <label for='Account_Password'	>Password:</label>		<input type='password'	id='Account_Password'	name='Account_Password'	value=''>
 <label></label>											<input type='submit'	id='submit'				name='submit'			value='submit'>
 </form>
@@ -1472,203 +1500,236 @@ SECTION EMAIL: Define SMTP email utility.
  */
 // Adapted by Claude.AI from https://github.com/arkanis/smtp_send.
 // Licensed as arkanis/smtp_send (c) 2014-2021 Stephan Soller, MIT License.
-function abcms_smtp_send(
-	string	$from,			// Envelope + header From address.
-	string	$fromName,		// Display name for the From header.
-	array	$to,			// Recipient address(es),  one required.
-	array	$cc,			// Cc address(es), included in headers + envelope.
-	array	$bcc,			// Bcc address(es), envelope only, never in headers.
-	string	$subject,		// Subject line (UTF-8, base64-encoded automatically).
-	string	$htmlBody,		// HTML body.
-	?string	$textBody,		// Optional plain-text alternative part.
-	array	$attachments,	// Absolute file paths to attachments.
-	string	$smtpServer,	// Hostname, or "tls://host" for implicit TLS (port 465).
-	int		$smtpPort,		// e.g. 587 (STARTTLS), 465 (implicit TLS), or 25.
-	array	$options = [],	// Array
-							// 'user'          => SMTP username (omit/empty to skip auth),
-							// 'pass'          => SMTP password,
-							// 'timeout'       => socket timeout seconds, default ini default_socket_timeout,
-							// 'client_domain' => EHLO identity, default gethostname(),
-							// 'ssl'           => stream SSL context options for STARTTLS, e.g. ['verify_peer'=>FALSE],
-							// 'debug'         => bool, echo the raw SMTP conversation,
-): mixed {					// TRUE if email deliver, error string otherwise
+function smtp(
+	string	$from,		// Envelope + header from address
+	string	$name,		// Display name for from header
+	array	$to,		// Recipient addresses
+	?array	$cc,		// Cc addresses, included in headers + envelope
+	?array	$bcc,		// Bcc addresses, envelope only, never headers
+	string	$subject,	// Subject line, UTF-8 & base64-encoded automatically
+	string	$html,		// HTML body
+	?string	$text,		// Optional plain-text alternative
+	?array	$attach,	// Absolute file paths to attachments
+	array	$options=[],// Array
+						// 'smtp'	=> Hostname, 'tcp://host' (587), or 'ssl://host' (port 465)
+						// 'port'	=> 587 (STARTTLS/explicit TLS), 465 (SSL/implicit TLS), or 25
+						// 'user'	=> SMTP username, empty to skip auth
+						// 'pass'	=> SMTP password
+						// 'time'	=> socket timeout seconds, default php default_socket_timeout
+						// 'ehlo'	=> EHLO identity
+						// 'ssl'	=> stream SSL context options for STARTTLS, ie. ['verify_peer'=>FALSE]
+						// 'debug'	=> bool, log everything
+): mixed {				// TRUE if email delivered, error string otherwise
 	// Option defaults
-	$options['timeout']       ??= (int)ini_get('default_socket_timeout');
-	$options['client_domain'] ??= (gethostname() ?: 'localhost');
-	$options['ssl']           ??= [];
-	$options['debug']         ??= FALSE;
+	$options['smtp']	??= ($this->settings['core']['smtp_host']??('ssl://'.$this->boots['urldomain']));
+	$options['port']	??= ($this->settings['core']['smtp_port']??465);
+	$options_user		= ($options['user']??($this->settings['core']['smtp_user']??NULL)); unset($options['user']);
+	$options_pass		= ($options['pass']??($this->settings['core']['smtp_pass']??NULL)); unset($options['pass']);
+	$options['ehlo']	??= ($this->settings['core']['smtp_ehlo']??$this->boots['urldomain']);
+	$options['time']	??= (int)ini_get('default_socket_timeout');
+	$options['ssl']		??= [];
+	$options['debug']	??= FALSE;
+	$log = "\r\nABCMS SMTP BEGIN: from={$from}"; // log
 
 	// define done() and SMTP command() functions
 	$socket = NULL;
-	$command = function (?string $line) use (&$socket, $options) {
-		if ($options['debug'] && $line !== NULL) { error_log("ABCMS SMTP > {$line}\n"); }
+	$command = function (?string $line, $logit = TRUE) use (&$socket, &$log, $options) {
+		if ($logit) { $log .= "\r\nABCMS SMTP > {$line}"; } // log
 		if ($line !== NULL) { fwrite($socket, "{$line}\r\n"); }
 		$status = NULL;
 		$text = [];
 		while (($rline = fgets($socket)) !== FALSE) {
-			if ($options['debug']) { error_log("ABCMS SMTP < {$rline}"); }
+			$log .= "\r\nABCMS SMTP < {$rline}"; // log
 			$status = substr($rline, 0, 3);
 			$text[] = trim(substr($rline, 4));
 			if (substr($rline, 3, 1) === ' ') { break; } // last line of a multi-line reply
 		}
 		if (stream_get_meta_data($socket)['timed_out']) {
-			$text[] = '(SMTP server stopped responding — read timed out)';
+			$log .= "\r\nABCMS SMTP TIMEOUT: server stopped responding"; // log
 			$status = NULL;
 		}
 		return [$status, $text];
 	};
-	$done = function (mixed $result) use (&$socket, $command) {
+	$fail = function (string $result) use (&$socket, $command, &$log) {
 		if ($socket) { $command('QUIT'); fclose($socket); }
+		$this->error_log($log."\r\nABCMS SMTP FAIL: {$result}");
 		return $result;
 	};
+
+	// configuration abuse
+	if (empty($options_user)) {
+		if (!preg_match("/^(tcp://|tls://|ssl://|)(127\.0\.0\.1|localhost|::1|\[::1\])$/i", $options['smtp']))  { return $fail("Unauthenticated email can only SMTP from same server."); }
+		if (!preg_match("/^[^@]+@([a-z0-9-]+\.)*".preg_quote($this->boots['urldomain'], '/')."$/i", $from))  { return $fail("Unauthenticated email 'From' domain only from same domain."); }
+	}
 
 	// Sanitize header-bound fields (defense in depth)
 	// Even though we base64-encode the subject and never let addresses touch
 	// headers unescaped, strip CR/LF from anything that lands in a header so
 	// a stray newline can never inject an extra header or command.
-	$fromName = preg_replace("/[\r\n]+/", '', $fromName);
+	$name = preg_replace("/[\r\n]+/", '', $name);
 	$subject  = preg_replace("/[\r\n]+/", '', $subject);
-	if (empty($to)) { return $done("Email failed: at least one 'to' recipient is required."); }
 
 	// SMTP command-injection guard on every address
 	// If an address contains an unescaped ">" it could break out of
 	// "RCPT TO:<...>" and inject further SMTP commands.
-	$allRecipients = array_unique(array_merge($to, $cc, $bcc));
+	if (empty($to)) { return $fail("Email requires at least one recipient."); }
+	$allRecipients = array_unique(array_merge($to, ($cc??[]), ($bcc??[])));
 	foreach (array_merge([$from], $allRecipients) as $addr) {
+		// validate email
+		if (!filter_var($addr, FILTER_VALIDATE_EMAIL)) { return $fail("Invalid email address rejected: '{$addr}'."); }
+		// newlines allow command injection
+		if (preg_match("/[\r\n]+/", $addr)) { return $fail("Unsafe email address rejected: '{$addr}'."); }
 		// if address does not contains '>' then cannot break 'RCPT TO:<...>' and inject SMTP commands.
-		if (FALSE === strpos($addr, '>')) { continue; }
+		//if (FALSE === strpos($addr, '>')) { continue; }
 		// otherwise test if properly quoted per RFC 5321, e.g. "foo\>bar"@example.com
-		if (!preg_match('/^"(?:\\\\.|[^\\\\"])*"@[^@>]+$/', $addr)) { return $done("Email failed: unsafe address rejected: {$addr}"); }
+		//if (!preg_match('/^"(?:\\\\.|[^\\\\"])*"@[^@>]+$/', $addr)) { return $fail("Unsafe email address rejected: '{$addr}'."); }
 	}
+	$log .= "\r\nABCMS SMTP RECIPIENTS:\r\n".implode("\r\n", $allRecipients); // log
 
 	// Connect to SMTP socket
-	if (!($socket = @fsockopen($smtpServer, $smtpPort, $errno, $errstr, $options['timeout']))) {
-		return $done("Email failed: SMTP connection failed: {$errstr} ({$errno})");
+	if (!($socket = @fsockopen($options['smtp'], $options['port'], $errno, $errstr, $options['time']))) {
+		return $fail("Email SMTP connection failed: {$errstr} ({$errno}).");
 	}
-	if (!stream_set_timeout($socket, $options['timeout'])) { // prevent hangs on every read/write
-		return $done("Email failed: set stream timeout failed.");
+	if (!stream_set_timeout($socket, $options['time'])) { // prevent hangs on every read/write
+		return $fail("Email set stream timeout failed.");
 	}
+	$log .= "\r\nABCMS SMTP SOCKET:\r\n".print_r($socket,TRUE); // log
 
 	// SMTP Handshake
 	[$status] = $command(NULL); // consume greeting
-	if ($status != 220) { return $done("Email failed: no greeting from SMTP server."); }
-	[$status, $capabilities] = $command('EHLO ' . $options['client_domain']);
-	if ($status != 250) { return $done("Email failed: EHLO rejected."); }
+	if ($status != 220) { return $fail("Email failed with no greeting from SMTP server."); }
+	[$status, $capabilities] = $command('EHLO ' . $options['ehlo']);
+	if ($status != 250) { return $fail("Email failed with rejected EHLO."); }
+	$log .= "\r\nABCMS SMTP HANDSHAKE:\r\n".print_r($capabilities,TRUE); // log
 
 	// STARTTLS if offered and not already an implicit-TLS transport
-	if (in_array('STARTTLS', $capabilities, TRUE)) {
+	$encrypted = (FALSE === stripos($options['smtp'],'ssl://') ? FALSE : TRUE);
+	if (!$encrypted && in_array('STARTTLS', $capabilities, TRUE)) {
 		[$status] = $command('STARTTLS');
 		if ($status == 220) {
 			stream_context_set_option($socket, ['ssl' => $options['ssl']]);
 			if (!stream_socket_enable_crypto($socket, TRUE, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
-				return $done("Email failed: TLS negotiation failed.");
+				return $fail("Email failed the TLS negotiation.");
 			}
-			if (!stream_set_timeout($socket, $options['timeout'])) { // redo just in case
-				return $done("Email failed: set stream timeout failed.");
+			if (!stream_set_timeout($socket, $options['time'])) { // redo just in case
+				return $fail("Email set 2nd stream timeout failed.");
 			}
-			[$status, $capabilities] = $command('EHLO ' . $options['client_domain']);
-			if ($status != 250) { return $done("Email failed: EHLO after STARTTLS rejected."); }
+			[$status, $capabilities] = $command('EHLO ' . $options['ehlo']);
+			if ($status != 250) { return $fail("Email failed with rejected EHLO after STARTTLS."); }
+			$encrypted = TRUE; // security upgraded
 		}
+		else { return $fail("Email STARTTLS security failed."); }
+		$log .= "\r\nABCMS SMTP STARTTLS: success={$status}"; // log
 	}
 
 	// AUTH (PLAIN preferred, LOGIN fallback), only if credentials given
-	if (!empty($options['user']) && isset($options['pass'])) {
+	if (!empty($options_user) && !$encrypted) { return $fail("Email unencrypted authentication refused."); }
+	if (!empty($options_user) && isset($options_pass)) {
 		$authLine = current(preg_grep('/^auth /i', $capabilities)) ?: '';
 		$methods = array_slice(preg_split('/\s+/', strtolower($authLine)), 1);
 		if (in_array('plain', $methods, TRUE)) {
-			[$status] = $command('AUTH PLAIN ' . base64_encode("\0{$options['user']}\0{$options['pass']}"));
-			if ($status != 235) { return $done('Email failed: AUTH PLAIN rejected.'); }
+			[$status] = $command('AUTH PLAIN ' . base64_encode("\0{$options_user}\0{$options_pass}"), FALSE);
+			if ($status != 235) { return $fail('Email AUTH PLAIN rejected.'); }
 		}
 		else if (in_array('login', $methods, TRUE)) {
 			[$status] = $command('AUTH LOGIN');
-			if ($status != 334) { return $done('Email failed: AUTH LOGIN not accepted.'); }
-			[$status] = $command(base64_encode($options['user']));
-			if ($status != 334) { return $done('Email failed: AUTH username rejected.'); }
-			[$status] = $command(base64_encode($options['pass']));
-			if ($status != 235) { return $done('Email failed: AUTH password rejected.'); }
+			if ($status != 334) { return $fail('Email AUTH LOGIN not accepted.'); }
+			[$status] = $command(base64_encode($options_user), FALSE);
+			if ($status != 334) { return $fail('Email AUTH username rejected.'); }
+			[$status] = $command(base64_encode($options_pass), FALSE);
+			if ($status != 235) { return $fail('Email AUTH password rejected.'); }
 		}
 		else {
-			return $done('Email failed: server offers no supported AUTH method.');
+			return $fail('Email server offers no supported AUTH method.');
 		}
+		$log .= "\r\nABCMS SMTP AUTHENTICATED: success={$status}"; // log
 	}
 
 	// Envelope: MAIL FROM + RCPT TO for to+cc+bcc combined
 	[$status] = $command("MAIL FROM:<{$from}>");
-	if ($status != 250) { return $done('Email failed: MAIL FROM rejected.'); }
+	if ($status != 250) { return $fail('Email MAIL FROM rejected.'); }
 	foreach ($allRecipients as $recipient) {
 		[$status] = $command("RCPT TO:<{$recipient}>");
-		if ($status != 250) { return $done("Email failed: RCPT TO rejected for {$recipient}."); }
+		if ($status != 250) { return $fail("Email RCPT TO rejected for '{$recipient}'."); }
 	}
 	[$status] = $command('DATA');
-	if ($status != 354) { return $done('Email failed: DATA not accepted.'); }
+	if ($status != 354) { return $fail('Email DATA not accepted.'); }
+	$log .= "\r\nABCMS SMTP ENVELOPE: success={$status}"; // log
 
 	// Build MIME message
 	$mixedBoundary = 'abcms_mixed_' . bin2hex(random_bytes(16));
 	$altBoundary   = 'abcms_alt_'   . bin2hex(random_bytes(16));
 	// Header begins
 	$headers  = "Date: " . date('r') . "\r\n";
-	$headers .= "From: =?UTF-8?B?" . base64_encode($fromName) . "?= <{$from}>\r\n";
+	$headers .= "From: =?UTF-8?B?" . base64_encode($name) . "?= <{$from}>\r\n";
 	$headers .= 'To: ' . implode(', ', array_map(fn($r) => "<{$r}>", $to)) . "\r\n";
 	if (!empty($cc)) {
 		$headers .= 'Cc: ' . implode(', ', array_map(fn($r) => "<{$r}>", $cc)) . "\r\n";
 	}
 	// Bcc intentionally omitted from headers; recipients already got RCPT TO above.
 	$headers .= "Subject: =?UTF-8?B?" . base64_encode($subject) . "?=\r\n";
-	$headers .= "Message-ID: <" . bin2hex(random_bytes(16)) . '@' . preg_replace('#^tls://#', '', $smtpServer) . ">\r\n";
+	$headers .= "Message-ID: <" . bin2hex(random_bytes(16)) . '@' . preg_replace('#^(tls|ssl)://#', '', $options['smtp']) . ">\r\n";
 	$headers .= "MIME-Version: 1.0\r\n";
 	$headers .= "Content-Type: multipart/mixed; boundary=\"{$mixedBoundary}\"\r\n";
 	// text/html (with optional text/plain alternative)
 	$body = "--{$mixedBoundary}\r\n";
-	if ($textBody !== NULL) {
+	if ($text !== NULL) {
 		$body .= "Content-Type: multipart/alternative; boundary=\"{$altBoundary}\"\r\n\r\n";
 		$body .= "--{$altBoundary}\r\n";
 		$body .= "Content-Type: text/plain; charset=UTF-8\r\n";
 		$body .= "Content-Transfer-Encoding: base64\r\n\r\n";
-		$body .= chunk_split(base64_encode($textBody));
+		$body .= chunk_split(base64_encode($text));
 		$body .= "--{$altBoundary}\r\n";
 		$body .= "Content-Type: text/html; charset=UTF-8\r\n";
 		$body .= "Content-Transfer-Encoding: base64\r\n\r\n";
-		$body .= chunk_split(base64_encode($htmlBody));
+		$body .= chunk_split(base64_encode($html));
 		$body .= "--{$altBoundary}--\r\n";
 	}
 	else {
 		$body .= "Content-Type: text/html; charset=UTF-8\r\n";
 		$body .= "Content-Transfer-Encoding: base64\r\n\r\n";
-		$body .= chunk_split(base64_encode($htmlBody));
+		$body .= chunk_split(base64_encode($html));
 	}
+	$log .= "\r\nABCMS SMTP MESSAGE: success"; // log
 
 	// Add attachments
-	foreach ($attachments as $filePath) {
-		if (!is_file($filePath) || !is_readable($filePath)) { return $done("Email failed: attachment not readable: {$filePath}"); }
+	foreach (($attach??[]) as $filePath) {
+		if (!is_file($filePath) || !is_readable($filePath)) { return $fail("Email attachment file not readable: '{$filePath}'."); }
 		$fileName = preg_replace("/[\r\n]+/", '', basename($filePath));
 		$fileName = str_replace('"', '', $fileName); // keep the Content-Disposition value well-formed
+		$fileNameEncoded = rawurlencode($fileName);
 		$content  = file_get_contents($filePath);
-		if ($content === FALSE) { return $done("Email failed: could not read attachment contents: {$filePath}"); }
+		if ($content === FALSE) { return $fail("Email attachment contents not readable: '{$filePath}'."); }
 		$finfo    = finfo_open(FILEINFO_MIME_TYPE);
 		$mimeType = ($finfo ? finfo_file($finfo, $filePath) : FALSE) ?: 'application/octet-stream';
 		if ($finfo) finfo_close($finfo);
 		$body .= "--{$mixedBoundary}\r\n";
 		$body .= "Content-Type: {$mimeType}; name=\"{$fileName}\"\r\n";
 		$body .= "Content-Transfer-Encoding: base64\r\n";
-		$body .= "Content-Disposition: attachment; filename=\"{$fileName}\"\r\n\r\n";
+		$body .= "Content-Disposition: attachment; filename=\"{$fileName}\"; filename*=utf-8''{$fileNameEncoded}\r\n\r\n";
 		$body .= chunk_split(base64_encode($content));
 	}
 	$body .= "--{$mixedBoundary}--\r\n";
+	$log .= "\r\nABCMS SMTP ATTACHMENTS: success"; // log
 
 	// Normalize line endings and dot-stuff in the DATA section (RFC 5321 §4.5.2)
 	$payload = $headers . "\r\n" . $body;
 	$payload = preg_replace("/\r\n|\r|\n/", "\r\n", $payload);
 	$payload = preg_replace("/^\./m", '..', $payload);
 	if (substr($payload, -2) !== "\r\n") $payload .= "\r\n";
+	$log .= "\r\nABCMS SMTP NORMALIZE: success"; // log
 
 	// Write the email
-	if ($options['debug']) { error_log("ABCMS SMTP > [message body omitted, " . strlen($payload) . " bytes]"); }
-	fwrite($socket, $payload);
+	if (FALSE === fwrite($socket, $payload)) { return $fail('Email SMTP send failed.');	}
 	[$status] = $command('.');
-	if ($status != 250) { return $done('Email failed: server rejected the message body.'); }
+	if ($status != 250) { return $fail('Email server rejected the message body.'); }
+	$log .= "\r\nABCMS SMTP SEND: status={$status} bytes=".strlen($payload); // log
 
-	// Done
-	return $done(TRUE);
+	// Finish
+	$command('QUIT');
+	fclose($socket);
+	if ($options['debug']) { $this->error_log($log."\r\nABCMS SMTP EXIT: success"); }
+	return TRUE;
 }
 
 
