@@ -28,7 +28,9 @@ const ABCMS_REGEX_PATH	= "/^(\/[^\/]*)(\/.+)?$/u";
 const ABCMS_REGEX_URLV	= "/\/([A-Za-z0-9\-_.~]+)=([A-Za-z0-9\-_.~]+)/u";
 const ABCMS_REGEX_VARS	= "/^[A-Za-z0-9\-_.~]+$/u";
 const ABCMS_REGEX_UUID	= "/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i";
-const ABCMS_REGEX_FORM	= "/(<input\s+[^>]*?type\s*=\s*['\"]submit['\"]|<button)(>|\s+[^>]*?>)/ui";
+const ABCMS_REGEX_FORM	= "/(<form[^>]*>)(.+?)(<\/form>)/uis";
+const ABCMS_REGEX_CLIK	= "/^<form/uis";
+const ABCMS_REGEX_BUTT	= array("/(<input\s+[^>]*?type\s*=\s*['\"]submit['\"])(>|\s+[^>]*?>)/ui", "/(<button)([^<]+<\/button>)/ui");
 // Arrays
 const ABCMS_ARRAY_TYPE	= array('mixed','string','array','integer','float','bool','boolean','email','domain','uri','url','ip','mac','uuid','path');
 // Files
@@ -40,17 +42,18 @@ const ABCMS_DATABASE	= "../private/nainoiainc/abcms/ABCMS.database";
 // Flags
 const ABCMS_FLAG_JSON	= JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT;
 // Session session_start
-const ABCMS_SES			= ABCMS_EXT_SELF;
-const ABCMS_SES_ROTA	= 60*15;
-const ABCMS_SES_IDLE	= 60*60*24*4;
-const ABCMS_SES_LIFE	= 60*60*24*11;
-const ABCMS_SES_FORM	= 60*60;
-const ABCMS_SES_XPIR	= 1;
-const ABCMS_SES_DELY	= 3;
-const ABCMS_SES_OPEN	= 12;
-const ABCMS_SES_SLAP	= 60;
-const ABCMS_SES_HITS	= 20;
-const ABCMS_SES_TIME	= 20;
+const ABCMS_SES			= ABCMS_EXT_SELF;	// unique session key for ABCMS
+const ABCMS_SES_ROTA	= 60*15;			// seconds total before rotate session tokens
+const ABCMS_SES_IDLE	= 60*60*24*4;		// seconds idle before destroy session
+const ABCMS_SES_LIFE	= 60*60*24*11;		// seconds total before destroy session
+const ABCMS_SES_FORM	= 60*60;			// seconds total before remove form security tokens
+const ABCMS_SES_KILL	= 1;				// cookie lifetime to guarrantee removal
+const ABCMS_SES_WAIT	= 4;				// javascript submission delay to prevent robots
+const ABCMS_SES_OPEN	= 21;				// max form security token sets open
+const ABCMS_SES_PAGE	= 7;				// max forms on one page
+const ABCMS_SES_SLAP	= 60;				// minutes to retry after malicious session detected
+const ABCMS_SES_HITS	= 20;				// max session hits within ABCMS_SES_TIME before suspect
+const ABCMS_SES_TIME	= 20;				// max session time for ABCMS_SES_HITS before suspect
 // Roles
 const ABCMS_ROLE_PUBLIC	= 0;
 const ABCMS_ROLE_AUTHEN	= 1;
@@ -414,7 +417,7 @@ private function extension() : string {
 	// Called myself
 	else if ($trace[1]['file'] === (__FILE__)) { return ABCMS_EXT_SELF; }
 	// Valid extension
-	else if (preg_match("|^".dirname(__DIR__)."/private(/[^/]+/[^/]+)|u", $trace[1]['file'], $match) && !empty($match[1])) { return $match[1]; }
+	else if (preg_match("|^".preg_quote(dirname(__DIR__),'|')."/private(/[^/]+/[^/]+)|u", $trace[1]['file'], $match) && !empty($match[1])) { return $match[1]; }
 	// Invalid extension
 	$this->error_wsod("Extension not found.");
 }
@@ -848,7 +851,7 @@ public function session_start(
 		else if ($csrf && !hash_equals(($_SESSION[ABCMS_SES]['form'][$csrf]['full_valu']??''),
 			(($_POST[$_SESSION[ABCMS_SES]['form'][$csrf]['full_name']]??'x')?:'x'))) {											$error = 'Session ended, CAPTCHA2 wrong.';			$slap = 400; }
 		// POST too rapid
-		else if ($csrf && ($now - ($_SESSION[ABCMS_SES]['form'][$csrf]['mark_time']??$now)) < ABCMS_SES_DELY) {					$error = "Session ended, rapid submission.";		$slap = 400; }
+		else if ($csrf && ($now - ($_SESSION[ABCMS_SES]['form'][$csrf]['mark_time']??$now)) < ABCMS_SES_WAIT) {					$error = "Session ended, rapid submission.";		$slap = 400; }
 		// login failed, end session, but don't slap
 		else if (isset($_COOKIE[$this->settings['core']['session_logins']]) &&
 			(($_COOKIE[$this->settings['core']['session_logins']]?:'x') !== ($_SESSION[ABCMS_SES]['session_logins']??'') ||
@@ -876,9 +879,9 @@ DOIT:	// set errors
 		// start session to destroy
 		if (!$session_active) { $session_active = session_start($options); }
 		// remove cookies
-		$this->set_cookie($options['name'], '', ABCMS_SES_XPIR); // session cookie
-		if (isset($_SESSION[ABCMS_SES]['valid']['cookie'])) { $this->set_cookie($_SESSION[ABCMS_SES]['valid']['cookie'], '', ABCMS_SES_XPIR); } // secret cookie
-		$this->set_cookie($this->settings['core']['session_logins'], '', ABCMS_SES_XPIR); // login cookie
+		$this->set_cookie($options['name'], '', ABCMS_SES_KILL); // session cookie
+		if (isset($_SESSION[ABCMS_SES]['valid']['cookie'])) { $this->set_cookie($_SESSION[ABCMS_SES]['valid']['cookie'], '', ABCMS_SES_KILL); } // secret cookie
+		$this->set_cookie($this->settings['core']['session_logins'], '', ABCMS_SES_KILL); // login cookie
 		// PHP says mark sessions for garbage collection to prevent races, but don't want garbage around
 		$_SESSION = [];
 		if ($session_active && !session_destroy()) { $this->error_log("Session destroy failed.");	}
@@ -1011,44 +1014,86 @@ SECTION FORMS: Create, secure, and process forms.
 */
 // form security
 private function html_security(string &$html) : void {
-	// not a form
-	if (!preg_match(ABCMS_REGEX_FORM, $html)) { return; }
+	// no forms
+	if (!($num = preg_match_all(ABCMS_REGEX_FORM, $html))) { return; }
+	// too many forms
+	if ($num > ABCMS_SES_PAGE) { $this->error_wsod("Too many forms open on one page."); }
 	// start session
-	if (!$this->session_start(1)) { return; }
-	// tokens
-	$csrf = $this->get_uniq();
-	$_SESSION[ABCMS_SES]['form'][$csrf]['mark_time'] = $this->boots['time'];
-	$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_name'] = $this->get_uniq();
-	$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu'] = $csrf;
-	$_SESSION[ABCMS_SES]['form'][$csrf]['void_name'] = $this->get_uniq();
-	$_SESSION[ABCMS_SES]['form'][$csrf]['full_name'] = $this->get_uniq();
-	$_SESSION[ABCMS_SES]['form'][$csrf]['full_valu'] = $this->get_uniq();
-	$_SESSION[ABCMS_SES]['form'][$csrf]['test_name'] = $this->get_uniq();
-	$_SESSION[ABCMS_SES]['form'][$csrf]['test_valu'] = 'abc';
-	static $delay = ABCMS_SES_DELY * 1000;
-	// html
-	$captcha = (!empty($_SESSION[ABCMS_SES]['user']) ? NULL : "Enter CAPTCHA <input name='{$_SESSION[ABCMS_SES]['form'][$csrf]['test_name']}' value='{$_SESSION[ABCMS_SES]['form'][$csrf]['test_valu']}'>\n");
-	$injection = <<<EOF
-<div>
+	// DOM is better than preg_replace() for HTML injection, but why slow down for one occasion?
+	if (!$this->session_start(1)) {
+		$this->set_errors("All forms disabled because session security failed.");
+		// disable forms actually with <fieldset> and cosmetically with CSS with missing CSRF as safety net
+		if (!($html = preg_replace(ABCMS_REGEX_FORM, '$1<fieldset disabled style="border: none; margin: 0; padding: 0; min-width: 0; display: contents;">$2</fieldset>$3', $html)) ||
+			!($html = preg_replace("/<\/head>/ui", "<style>form { pointer-events: none; opacity: 0.5; }</style></head>", $html))) {
+			$this->error_wsod("Form disabled because security session failed.");
+		}
+		return;
+	}
+	// compile injections
+	$delay = ABCMS_SES_WAIT * 1000;
+	$inject_tokens = $inject_onclick = [];
+	for($x = 0; $x < $num; ++$x) {
+		// security tokens per form
+		$csrf = $this->get_uniq();
+		$_SESSION[ABCMS_SES]['form'][$csrf]['mark_time'] = $this->boots['time'];
+		$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_name'] = $this->get_uniq();
+		$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu'] = $csrf;
+		$_SESSION[ABCMS_SES]['form'][$csrf]['void_name'] = $this->get_uniq();
+		$_SESSION[ABCMS_SES]['form'][$csrf]['full_name'] = $this->get_uniq();
+		$_SESSION[ABCMS_SES]['form'][$csrf]['full_valu'] = $this->get_uniq();
+		$_SESSION[ABCMS_SES]['form'][$csrf]['test_name'] = $this->get_uniq();
+		$_SESSION[ABCMS_SES]['form'][$csrf]['test_valu'] = 'abc';
+		// form security token injection
+		$inject_tokens[] = <<<EOF
+<input type='hidden' name='button'												value=''>
 <input type='hidden' name='csrf'												value='{$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu']}'>
 <input type='hidden' name='{$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_name']}'	value='{$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu']}'>
 <input type='hidden' name='{$_SESSION[ABCMS_SES]['form'][$csrf]['void_name']}'	value='{$_SESSION[ABCMS_SES]['form'][$csrf]['full_valu']}'>
 <input type='hidden' name='{$_SESSION[ABCMS_SES]['form'][$csrf]['full_name']}'	value=''>
+EOF;
+		$captcha = (!empty($_SESSION[ABCMS_SES]['user']) ? NULL : "Enter CAPTCHA <input name='{$_SESSION[ABCMS_SES]['form'][$csrf]['test_name']}' value='{$_SESSION[ABCMS_SES]['form'][$csrf]['test_valu']}'>\n");
+		// button security onclick injection
+		// javascript submission means button name/value not in $_POST
+		$inject_onclick[] = <<<EOF
+<div>
 {$captcha}
 \$1 onclick="
 this.disabled=true;
 event.preventDefault();
+var submit = this.value;		this.value = 'Sending...';
+var button = this.innerText;	this.innerText = 'Sending...';
 setTimeout(() => {
-	this.form.{$_SESSION[ABCMS_SES]['form'][$csrf]['void_name']}.value = '';
-	this.form.{$_SESSION[ABCMS_SES]['form'][$csrf]['full_name']}.value = '{$_SESSION[ABCMS_SES]['form'][$csrf]['full_valu']}';
+	this.form['{$_SESSION[ABCMS_SES]['form'][$csrf]['void_name']}'].value = '';
+	this.form['{$_SESSION[ABCMS_SES]['form'][$csrf]['full_name']}'].value = '{$_SESSION[ABCMS_SES]['form'][$csrf]['full_valu']}';
+	this.form['button'].value = submit;
+	this.value = submit;
+	this.innerText = button;
 	HTMLFormElement.prototype.submit.call(this.form);
  }, {$delay});
 "
 \$2
 </div>
 EOF;
-	// injection, dom is better, but regex is faster
-	if (!($html = preg_replace(ABCMS_REGEX_FORM, $injection, $html))) { $this->error_wsod("Form security injection failed."); }
+	}
+	// perform injection, nested for <form>s and <button>s
+	$num = 0;
+	if (!($html = preg_replace_callback(
+		ABCMS_REGEX_FORM,
+		// replace <form> matches corresponding to injection arrays so each form gets their own tokens
+		function($matches) use (&$num, $inject_tokens, $inject_onclick) {
+			// require button click submital, ignore "enter"
+			if (!($replace = preg_replace(ABCMS_REGEX_CLIK, "<form onkeydown='if(event.key === \"Enter\") event.preventDefault();' ", $matches[1]))) { $this->error_wsod("Form security injection failed."); }
+			$replace .= $matches[2];
+			// onclick event for all buttons
+			if (!($replace = preg_replace(ABCMS_REGEX_BUTT, $inject_onclick[$num], $replace))) { $this->error_wsod("Form security injection failed."); }
+			// security tokens
+			$replace .= $inject_tokens[$num].'</form>';
+			++$num;
+			return $replace;
+		},
+		$html))) {
+		$this->error_wsod("Form security injection failed.");
+	}
 	return;
 }
 // inject debug information
@@ -1061,7 +1106,8 @@ private function html_debug(string &$html = NULL) : void {
 		'<br>input:<br><pre>'.print_r($this->input,TRUE).'</pre>'.
 		'<br>settings[core]:<br><pre>'.print_r($this->settings['core'],TRUE).'</pre>'.
 		"<br>_COOKIE:<br>".(isset($_COOKIE) ? '<pre>'.print_r($_COOKIE,TRUE).'</pre>' : 'NA').
-		"<br>_SESSION:<br>".(isset($_SESSION) ? '<pre>'.print_r($_SESSION,TRUE).'</pre>' : 'NA');
+		"<br>_SESSION:<br>".(isset($_SESSION) ? '<pre>'.print_r($_SESSION,TRUE).'</pre>' : 'NA').
+		"<br>_POST:<br>".(isset($_POST) ? '<pre>'.print_r($_POST,TRUE).'</pre>' : 'NA');
 	if (!($html = preg_replace("/ABCMS_HTML_DEBUG/u", $injection, $html))) { $this->error_wsod("Form debug injection failed."); }
 	return;
 }
@@ -1269,6 +1315,9 @@ if (!$this->session_start(1)) {
 	echo "Session failure!";
 	return NULL;
 }
+else if ($this->formhuman && ($_POST['button']??'')==='test') {
+	echo "TEST WORKED!";
+}
 else if ($this->formhuman && ($_POST['Account_Password']??'') == 'abcms' ) {
 	$this->set_database('user', $_POST);
 	$_SESSION[ABCMS_SES]['user'] = $this->get_database('user', $_POST);
@@ -1282,8 +1331,8 @@ else if ($this->formhuman && ($_POST['Account_Password']??'') == 'abcms' ) {
 		['jmartin@prwa.com'],									// CCs
 		['nainoia-inc@signedon.net'],							// BCCs
 		'ABCMS test login email',								// Subject
-		'<h2>Success!</h2><p>Yay!</p><br><br><br>',				// HTML body
-		'Success!\r\n\r\nWe did it it!\r\n',					// Plain text
+		'<h2>Success!</h2><p>One</p><p>Two</p><p>Three</p>',	// HTML body
+		"Success!\r\n\r\none\r\ntwo\r\nthree\r\n",				// Plain text
 		[__FILE__],												// Attachments
 		[	'smtp'	=> $this->hsc(($_POST['Account_One']??'')),	// SMTP host
 			'port'	=> 465,										// SMTP port
@@ -1297,7 +1346,7 @@ else if ($this->formhuman && ($_POST['Account_Password']??'') == 'abcms' ) {
 	echo "Submittal success! ({$email})";
 }
 else if ($this->formhuman) {
-	$this->set_cookie($this->settings['core']['session_logins'], '', 1);
+	$this->set_cookie($this->settings['core']['session_logins'], '', ABCMS_SES_KILL);
 	unset($_SESSION[ABCMS_SES]['user']);
 	unset($_SESSION[ABCMS_SES]['session_logins']);
 	echo "Invalid submittal, logged out";
@@ -1315,6 +1364,13 @@ else { ; }
 <label for='Account_Security'	>Tre:</label>			<input type='text'		id='Account_Tre'		name='Account_Tre'		value='<?php echo $this->hsc(($_POST['Account_Tre']??''));		?>'>
 <label for='Account_Password'	>Password:</label>		<input type='password'	id='Account_Password'	name='Account_Password'	value=''>
 <label></label>											<input type='submit'	id='submit'				name='submit'			value='submit'>
+<label></label>											<button					type='submit'			name='submit'			value='submit'>submit</button>
+</form>
+
+<h2>Test Extra Form</h2>
+
+<form action='' method='post' accept-charset='UTF-8' class='form-grid'>
+<label></label><button type='submit' name='test' value='test'>Test</button>
 </form>
 
 <?php
@@ -1507,7 +1563,7 @@ function smtp(
 	?array	$cc,		// Cc addresses, included in headers + envelope
 	?array	$bcc,		// Bcc addresses, envelope only, never headers
 	string	$subject,	// Subject line, UTF-8 & base64-encoded automatically
-	string	$html,		// HTML body
+	?string	$html,		// HTML body
 	?string	$text,		// Optional plain-text alternative
 	?array	$attach,	// Absolute file paths to attachments
 	array	$options=[],// Array
@@ -1579,10 +1635,6 @@ function smtp(
 		if (!filter_var($addr, FILTER_VALIDATE_EMAIL)) { return $fail("Invalid email address rejected: '{$addr}'."); }
 		// newlines allow command injection
 		if (preg_match("/[\r\n]+/", $addr)) { return $fail("Unsafe email address rejected: '{$addr}'."); }
-		// if address does not contains '>' then cannot break 'RCPT TO:<...>' and inject SMTP commands.
-		//if (FALSE === strpos($addr, '>')) { continue; }
-		// otherwise test if properly quoted per RFC 5321, e.g. "foo\>bar"@example.com
-		//if (!preg_match('/^"(?:\\\\.|[^\\\\"])*"@[^@>]+$/', $addr)) { return $fail("Unsafe email address rejected: '{$addr}'."); }
 	}
 	$log .= "\r\nABCMS SMTP RECIPIENTS:\r\n".implode("\r\n", $allRecipients); // log
 
@@ -1668,12 +1720,12 @@ function smtp(
 	}
 	// Bcc intentionally omitted from headers; recipients already got RCPT TO above.
 	$headers .= "Subject: =?UTF-8?B?" . base64_encode($subject) . "?=\r\n";
-	$headers .= "Message-ID: <" . bin2hex(random_bytes(16)) . '@' . preg_replace('#^(tls|ssl)://#', '', $options['smtp']) . ">\r\n";
+	$headers .= "Message-ID: <" . bin2hex(random_bytes(16)) . '@' . preg_replace('#^(tls|ssl)://#i', '', $options['smtp']) . ">\r\n";
 	$headers .= "MIME-Version: 1.0\r\n";
 	$headers .= "Content-Type: multipart/mixed; boundary=\"{$mixedBoundary}\"\r\n";
 	// text/html (with optional text/plain alternative)
 	$body = "--{$mixedBoundary}\r\n";
-	if ($text !== NULL) {
+	if (NULL !== $text && NULL !== $html) {
 		$body .= "Content-Type: multipart/alternative; boundary=\"{$altBoundary}\"\r\n\r\n";
 		$body .= "--{$altBoundary}\r\n";
 		$body .= "Content-Type: text/plain; charset=UTF-8\r\n";
@@ -1685,10 +1737,15 @@ function smtp(
 		$body .= chunk_split(base64_encode($html));
 		$body .= "--{$altBoundary}--\r\n";
 	}
-	else {
+	else if (NULL !== $html) {
 		$body .= "Content-Type: text/html; charset=UTF-8\r\n";
 		$body .= "Content-Transfer-Encoding: base64\r\n\r\n";
 		$body .= chunk_split(base64_encode($html));
+	}
+	else {
+		$body .= "Content-Type: text/plain; charset=UTF-8\r\n";
+		$body .= "Content-Transfer-Encoding: base64\r\n\r\n";
+		$body .= chunk_split(base64_encode(($text??'')));
 	}
 	$log .= "\r\nABCMS SMTP MESSAGE: success"; // log
 
