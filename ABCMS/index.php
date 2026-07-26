@@ -478,7 +478,7 @@ private function output_call(
 				}
 				else { $this->error_wsod("Calling invalid operator."); }
 				// Execute function/method
-				if (!method_exists($newobject, $funcmeth)) { $this->error_wsod("Calling invalid object method."); }
+				if (!method_exists($newobject, $funcmeth)) { $this->error_wsod("Calling invalid object method: {$funcmeth}"); }
 				global $abcms; // Global pointer to 'abcms' object 
 				if (ABCMS_EXT_SELF != $whoami && $newobject === $abcms) { // Disallow abcms() privates unless extension is ABCMS
 					$reflection = new ReflectionClass($this);
@@ -610,9 +610,11 @@ private function set_settings(
 	$this->output_equate(ABCMS_EXT_BEGIN,	'corelivesession',	'/admin/corelivesession');
 	// Frontend page extensions
 	$this->output_extend(ABCMS_EXT_PAGE,	'home',		'CLI-GET-POST',	'IE',	'abcms->pagehome',		ABCMS_ROLE_PUBLIC,	-10);
-	$this->output_extend(ABCMS_EXT_PAGE,	'home',		'CLI-GET-POST',	'OE',	'abcms->pagekickin',	ABCMS_ROLE_PUBLIC,	-10);
 	$this->output_equate(ABCMS_EXT_PAGE,	'home',		'/');
 	$this->output_equate(ABCMS_EXT_PAGE,	'home',		'/abcms');
+	$this->output_extend(ABCMS_EXT_PAGE,	'more',		'CLI-GET-POST',	'IE',	'abcms->pagemore',		ABCMS_ROLE_PUBLIC,	-10);
+	$this->output_equate(ABCMS_EXT_PAGE,	'more',		'/abcms/more');
+	$this->output_equate(ABCMS_EXT_PAGE,	'more',		'/admin/more');
 	$this->output_extend(ABCMS_EXT_PAGE,	'contact',	'CLI-GET-POST',	'IE',	'abcms->pagecontact',	ABCMS_ROLE_PUBLIC,	-10);
 	$this->output_equate(ABCMS_EXT_PAGE,	'contact',	'/abcms/contact');
 	$this->output_extend(ABCMS_EXT_PAGE,	'account',	'CLI-GET-POST',	'IE',	'abcms->pageaccount',	ABCMS_ROLE_PUBLIC,	-10);
@@ -633,6 +635,8 @@ private function set_settings(
 	$this->output_equate(ABCMS_EXT_PAGE,	'cron',		'/admin/cron');
 	$this->output_extend(ABCMS_EXT_PAGE,	'browse',	'CLI-GET-POST',	'IE',	'abcms->adminbrowse',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
 	$this->output_equate(ABCMS_EXT_PAGE,	'browse',	'/admin/browse');
+	$this->output_extend(ABCMS_EXT_PAGE,	'browse',	'CLI-GET-POST',	'IE',	'abcms->admintests',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_equate(ABCMS_EXT_PAGE,	'browse',	'/admin/tests');
 	// Variable Extensions
 	$variable['variable'] = "Yoo hooey!<br>";
 	$this->output_extend('/nainoiainc/abcms/variable',	'',	'CLI-GET-POST',	'IE',	'abcms->pagevariable',	ABCMS_ROLE_PUBLIC,	-10, ...$variable);	
@@ -645,8 +649,8 @@ private function set_settings(
 		'f' => array(1,2,3,4,5),
 	);
 	$this->output_extend('/nainoiainc/abcms/variable2',	'',	'CLI-GET-POST',	'IE',	'abcms->pagevariable2',	ABCMS_ROLE_PUBLIC,	-10, ...$variable2);
-	// Test extensions
-	$this->output_extend(ABCMS_EXT_PAGE,				'',	'CLI-GET-POST',	'IED',	'abcms->pagetest',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MAX);
+	// Test extensions add to all pages
+	//$this->output_extend(ABCMS_EXT_PAGE,				'',	'CLI-GET-POST',	'IED',	'abcms->pagetest',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MAX);
 
 	// Extension settings completed
 	// Settings strategy
@@ -831,7 +835,7 @@ public function session_start(
 		// rapid hit counter
 		$got20 = FALSE; $valid['counts'][] = $now; if (count($valid['counts']) > ABCMS_SES_HITS) { array_shift($valid['counts']); $got20 = TRUE; }
 		// uagent inconsistent
-		if ($valid['uagent'] !== ($uagent = $this->get_hash($this->boots['uagent']))) {											$error = 'Session ended, IP/Agent unknown.';		$slap = 400; }
+		if ($valid['uagent'] !== ($uagent = $this->get_hash($this->boots['uagent']))) {											$error = 'Session ended, IP/Agent/Init reset.';		$slap = 400; }
 		// secrets differ
 		else if (!hash_equals($valid['secret'], ($_COOKIE[$valid['cookie']]??'x'))) {											$error = 'Session ended, secrets differ.';			$slap = 400; }
 		// rapid hits
@@ -1169,9 +1173,9 @@ echo <<<EOF
 <br>
 <a href='/'>Home</a><br>
 <a href='/abcms'>ABCMS</a><br>
-<a href='/abcms/contact'>Contact</a><br>
 <br>
 <a href='/admin'>/admin</a><br>
+<a href='/admin/more'>More</a><br>
 <a href='/admin/status'>/admin/status</a><br>
 <a href='/admin/help'>/admin/help</a><br>
 <a href='/admin/code'>/admin/code</a><br>
@@ -1193,13 +1197,6 @@ EOF;
 private function adminhelp(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 echo <<<EOF
 <h1>Help</h1>
-<p>All output is extendable which helps us think more simply about content management. We have inputs, processing, and outputs. The output function serves as both a command router and extension manager. The generic output() function does not even require a default function because it expects to be extended by you to do something meaningful. The ABCMS engine expects you to override the "/nainoiainc/abcms/begin" hook first. From there you output what you want and also include your own extendable calls to output() yourself. Since file and function locations are passed to the extension manager at execution time this model is even faster than Composer lazy loading which matches every registered object class with the file location on every call. Lazy loading does a lot of work! ABCMS also allows the extension of files, functions, methods, objects, and classes, while Composer only allows the extension of classes.</p>
-
-<p>ABCMS uses PHP as the template engine. PHP is designed to intermingle both HTML and procedural function with conditional logic. And PHP is well known so that one does not need to learn another language like Symfony Twig or Laravel Blade. Symfony and Laravel template engines seem an unneccessary reduction of PHP template power. So PHP is the template engine for ABCMS. Frontend developers must understand PHP and HTML, but that is simpler and more powerful.</p>
-
-<p>The first version of ABCMS uses files alone for data storage. While SQL and other databases allow flexible and fast data storage and retrieval not every website application needs this level of data storage complexity. In fact SQL databases often encourage data storage complexity with all the possible data storage rows, columns, types, and indices. However, if a unit of data is only every accessed as a unit, such as a website page, why not store the entire	blob of page data in a single file? The page can then be quickly read as a single file rather than many reads of tiny pieces of data to build the page. This is better for many applications. An SQL database API may be added later for applications that require more complexity.</p>
-
-<p>Session security strategy breaks convention with a slightly longer session lifetime. However, threat is migtigated with the addition of a custom 64 byte security cookie name and token value for validating the session along with reasonable inactive and maxlifetime session threshholds. There is no "Remember Me" option for longer active logins because password lockers make it easier to login anyway. Additional form security is injected into every <form> with a CSRF token, honeypot, void pot, image captcha, javascript expected delay, and rapid submission triggers. Finally, the \$_SESSION is not protected from rogue extensions. So extension are discouraged from using \$_SESSION, but if needed sequester yourself to \$_SESSION[extension-name']. Users must be allowed to opt-in or opt-out of session cookies.</p>
 EOF;	
 	return NULL;
 }
@@ -1234,6 +1231,24 @@ EOF;
 	echo $display;
 	return NULL;
 }
+private function admintests(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+	$variable['variable'] = "Yoo hoo!<br>";
+	$returned = $this->output('/variable', 'CLI-GET-POST', '', ABCMS_ROLE_PUBLIC, -1, FALSE, ...$variable);
+	$variable2['variable'] = array();
+	$returned2 = $this->output('/variable2', 'CLI-GET-POST', '', ABCMS_ROLE_PUBLIC, -1, FALSE, ...$variable2);
+	$returned3 = $this->settings_get();
+?>
+<h1>Tests</h1>
+<?php echo $GLOBALS['abcms_constant']('ABCMS_GOOD'); ?> Hello World. I am alive.<br>
+<?php echo $GLOBALS['abcms_constant']('ABCMS_GOOD'); ?> Thank you!<br>
+<br>
+Variable1: <?php echo $variable['variable'] . ' ' . $returned['variable'];?><br>
+Variable2: <?php print_r($variable2);?><br>
+Settings: <?php print_r($returned3);?><br>
+UUIDV4: <?php echo $this->get_uuid();?><br>
+<?php
+	return NULL;
+}
 
 
 
@@ -1258,14 +1273,14 @@ SECTION HOMEPAGE: Display /ABCMS/* application.
 public function htmldefault(
 	mixed &...$unused,
 ) : ?bool {
-	$admin = ($this->input['role'] >= ABCMS_ROLE_ADMINS ? "<div style='float: right; display: inline-block; margin: 0 20px;'><a href='/admin' title='Admin Console'>\u{2699}</a></div>" : NULL);
+	$admin = ($this->input['role'] < ABCMS_ROLE_ADMINS ? NULL : "<div style='float: right; display: inline-block; margin: 0 20px;'><a href='/admin' title='Admin Console'>\u{2699}</a></div>");
 	return $this->htmldoc(
 		...$args = array(
 		NULL,			// css
 		NULL,			// js
 		<<<EOF
 <div style='width:100%; display: flex; justify-content: space-between; padding: 10px 0; color: #333333; font-weight: bold;'>
-<div style='float: left; display: inline-block; margin: 0 20px;'><a href='/' title='A Basic Content Management System'><span style='font-size: 5rem;'>&dollar;abcms()</span></a></div>
+<div style='float: left; display: inline-block; margin: 0 20px;'><a href='/' title='A Basic Content Management System'><span style='font-size: 5rem;'>\$abcms()</span></a></div>
 {$admin}
 </div>
 EOF
@@ -1277,33 +1292,51 @@ EOF
 	);
 }
 private function pagehome(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	$variable['variable'] = "Yoo hoo!<br>";
-	$returned = $this->output('/variable', 'CLI-GET-POST', '', ABCMS_ROLE_PUBLIC, -1, FALSE, ...$variable);
-	$variable2['variable'] = array();
-	$returned2 = $this->output('/variable2', 'CLI-GET-POST', '', ABCMS_ROLE_PUBLIC, -1, FALSE, ...$variable2);
-	$returned3 = $this->settings_get();
+$admin = ($this->input['role'] < ABCMS_ROLE_ADMINS ? NULL : " / <a href='/admin'>Console</a>");
+$logout = (empty($this->input['user']) ? NULL : " / <a href='/abcms/logout'>Logout</a>");
 ?>
 <h1>A Basic Content Management System</h1>
 <div style='text-align: center;'>
+<p style='line-height: 2rem;'>
 AKA "<a href='https://www.AionianBible.org' target='_blank'>Aionian Bible</a> Content Management System"<br>
-PHP web developer toolkit and CMS in a single file<br>
-Everything is an extension with the abcms() router<br>
-Install with Composer or run me in a document root<br>
+A PHP web developer toolkit and CMS in a single file.<br>
+Everything is an extension with the &dollar;abcms() router.<br>
+Install with Composer or run me in a document root.<br>
+</p>
+<p>
+<a href='/abcms/more'>More</a> / <a href='/abcms/account'>Account</a><?php echo $admin; ?><?php echo $logout; ?>
+</p>
 </div>
-<br>
-<a href='/abcms/account'>Account Profile</a><br>
-<a href='/abcms/logout'>Logout</a><br>
-<a href='/admin'>Admin Console</a><br>
-<br>
-<?php echo $GLOBALS['abcms_constant']('ABCMS_GOOD'); ?> Hello World. I am alive.<br>
-<?php echo $GLOBALS['abcms_constant']('ABCMS_GOOD'); ?> Thank you!<br>
-<br>
-Variable1: <?php echo $variable['variable'] . ' ' . $returned['variable'];?><br>
-Variable2: <?php print_r($variable2);?><br>
-Settings: <?php print_r($returned3);?><br>
-UUIDV4: <?php echo $this->get_uuid();?><br>
-<br>
 <?php
+	return NULL;
+}
+private function pagemore(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+echo <<<EOF
+<h1>More</h1>
+<p>
+Welcome! I am <span class='italic'>A Basic Content Management System</span>,
+and also known as the <a href='https://www.AionianBible.org' target='_blank'>Aionian Bible</a> Content Management System.
+I am a PHP web developer toolkit and CMS in a single file.
+Everything is an extension with my &dollar;abcms() router.
+Install me with Composer or run me in a document root.
+</p>
+
+<p>
+All output is extendable which helps us think more simply about content management. We have inputs, processing, and outputs. The output function serves as both a command router and extension manager. The generic output() function does not even require a default function because it expects to be extended by you to do something meaningful. The ABCMS engine expects you to override the "/nainoiainc/abcms/begin" hook first. From there you output what you want and also include your own extendable calls to output() yourself. Since file and function locations are passed to the extension manager at execution time this model is even faster than Composer lazy loading which matches every registered object class with the file location on every call. Lazy loading does a lot of work! But ABMCS locates and includes only the needed extensions at execution time. ABCMS also allows the extension of files, functions, methods, objects, and classes, while Composer only allows the extension of classes.
+</p>
+
+<p>
+ABCMS uses PHP as the template engine. PHP is designed to intermingle both HTML and procedural function with conditional logic. And PHP is well known so that one does not need to learn another language like Symfony Twig or Laravel Blade. Symfony and Laravel template engines seem an unneccessary reduction of PHP template power. So PHP is the template engine for ABCMS. Frontend developers must understand PHP and HTML, but that is a simpler and more powerful recipe.
+</p>
+
+<p>
+The first version of ABCMS uses files alone for data storage. While SQL and other databases allow flexible and fast data storage and retrieval not every website application needs this level of data storage complexity. In fact SQL databases often encourage data storage complexity with all the possible data storage rows, columns, types, and indices. However, if a unit of data is only every accessed as a unit, such as a website page, why not store the entire	blob of page data in a single file? This is better for many applications. The page can then be quickly read as a single file rather than many reads of tiny pieces of data to build the page. I once heard Drupal brag that it made thousands of database calls to contruct a single page. Drupal should not brag about this, but instead be ashamed. An SQL database API may be added later for applications that require more complexity.
+</p>
+
+<p>
+Session security strategy breaks convention with a slightly longer session lifetime. However, threat is migtigated with the addition of a custom 64 byte security cookie name and token value for validating the session along with reasonable inactive and maxlifetime session threshholds. There is no "Remember Me" option for longer active logins because password lockers make it easier to login anyway. Additional form security is injected into every <form> with a CSRF token, honeypot, void pot, image captcha, javascript expected delay, and rapid submission triggers. Finally, the \$_SESSION is not protected from rogue extensions. So extension are discouraged from using \$_SESSION, but if needed sequester yourself to \$_SESSION[extension-name']. Users must be allowed to opt-in or opt-out of session cookies.
+</p>
+EOF;	
 	return NULL;
 }
 private function pagecontact(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
@@ -1318,9 +1351,6 @@ echo "<h1>Account</h1>";
 if (!$this->session_start(1)) {
 	echo "Session failure!";
 	return NULL;
-}
-else if ($this->formhuman && ($_POST['button']??'')==='test') {
-	echo "TEST WORKED!";
 }
 else if ($this->formhuman && ($_POST['Account_Password']??'') == 'abcms' ) {
 	$this->set_database('user', $_POST);
@@ -1368,13 +1398,6 @@ else { ; }
 <label for='Account_Security'	>Tre:</label>			<input type='text'		id='Account_Tre'		name='Account_Tre'		value='<?php echo $this->hsc(($_POST['Account_Tre']??''));		?>'>
 <label for='Account_Password'	>Password:</label>		<input type='password'	id='Account_Password'	name='Account_Password'	value=''>
 <label></label>											<input type='submit'	id='submit'				name='submit'			value='submit'>
-<label></label>											<button					type='submit'			name='submit'			value='submit'>submit</button>
-</form>
-
-<h2>Test Extra Form</h2>
-
-<form action='' method='post' accept-charset='UTF-8' class='form-grid'>
-<label></label><button type='submit' name='test' value='test'>Test</button>
 </form>
 
 <?php
@@ -1390,10 +1413,6 @@ Please contact the webmaster for help.
 EOF;
 return;
 }
-private function pagetest(mixed &...$unused) : ?bool {
-	echo "<br><br><br>TESTY TEST TEST";
-	return NULL;
-}
 private function pagevariable(string &$variable) : ?bool {
 	$variable .= "Yoo hoo baby!<br>";
 	return NULL;
@@ -1407,15 +1426,6 @@ private function pagevariable2(array &$variable) : ?bool {
 		'e' => 6,
 		'f' => array(2,3,4,5,6),
 	);
-	return NULL;
-}
-private function pagekickin(&...$vars) : ?bool {
-	$extra  = isset($vars[0]) ? "0 " : "x";
-	$extra .= isset($vars[1]) ? "1 " : "x";
-	$extra .= isset($vars[2]) ? "2 " : "x";
-	$extra .= isset($vars[3]) ? "3 " : "x";
-	$extra .= isset($vars[4]) ? "4 " : "x";
-	$vars[0] = preg_replace("#I am alive.#", "I am alive and kickin {$extra}!", $vars[0]);
 	return NULL;
 }
 
