@@ -1129,7 +1129,7 @@ private function htmladmin(
 	return $this->htmldoc(
 		...$args = array(
 		<<<EOF
-#page { border: 2rem solid #999999; border-top: 0; }
+body { border: 2rem solid #999999; border-top: 0; }
 EOF
 		,				// css
 		NULL,			// js
@@ -1265,7 +1265,7 @@ public function htmldefault(
 		NULL,			// js
 		<<<EOF
 <div style='width:100%; display: flex; justify-content: space-between; padding: 10px 0; color: #333333; font-weight: bold;'>
-<div style='float: left; display: inline-block; margin: 0 20px;'><a href='/' title='A Basic Content Management System' style='font-size: 4rem;'><h1>&dollar;abcms()->output</a></h1></div>
+<div style='float: left; display: inline-block; margin: 0 20px;'><a href='/' title='A Basic Content Management System'><span style='font-size: 5rem;'>&dollar;abcms()</span></a></div>
 {$admin}
 </div>
 EOF
@@ -1284,7 +1284,7 @@ private function pagehome(mixed &...$unused) : ?bool { // Non-function wrapper s
 	$returned3 = $this->settings_get();
 ?>
 <h1>A Basic Content Management System</h1>
-<div style='text-align: center;''>
+<div style='text-align: center;'>
 AKA "<a href='https://www.AionianBible.org' target='_blank'>Aionian Bible</a> Content Management System"<br>
 PHP web developer toolkit and CMS in a single file<br>
 Everything is an extension with the abcms() router<br>
@@ -1831,10 +1831,14 @@ $favicon = (is_readable('./favicon.ico') ? '/favicon.ico' : (is_readable('./publ
 <!-- 1. Character encoding (First 1024 bytes) -->
 <meta charset='utf-8'>
 <!-- 2. Security and browser behavior meta tags -->
+<!-- NOTE: X-Frame-Options, Strict-Transport-Security, and Permissions-Policy require HTTP response headers and Referrer-Policy can be meta but is typically a header -->
 <meta name='description' content='<?php echo $title; ?>'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <meta name='mobile-web-app-capable' content='yes'>
-<meta name="theme-color" content="#404040">
+<!-- need to generate the manifest! -->
+<link rel="manifest" href="/manifest.json">
+<meta name='theme-color' content='#336699'>
+<meta name='color-scheme' content='light dark'>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:;">
 <!-- 3. Base URL (if used) -->
 <!-- 4. Document Title -->
@@ -1847,12 +1851,11 @@ $favicon = (is_readable('./favicon.ico') ? '/favicon.ico' : (is_readable('./publ
 <style>
 /* width include padding, to also include margins > width: calc(100% - 30px); */
 *, *::before, *::after { box-sizing: border-box; }
-html, body, #page, header, main, footer { margin: 0; padding: 0; width: 100%; text-align: center; }
-header, main, footer, div { overflow-wrap: break-word; overflow: hidden; }
+html, body, header, main, footer { margin: 0; padding: 0; width: 100%; text-align: center; }
+header, main, footer, div { overflow-wrap: break-word; }
 html { font-size: 100%; }
-body { color: #333333; background-color: #FFFFFF; font-size: 1.125rem; line-height: 1.3; font-family: Arial, sans-serif; }
-#page { display: flex; flex-direction: column; min-height: 100vh; }
-main { flex: 1;	max-width: 1024px; min-width: 360px; margin: 1rem auto; padding: 1rem 3rem; text-align: justify; }
+body { display: flex; flex-direction: column; min-height: 100vh; color: #333333; background-color: #FFFFFF; font-size: 1.125rem; line-height: 1.3; font-family: Arial, sans-serif; }
+main { flex: 1;	max-width: 1024px; min-width: min(360px, 100%); margin: 1rem auto; padding: 1rem 3rem; text-align: justify; }
 h1, h2, h3, h4 { color: #336699; }
 h1 { text-align: center; }
 .bold { font-weight: 700; }
@@ -1882,7 +1885,6 @@ input:required { border: 1px solid blue; }
 </script>
 </head>
 <body>
-<div id='page'>
 <header>
 <?php
 if (!$head) { $head = <<<EOF
@@ -1912,7 +1914,6 @@ $this->output('/htmldefault_page', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUB
 $this->output('/htmldefault_foot', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($foot ?: "<h4><a href='/'>{$lower}</a></h4>"));
 ?>
 </footer>
-</div>
 </body>
 <?php
 return NULL; // done
