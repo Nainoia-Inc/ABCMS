@@ -97,10 +97,9 @@ try {
 		FALSE,				// default required
 		// abcms->htmldoc() arguments
 		...$args = array(
-			FALSE,			// homepage format
-			NULL,			// override css
-			NULL,			// override js
-			NULL,			// override header
+			NULL,			// css
+			NULL,			// js
+			NULL,			// header
 			<<<EOF
 <h4>Status</h4>
 {$GLOBALS['abcms_constant']('ABCMS_GOOD')}Hello World. Graceful termination.<br>
@@ -108,9 +107,9 @@ try {
 <br>
 Please contact the webmaster for help.
 EOF
-			,				// override page
-			NULL,			// override footer
-			1,				// 1 = exclusive allowed
+			,				// main
+			NULL,			// footer
+			1,				// allow exclusive
 		),
 	);
 	// coredump requested
@@ -316,8 +315,8 @@ private function input_valid(
 			case 'mixed'	:
 			case 'string'	:																																		continue 2;
 			case 'path'		:	if ('/' !== $val[0] || FALSE === filter_var('http://localhost'.$val, FILTER_VALIDATE_URL)) {					break; }			continue 2;
-			case 'uri'		:	if (!mb_check_encoding($val, 'ASCII') && FALSE === filter_var('http://localhost'.$val, FILTER_VALIDATE_URL)) {	break; }			continue 2;
-			case 'url'		:	if (!mb_check_encoding($val, 'ASCII') && FALSE === filter_var($val, FILTER_VALIDATE_URL)) {						break; }			continue 2;
+			case 'uri'		:	if (!mb_check_encoding($val, 'ASCII') || FALSE === filter_var('http://localhost'.$val, FILTER_VALIDATE_URL)) {	break; }			continue 2;
+			case 'url'		:	if (!mb_check_encoding($val, 'ASCII') || FALSE === filter_var($val, FILTER_VALIDATE_URL)) {						break; }			continue 2;
 			case 'uuid'		:	if (!preg_match(ABCMS_REGEX_UUID, $val)) {																		break; }			continue 2;			
 			// Variable found, but undefined type registered by input_variable()
 			default:			$this->error_wsod("Undefined URL variable type, '{$this->settings[$cat][$var]['type']}'");
@@ -378,7 +377,6 @@ public function output(
 		if (isset($ext['I'])) {	usort($ext['I'], function($a, $b) { return (($ret=(isset($a['ctl']['U'])===isset($b['ctl']['U']) ? 0 : (isset($a['ctl']['U']) ? -1 : 1))) ? $ret : $a['ord'] <=> $b['ord']); } ); }
 		if (isset($ext['O'])) {	usort($ext['O'], function($a, $b) { return (($ret=(isset($a['ctl']['U'])===isset($b['ctl']['U']) ? 0 : (isset($a['ctl']['U']) ? -1 : 1))) ? $ret : $a['ord'] <=> $b['ord']); } ); }
 	}
-	$this->error_log("DEBUG\n".print_r($ext,TRUE), TRUE); // Debug info
 	// Execute
 	$exin = $exout = NULL; // Exclusive winner or non-exclusive
 	$dopt = TRUE; // default optional
@@ -637,7 +635,7 @@ private function set_settings(
 	$this->output_equate(ABCMS_EXT_PAGE,	'browse',	'/admin/browse');
 	// Variable Extensions
 	$variable['variable'] = "Yoo hooey!<br>";
-	$this->output_extend('/nainoiainc/abcms/variable',			'',			'CLI-GET-POST',	'IE',	'abcms->pagevariable',	ABCMS_ROLE_PUBLIC,	-10, ...$variable);	
+	$this->output_extend('/nainoiainc/abcms/variable',	'',	'CLI-GET-POST',	'IE',	'abcms->pagevariable',	ABCMS_ROLE_PUBLIC,	-10, ...$variable);	
 	$variable2['variable'] = array(
 		'a' => 1,
 		'b' => 2,
@@ -646,9 +644,9 @@ private function set_settings(
 		'e' => 5,
 		'f' => array(1,2,3,4,5),
 	);
-	$this->output_extend('/nainoiainc/abcms/variable2',			'',			'CLI-GET-POST',	'IE',	'abcms->pagevariable2',	ABCMS_ROLE_PUBLIC,	-10, ...$variable2);
+	$this->output_extend('/nainoiainc/abcms/variable2',	'',	'CLI-GET-POST',	'IE',	'abcms->pagevariable2',	ABCMS_ROLE_PUBLIC,	-10, ...$variable2);
 	// Test extensions
-	$this->output_extend('/nainoiainc/abcms/htmldefault_page',	'',			'CLI-GET-POST',	'IED',	'abcms->pagetest',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MAX);
+	$this->output_extend(ABCMS_EXT_PAGE,				'',	'CLI-GET-POST',	'IED',	'abcms->pagetest',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MAX);
 
 	// Extension settings completed
 	// Settings strategy
@@ -1098,17 +1096,15 @@ EOF;
 }
 // inject debug information
 private function html_debug(string &$html = NULL) : void {
-	if (NULL === $html) { echo "ABCMS_HTML_DEBUG"; return; }
-	$injection = 
-		$this->see_errors().
-		'<br>form:<br><pre>'.print_r($this->formvalid,TRUE).print_r($this->formhuman,TRUE).'</pre>'.
-		'<br>boots:<br><pre>'.print_r($this->boots,TRUE).'</pre>'.
-		'<br>input:<br><pre>'.print_r($this->input,TRUE).'</pre>'.
-		'<br>settings[core]:<br><pre>'.print_r($this->settings['core'],TRUE).'</pre>'.
-		"<br>_COOKIE:<br>".(isset($_COOKIE) ? '<pre>'.print_r($_COOKIE,TRUE).'</pre>' : 'NA').
-		"<br>_SESSION:<br>".(isset($_SESSION) ? '<pre>'.print_r($_SESSION,TRUE).'</pre>' : 'NA').
-		"<br>_POST:<br>".(isset($_POST) ? '<pre>'.print_r($_POST,TRUE).'</pre>' : 'NA');
-	if (!($html = preg_replace("/ABCMS_HTML_DEBUG/u", $injection, $html))) { $this->error_wsod("Form debug injection failed."); }
+	if ($this->input['role'] < ABCMS_ROLE_ADMINS) { return; }
+	$injection =
+		'<div style="margin-top: 7rem; background-color: #EEEEEE; text-align: left; padding: 20px;">'.
+		'<br>THIS:<br><pre>'.print_r($this,TRUE).'</pre>'.
+		'<br>_COOKIE:<br><pre>'.print_r($_COOKIE,TRUE).'</pre>'.
+		'<br>_SESSION:<br><pre>'.print_r($_SESSION,TRUE).'</pre>'.
+		'</div>'.
+		'</body>';
+	if (!($html = preg_replace("/<\/body>/ui", $injection, $html))) { $this->error_wsod("Form debug injection failed."); }
 	return;
 }
 
@@ -1130,14 +1126,25 @@ SECTION ADMIN: Display /Admin/HASH/* application.
 private function htmladmin(
 	mixed &...$unused,
 ) : ?bool {
-	$admin		= TRUE;
-	$css		= NULL;
-	$js			= NULL;
-	$head		= "<div style='display: inline-block;'><a href='/admin' title='Admin Console'><h2 style='font-size: 1.5em'>Console</h2></a></div><div style='float: right; display: inline-block;'><h2 style='font-size: 1.5em'><a href='/' title='Close Console'>X</a></h2></div>";
-	$page		= NULL;
-	$foot		= NULL;
-	$flag		= -1;
-	return $this->htmldoc($admin, $css, $js, $head, $page, $foot, $flag);
+	return $this->htmldoc(
+		...$args = array(
+		<<<EOF
+#page { border: 2rem solid #999999; border-top: 0; }
+EOF
+		,				// css
+		NULL,			// js
+		<<<EOF
+<div style='width:100%; display: flex; justify-content: space-between; padding: 10px 0; background-color: #999999; color: #333333; font-weight: bold;'>
+<div style='float: left; display: inline-block; margin: 0 20px;'><a href='/admin' title='A Basic Content Management System'>ABCMS Console</a></div>
+<div style='float: right; display: inline-block; margin: 0 20px;'><a href='/' title='Close Console'>X</a></div>
+</div>
+EOF
+		,				// header
+		NULL,			// main
+		NULL,			// footer
+		1,				// exclusive?
+		),
+	);
 }
 private function admincode(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 	highlight_file($this->settings['core']['filename']);
@@ -1154,7 +1161,7 @@ private function admincorelivesession(mixed &...$unused) : ?bool { // Non-functi
 }
 private function adminstatus(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 	static $count = 3;
-	if ($count===3) { echo "<h4>Status</h4>"; }
+	if ($count===3) { echo "<h1>Status</h1>"; }
 	echo ABCMS_GOOD."Helping you! {$count}<br>\n";
 	--$count;
 	if ($count>0) { return TRUE; }
@@ -1185,7 +1192,7 @@ EOF;
 }
 private function adminhelp(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 echo <<<EOF
-<h4>Help</h4>
+<h1>Help</h1>
 <p>All output is extendable which helps us think more simply about content management. We have inputs, processing, and outputs. The output function serves as both a command router and extension manager. The generic output() function does not even require a default function because it expects to be extended by you to do something meaningful. The ABCMS engine expects you to override the "/nainoiainc/abcms/begin" hook first. From there you output what you want and also include your own extendable calls to output() yourself. Since file and function locations are passed to the extension manager at execution time this model is even faster than Composer lazy loading which matches every registered object class with the file location on every call. Lazy loading does a lot of work! ABCMS also allows the extension of files, functions, methods, objects, and classes, while Composer only allows the extension of classes.</p>
 
 <p>ABCMS uses PHP as the template engine. PHP is designed to intermingle both HTML and procedural function with conditional logic. And PHP is well known so that one does not need to learn another language like Symfony Twig or Laravel Blade. Symfony and Laravel template engines seem an unneccessary reduction of PHP template power. So PHP is the template engine for ABCMS. Frontend developers must understand PHP and HTML, but that is simpler and more powerful.</p>
@@ -1199,22 +1206,22 @@ EOF;
 private function admininit(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 	$result = $this->set_settings(); // recreate settings
 echo <<<EOF
-<h4>Init</h4>
+<h1>Init</h1>
 Result: {$result}
 EOF;	
 	return NULL;
 }
 private function admincron(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	echo "<h4>Cron</h4>Hello!";
+	echo "<h1>Cron</h1>Hello!";
 	return NULL;
 }
 private function adminphpinfo(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	echo "<h4>PHP Info</h4>";
+	echo "<h1>PHP Info</h1>";
 	phpinfo();
 	return NULL;
 }
 private function adminbrowse(mixed &...$unused) : ?bool {
-	echo "<h4>Browser</h4>";
+	echo "<h1>Browser</h1>";
 	$path = $this->settings['core']['projectroot'];
 	$display = <<< EOF
 Filename: {$path}<br>
@@ -1251,14 +1258,23 @@ SECTION HOMEPAGE: Display /ABCMS/* application.
 public function htmldefault(
 	mixed &...$unused,
 ) : ?bool {
-	$admin		= FALSE;
-	$css		= NULL;
-	$js			= NULL;
-	$head		= "<div style='display: inline-block;'><a href='/' title='A Basic Content Management System'><h2 style='font-size: 1.5em'>ABCMS</h2></a></div><div style='float: right; display: inline-block;'><h2 style='font-size: 1.5em'><a href='/admin' title='Admin Console'>\u{2699}</a></h2></div>";
-	$page		= NULL;
-	$foot		= NULL;
-	$flag		= 1;
-	return $this->htmldoc($admin, $css, $js, $head, $page, $foot, $flag);
+	$admin = ($this->input['role'] >= ABCMS_ROLE_ADMINS ? "<div style='float: right; display: inline-block; margin: 0 20px;'><a href='/admin' title='Admin Console'>\u{2699}</a></div>" : NULL);
+	return $this->htmldoc(
+		...$args = array(
+		NULL,			// css
+		NULL,			// js
+		<<<EOF
+<div style='width:100%; display: flex; justify-content: space-between; padding: 10px 0; color: #333333; font-weight: bold;'>
+<div style='float: left; display: inline-block; margin: 0 20px;'><a href='/' title='A Basic Content Management System' style='font-size: 4rem;'><h1>&dollar;abcms()->output</a></h1></div>
+{$admin}
+</div>
+EOF
+		,				// header
+		NULL,			// main
+		NULL,			// footer
+		1,				// exclusive?
+		),
+	);
 }
 private function pagehome(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 	$variable['variable'] = "Yoo hoo!<br>";
@@ -1267,9 +1283,8 @@ private function pagehome(mixed &...$unused) : ?bool { // Non-function wrapper s
 	$returned2 = $this->output('/variable2', 'CLI-GET-POST', '', ABCMS_ROLE_PUBLIC, -1, FALSE, ...$variable2);
 	$returned3 = $this->settings_get();
 ?>
-<h4>Homepage</h4>
+<h1>A Basic Content Management System</h1>
 <div style='text-align: center;''>
-"A Basic Content Management System" (ABCMS)<br>
 AKA "<a href='https://www.AionianBible.org' target='_blank'>Aionian Bible</a> Content Management System"<br>
 PHP web developer toolkit and CMS in a single file<br>
 Everything is an extension with the abcms() router<br>
@@ -1291,26 +1306,15 @@ UUIDV4: <?php echo $this->get_uuid();?><br>
 <?php
 	return NULL;
 }
-private function pageerror(mixed &...$html) : void {
-$this->session_start(-1); // destroy session and logout
-if (($string = implode('', $html))) { echo $string; return; }
-echo <<<EOF
-<h4>Status</h4>
-You have been logged out.<br>
-<br>
-Please contact the webmaster for help.
-EOF;
-return;
-}
 private function pagecontact(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-?><h4>Contact</h4>
+?><h1>Contact</h1>
 This is where to contact us.
 <?php
 	echo "<br><a href='/'>Home</a><br>";
 	return NULL;
 }
 private function pageaccount(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-echo "<h4>Account</h4>";
+echo "<h1>Account</h1>";
 if (!$this->session_start(1)) {
 	echo "Session failure!";
 	return NULL;
@@ -1379,7 +1383,7 @@ return NULL;
 private function pagelogout(mixed &...$unused) : void {
 $this->session_start(-1); // destroy session and logout
 echo <<<EOF
-<h4>Status</h4>
+<h1>Status</h1>
 You have been logged out.<br>
 <br>
 Please contact the webmaster for help.
@@ -1544,8 +1548,8 @@ public function get_hash(?string $input): string {
 	return hash('sha256', getmyinode().getlastmod().$input);
 }
 // htmlspecialchars() wrapper
-public function hsc(?string $string): string {
-	return htmlspecialchars(($string??''), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML401, 'UTF-8');
+public function hsc(?string $string): ?string {
+	return (NULL === $string ? NULL : htmlspecialchars(($string), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML401, 'UTF-8'));
 }
 
 
@@ -1795,83 +1799,70 @@ function smtp(
 /*************************************************************************************************
 SECTION THEME: Define default webpage template.
 */
-public function htmldoc(	// Default theme function and method
-	bool	$admin	= FALSE,// default or admin
-	?string	$css	= NULL,	// Override css default
-	?string	$js		= NULL,	// Override js default
-	?string	$head	= NULL,	// Override header default
-	?string	$page	= NULL,	// Override page content default
-	?string	$foot	= NULL,	// Override footer default
-	int		$flag	= 1,	// Output control flag
-) : ?bool {					// Return boolean
-$title = (isset($_SERVER['HTTP_HOST']) && FALSE !== filter_var($_SERVER['HTTP_HOST'], FILTER_VALIDATE_DOMAIN) ? $_SERVER['HTTP_HOST'] : 'Unknown');
+public function htmldoc(
+	?string	$css	= NULL,	// css override
+	?string	$js		= NULL,	// js override
+	?string	$head	= NULL,	// header override
+	?string	$main	= NULL,	// content override
+	?string	$foot	= NULL,	// footer override
+	int		$flag	= 1,	// control flag
+) : ?bool {					// return boolean
+// helpful defaults
+global $abcms;
+$admin = NULL;
+if (isset($abcms->boots)) {
+	$title = mb_strtoupper($this->hsc($abcms->boots['urldomain']));
+	$lower = mb_strtolower($this->hsc($abcms->boots['urlfull']));
+	$admin = ($abcms->input['role'] >= ABCMS_ROLE_ADMINS ? "<div style='float: right; display: inline-block; margin: 0 20px;'><a href='/admin' title='Admin Console'>\u{2699}</a></div>" : NULL);
+}
+else if (isset($_SERVER['HTTP_HOST']) && FALSE !== filter_var($_SERVER['HTTP_HOST'], FILTER_VALIDATE_DOMAIN)) {
+	$title = mb_strtoupper($this->hsc($_SERVER['HTTP_HOST']));
+	$lower = mb_strtolower($title);
+}
+else {
+	$title = $lower = "A Basic Content Management System";
+}
+$favicon = (is_readable('./favicon.ico') ? '/favicon.ico' : (is_readable('./public/favicon.ico') ? '/public/favicon.ico' : 'data:,'));
+// page template
 ?>
 <!DOCTYPE html>
 <html lang='en'>
 <head>
+<!-- 1. Character encoding (First 1024 bytes) -->
 <meta charset='utf-8'>
-<title><?php echo $this->hsc($title); ?></title>
-<meta name='description' content='<?php echo $this->hsc($title); ?>'>
+<!-- 2. Security and browser behavior meta tags -->
+<meta name='description' content='<?php echo $title; ?>'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <meta name='mobile-web-app-capable' content='yes'>
 <meta name="theme-color" content="#404040">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:;">
-<link rel="icon" href="data:,">
+<!-- 3. Base URL (if used) -->
+<!-- 4. Document Title -->
+<title><?php echo $title; ?></title>
+<!-- 5. Preconnect/Preload hints for third-party resources -->
+<link rel="icon" href="<?php echo $favicon; ?>">
+<!-- 6. Inline style (CSS) -->
+<!-- Base-Blue#336699, Complement-Brown#996633, Split-Green#669933, Split-Magenta#993366, Lighter-Teal#339999, Darker-Indigo#333399 -->
+<!-- Black#000000, #111111, #222222, Text#333333, .... White#FFFFFF -->
 <style>
-a:hover {
-	color: #0096FF !important;
-}
-body {
-	color: #000000;
-	font-family: Arial, sans-serif;
-	margin: 0;
-	padding: 0;
-}
-#page {
-	background-color: #F0F0F0;
-	display: flex;
-	flex-direction: column;
-	min-height: 100vh;
-	margin: 0;
-}
-header {
-	color: #FFFFFF;
-	background-color: #404040;
-	text-align: center;
-	padding: 5px 2%;
-	width: 96%;
-	min-width: 360px;
-	max-width: 1024px;
-	border-radius: 7px;
-	margin: 5px auto;
-}
-main {
-	background-color: #FFFFFF;
-	flex: 1;
-	height: 100%;
-	width: 96%;
-	min-width: 360px;
-	max-width: 1024px;
-	margin: 0 auto;
-	padding: 12px 2%;
-	border-radius: 7px;
-}
-footer {
-	color: #FFFFFF;
-	background-color: #404040;
-	text-align: center;
-	padding: 3px 2%;
-	font-weight: 700;
-	width: 96%;
-	min-width: 360px;
-	max-width: 1024px;
-	border-radius: 7px;
-	margin: 5px auto;
-}
-header a, footer a {
-	color: #FFFFFF;
-	text-decoration: none;
-}
+/* width include padding, to also include margins > width: calc(100% - 30px); */
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #page, header, main, footer { margin: 0; padding: 0; width: 100%; text-align: center; }
+header, main, footer, div { overflow-wrap: break-word; overflow: hidden; }
+html { font-size: 100%; }
+body { color: #333333; background-color: #FFFFFF; font-size: 1.125rem; line-height: 1.3; font-family: Arial, sans-serif; }
+#page { display: flex; flex-direction: column; min-height: 100vh; }
+main { flex: 1;	max-width: 1024px; min-width: 360px; margin: 1rem auto; padding: 1rem 3rem; text-align: justify; }
+h1, h2, h3, h4 { color: #336699; }
+h1 { text-align: center; }
+.bold { font-weight: 700; }
+.italic { font-style: italic; }
+a { text-decoration: none; }
+a:link { color: #333399; }
+a:visited { color: #336699; }
+a:hover { color: #339999; }
+a:focus { color: #339999; }
+a:active { color: #993366; }
 form.form-grid {
 	display: grid;
 	grid-template-columns: max-content 1fr;
@@ -1879,88 +1870,46 @@ form.form-grid {
 	align-items: center;
 	max-width: 600px;
 }
-label {
-	text-align: right;
-}
-input:required {
-	border: 1px solid blue;
-}
-@media screen and (max-width: 1065px) {
-header, main, footer {
-	border-radius: 0;
-	margin: 0;
-}
-}
-<?php
-if ($admin) {
-?>
-#page {
-	border-color: #404040;
-	border-width: 0 25px 0 25px;
-	border-style: solid;
-}
-header {
-	max-width: 100%;
-	border-radius: 0;
-	margin: 0 auto 5px auto;
-}
-main {
-	border-radius: 0;
-}
-footer {
-	max-width: 100%;
-	border-radius: 0;
-	margin: 5px auto 0 auto;
-}
-@media screen and (max-width: 1115px) {
-header {
-	border-radius: 0;
-	margin: 0;
-}
-footer {
-	border-radius: 0;
-	margin: 0;
-}
-}
-<?php
-}
-$this->output('/htmldefault_css', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($css));
-?>
+label { text-align: right; }
+input:required { border: 1px solid blue; }
+@media screen and (max-width: 1065px) { main { margin: 0; } }
+<?php $this->output('/htmldefault_css', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($css)); ?>
 </style>
-<script type='text/javascript'>
-<?php
-$this->output('/htmldefault_js', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($js));
-?>
+<!-- 7. External Stylesheets (CSS) -->
+<!-- 8. JavaScript Files (Use defer or async to prevent blocking) -->
+<script>
+<?php $this->output('/htmldefault_js', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($js)); ?>
 </script>
 </head>
 <body>
 <div id='page'>
-<header class='page-container'>
+<header>
 <?php
-if (!$head) { $head = "<h2 style='font-size: 1.5em'>$title</h2>"; }
-$this->output('/htmldefault_head', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($head));
-?>
-</header>
-<main class='page-container'>
-<?php
-if (!$page) { $page = <<<EOF
-<h4>Status</h4>
-{$GLOBALS['abcms_constant']('ABCMS_GOOD')}Hello World. I am alive!<br>
-{$GLOBALS['abcms_constant']('ABCMS_BAD')}However, page requested not found.<br>
-<br>
-You have been logged out.<br>
-<br>
-Please contact the webmaster for help.
+if (!$head) { $head = <<<EOF
+<div style='width:100%; display: flex; justify-content: space-between; padding: 10px 0; background-color: #999999; color: #333333; font-weight: bold;'>
+<div style='float: left; display: inline-block; margin: 0 20px;'><a href='/' title='{$title}'>{$title}</a></div>
+{$admin}
+</div>
 EOF;
 }
-$this->output('/htmldefault_page', 'CLI-GET-POST', 'abcms->pageerror', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($page));
-$this->html_debug();
+$this->output('/htmldefault_head', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($head ?: "<h2>$title</h2>"));
+?>
+</header>
+<main>
+<?php
+if (!$main) { $main = <<<EOF
+<h1>Status</h1>
+Request not found.<br>
+<br>
+<a href='/'>Try again from the homepage.</a>
+EOF;
+}
+$this->output('/htmldefault_page', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($main));
 ?>
 </main>
-<footer class='page-container'>
+<footer>
 <?php
-if (!$foot) {	$foot = "<a href='/abcms/contact'>Contact</a>"; }
-$this->output('/htmldefault_foot', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($foot));
+$this->output('/htmldefault_foot', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($foot ?: "<h4><a href='/'>{$lower}</a></h4>"));
 ?>
 </footer>
 </div>
