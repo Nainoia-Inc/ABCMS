@@ -2,6 +2,10 @@
 /*************************************************************************************************
 SECTION INTRODUCTION: A Basic Content Management System and PHP toolkit.
 */
+$abcms = NULL; // assigned in abcms() __construct
+
+
+
 
 
 
@@ -9,17 +13,17 @@ SECTION INTRODUCTION: A Basic Content Management System and PHP toolkit.
 /*************************************************************************************************
 SECTION CONSTANTS: Immutable constants for clarity and speed.
 */
-// General
-const ABCMS_GOOD		= "<span style='color: green;'>\u{2611}</span> ";
-const ABCMS_BAD			= "<span style='color: red;'>\u{2612}</span> ";
-// Extensions
+// general
+const ABCMS_GOOD		= "<span style='color: green;'>\u{2611}</span> "; // good symbol
+const ABCMS_BAD			= "<span style='color: red;'>\u{2612}</span> "; // bad symbol
+// extensions
 const ABCMS_EXT_SELF	= "/nainoiainc/abcms";
 const ABCMS_EXT_SETS	= "/abcmsset";
 const ABCMS_EXT_ALPHA	= "/begin";
 const ABCMS_EXT_BEGIN	= "/nainoiainc/abcms".ABCMS_EXT_ALPHA;
 const ABCMS_EXT_PAGE	= "/nainoiainc/abcms/htmldefault_page";
-// Regex
-// Includefile?function #^(|/vendor/package/filepath)(|?(|classobject(::|->|()->))funcmeth)#
+// regex
+// includefile?function #^(|/vendor/package/filepath)(|?(|classobject(::|->|()->))funcmeth)#
 const ABCMS_REGEX_FUNC	= "/^((\/[^?]+)\?)?((([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x{7f}-\x{ff}]*))?$/u";
 const ABCMS_REGEX_HOOK	= "/^\/[^\/]+\/[^\/]+\/[^\/]+$/u"; // Path-like, but not a filepath
 const ABCMS_REGEX_METH	= "/(CLI|GET|POST|PUT|HEAD|DELETE|PATCH|OPTIONS|CONNECT|TRACE)/u";
@@ -31,17 +35,17 @@ const ABCMS_REGEX_UUID	= "/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{
 const ABCMS_REGEX_FORM	= "/(<form[^>]*>)(.+?)(<\/form>)/uis";
 const ABCMS_REGEX_CLIK	= "/^<form/uis";
 const ABCMS_REGEX_BUTT	= array("/(<input\s+[^>]*?type\s*=\s*['\"]submit['\"])(>|\s+[^>]*?>)/ui", "/(<button)([^<]+<\/button>)/ui");
-// Arrays
+// arrays
 const ABCMS_ARRAY_TYPE	= array('mixed','string','array','integer','float','bool','boolean','email','domain','uri','url','ip','mac','uuid','path');
-// Files
+// files
 const ABCMS_ABCMSLOG	= "../private/nainoiainc/abcms/ABCMS.errorlog";
 const ABCMS_COREDUMP	= "../private/nainoiainc/abcms/ABCMS.coredump";
 const ABCMS_SESSIONS	= "../private/nainoiainc/abcms/ABCMS.sessions";
 const ABCMS_SETTINGS	= "../private/nainoiainc/abcms/ABCMS.settings";
 const ABCMS_DATABASE	= "../private/nainoiainc/abcms/ABCMS.database";
-// Flags
+// flags
 const ABCMS_FLAG_JSON	= JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT;
-// Session session_start
+// session
 const ABCMS_SES			= ABCMS_EXT_SELF;	// unique session key for ABCMS
 const ABCMS_SES_ROTA	= 60*15;			// seconds total before rotate session tokens
 const ABCMS_SES_IDLE	= 60*60*24*4;		// seconds idle before destroy session
@@ -54,7 +58,7 @@ const ABCMS_SES_PAGE	= 7;				// max forms on one page
 const ABCMS_SES_SLAP	= 60;				// minutes to retry after malicious session detected
 const ABCMS_SES_HITS	= 20;				// max session hits within ABCMS_SES_TIME before suspect
 const ABCMS_SES_TIME	= 20;				// max session time for ABCMS_SES_HITS before suspect
-// Roles
+// roles
 const ABCMS_ROLE_PUBLIC	= 0;
 const ABCMS_ROLE_AUTHEN	= 1;
 const ABCMS_ROLE_READER	= 2;
@@ -64,69 +68,92 @@ const ABCMS_ROLE_MANAGE	= 5;
 const ABCMS_ROLE_ADMINS	= 6;
 const ABCMS_ROLE_CLI	= 7;
 const ABCMS_ROLE_SET	= array(0,1,2,3,4,5,6,7);
-// Other
+// other
 const ABCMS_EXTORD_MIN	= -9999;
 const ABCMS_EXTORD_MAX	=  9999;
 
 
 
 
-/*************************************************************************************************
-SECTION GLOBALS: Global scope variables.
-*/
-$abcms_constant = 'constant';	// Interpolate constants in strings.
-$abcms = NULL;					// $abcms assigned in abcms() __construct.
-//abcms()						// abcms() returns the ABCMS singleton object.
-//abcms_dump()					// abcms_dump() outputs debug information.
- 
 
 
 
 /*************************************************************************************************
 SECTION TRY/CATCH: Run the CMS.
 */
-// try ABCMS
-try {
-	// output controller
-	abcms()->output(
-		ABCMS_EXT_ALPHA,	// entry extension
-		'CLI-GET-POST',		// methods extended
-		'abcms->htmldoc',	// default function
-		ABCMS_ROLE_PUBLIC,	// minimum role
-		1,					// 1 = exclusive allowed
-		FALSE,				// default required
-		// abcms->htmldoc() arguments
-		...$args = array(
-			NULL,			// css
-			NULL,			// js
-			NULL,			// header
+try { // try abcms()->output()
+	abcms()->output( // try abcms()->output() router and extension manager
+		ABCMS_EXT_ALPHA, // entry extension
+		'CLI-GET-POST', // methods extended
+		'abcms->htmldoc', // default function
+		ABCMS_ROLE_PUBLIC, // minimum role
+		1, // 1 = exclusive allowed
+		FALSE, // default required
+		...$args = array( // abcms->htmldoc() arguments
+			NULL, // css
+			NULL, // js
+			NULL, // header
 			<<<EOF
-<h4>Status</h4>
-{$GLOBALS['abcms_constant']('ABCMS_GOOD')}Hello World. Graceful termination.<br>
-{$GLOBALS['abcms_constant']('ABCMS_BAD')}Fatal error. Core extension failed.<br>
+<h1>Status</h1>
+Hello World. Graceful termination.<br>
+Fatal error. Core extension failed.<br>
 <br>
 Please contact the webmaster for help.
 EOF
-			,				// main
-			NULL,			// footer
-			1,				// allow exclusive
+			, // main
+			NULL, // footer
+			1, // exclusive flag
 		),
 	);
-	// coredump requested
-	if (!empty($abcms->input['urlquery']['debug'])) {
-		abcms_dump(NULL, 'file');
+}
+catch (\Throwable $e) { // catch exceptions
+	ob_end_clean(); // trash buffered output
+	$exception	= (htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8') ?: 'Unknown exception.'); // thrown message
+	$system		= (error_get_last() ?? array('message' => 'NA')); // error message
+	$composer	= array(); // composer extensions
+	if ($abcms->input['auto']??FALSE) {
+		foreach (Composer\InstalledVersions::getInstalledPackagesByType('abcms-extension') as $name) {
+			$composer[$name] = Composer\InstalledVersions::getInstallPath($name);
+		}
 	}
+	// HTML output
+	echo <<< EOF
+<dialog open style='position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; max-width: 100%; max-height: 100%; width: 100vw; height: 100vh; margin: 0; padding: 0; border: 0; background-color: #336699;'>
+<div style='display: flex; align-items: center; justify-content: center; width: 90%; height: 90%; margin: 0; padding: 0; border: 0; background-color: #FFFFFF;'>
+<div style='margin: auto; text-align: center; font-size: 30px; line-height: 1.5; font-family: Arial, sans-serif; color: #333333;'>
+My sincere apologies.<br>
+I appear to have lost my balance.<br>
+Please try again, wait, or contact the webmaster.<br>
+<br>
+ERROR MESSAGE:
+<br>
+"{$exception}"<br>
+<br>
+<a href='/'>Click here to try again</a>.
+</div>
+</div>
+</dialog>
+EOF;
+	// log error
+	error_log("ABCMS->COREDUMP()\n" . print_r(array('COREDUMP_EXCEPTION' => $exception, 'COREDUMP_SYSTEM' => $system), TRUE));
+	// dump corefile
+	file_put_contents(
+		ABCMS_COREDUMP,
+		print_r(array(
+			'ABCMS_EXCEPTION'	=> $exception,
+			'ABCMS_SYSTEM'		=> $system,
+			'ABCMS_OBJECT'		=> ($abcms??'$abcms not consructed'),
+			'ABCMS_GLOBALS'		=> $GLOBALS,
+			'ABCMS_COMPOSER'	=> $composer,
+		), TRUE),
+	);
 }
-// catch exceptions
-catch (\Throwable $e) {
-	abcms_dump($e, 'html');
+finally { // clean up
 }
-// clean up
-finally {
-	; // remove locks
-}
-// done, fuunction definitions follow
-return TRUE;
+return TRUE; // done, function definitions follow
+
+
+
 
 
 
@@ -134,16 +161,9 @@ return TRUE;
 /*************************************************************************************************
 SECTION CONSTRUCT: Instantiate object and validate inputs.
 */
-// abcms() function returns $abcms object
-function abcms() : object {
-// create once
-static $_abcms = NULL;
-if (NULL === $_abcms) {
-// $abcms already set
-if (isset($GLOBALS['abcms'])) {						throw new Exception("Core already defined."); }
-// $abcms object assigned
-$GLOBALS['abcms'] = $_abcms = new class {
-readonly	array	$GLOBALS;				// readonly $GLOBALS copy
+function abcms() : object { // abcms() function returns $abcms object
+static $_abcms = NULL; if (NULL === $_abcms) { // create once
+$GLOBALS['abcms'] = $_abcms = new class {	// $abcms object assigned
 readonly	array	$boots;					// bootstrap input before session
 readonly	array	$input;					// sanitized input after session
 readonly	array	$settings;				// read application settings
@@ -155,18 +175,11 @@ private		bool	$formvalid	= FALSE;	// form tested valid
 private		bool	$formhuman	= FALSE;	// form tested human
 // Construct object
 function __construct() {
-	// WSOD errors
-	if (PHP_VERSION < '8.2.0') {					$this->error_wsod("Script version must be >= 8.2.0."); }
-	if (!chdir(__DIR__)) {							$this->error_wsod("Working directory not found."); }
-	if (!ini_set('error_log', ABCMS_ABCMSLOG)) {	$this->error_wsod("Error location not found."); }
-	if (FALSE === $this->set_settings(TRUE)){		$this->error_wsod("Application settings not found."); }
-	if (isset($_SESSION)) {							$this->error_wsod("Session is already started."); }
-	// bootstrap for session_start(), then session user validates inputs
-	$this->boots = array(
-		// current time()
-		'time' => time(),
-		// user identity
-		'uagent' => (($_SERVER['REMOTE_ADDR']??'')?:'unknown').(($_SERVER['HTTP_USER_AGENT']??'')?:'unknown'),
+	if (!ini_set('error_log', ABCMS_ABCMSLOG)) {	$this->error_wsod("Error location not found."); } // error location
+	if (FALSE === $this->set_settings(TRUE)){		$this->error_wsod("Application settings not found."); } // read settings
+	$this->boots = array( // bootstrap settings for session_start(), then session user validates inputs
+		'time' => time(), // current time()
+		'uagent' => (($_SERVER['REMOTE_ADDR']??'')?:'unknown').(($_SERVER['HTTP_USER_AGENT']??'')?:'unknown'), // user identity hash
 		// URL full
 		'urlfull' => ($urlfull =
 			// CLI domain
@@ -186,12 +199,8 @@ function __construct() {
 		// URL request method
 		'urlmethod' => ('cli' === PHP_SAPI ? 'CLI' : ((empty($_SERVER['REQUEST_METHOD']) || !in_array($_SERVER['REQUEST_METHOD'], ABCMS_REGEX_META)) ? 'GET' : $_SERVER['REQUEST_METHOD'])),
 	);
-	// lazy session start
-	$session = $this->session_start(0);
-	// copy $GLOBAL with session, if possible
-	$this->GLOBALS	= $GLOBALS;
-	// sanitize inputs with session user
-	$this->input = array(
+	$session = $this->session_start(0); // lazy session start
+	$this->input = array( // sanitize inputs with session user
 		// session result
 		'session' => $session,
 		// my user
@@ -331,6 +340,9 @@ private function input_valid(
 
 
 
+
+
+
 /*************************************************************************************************
 SECTION OUTPUT: Everything is a routed extension.
 */
@@ -396,8 +408,8 @@ public function output(
 			}
 			// ABCMS security output filter and injection, <FORM> security, and XSS checks, etc.
 			if (ABCMS_EXT_BEGIN == $hook) {
-				$this->html_security($out);	// inject security
-				$this->html_debug($out);	// TEMP CODE
+				$this->output_security($out);	// inject security
+				$this->output_debug($out);	// TEMP CODE
 			}
 			echo $out; // Echo compiled output
 		} while ($more); // Repeat hook extension until FALSE
@@ -552,12 +564,110 @@ public function output_equate(
 	$this->compiles['route'][$hook]['eq'][$path] = $ext;
 	return TRUE;
 }
+private function output_security(string &$html) : void {	// html form security injection
+	// no forms
+	if (!($num = preg_match_all(ABCMS_REGEX_FORM, $html))) { return; }
+	// too many forms
+	if ($num > ABCMS_SES_PAGE) { $this->error_wsod("Too many forms open on one page."); }
+	// start session
+	// DOM is better than preg_replace() for HTML injection, but why slow down for one occasion?
+	if (!$this->session_start(1)) {
+		$this->set_errors("All forms disabled because session security failed.");
+		// disable forms actually with <fieldset> and cosmetically with CSS with missing CSRF as safety net
+		if (!($html = preg_replace(ABCMS_REGEX_FORM, '$1<fieldset disabled style="border: none; margin: 0; padding: 0; min-width: 0; display: contents;">$2</fieldset>$3', $html)) ||
+			!($html = preg_replace("/<\/head>/ui", "<style>form { pointer-events: none; opacity: 0.5; }</style></head>", $html))) {
+			$this->error_wsod("Form disabled because security session failed.");
+		}
+		return;
+	}
+	// compile injections
+	$delay = ABCMS_SES_WAIT * 1000;
+	$inject_tokens = $inject_onclick = [];
+	for($x = 0; $x < $num; ++$x) {
+		// security tokens per form
+		$csrf = $this->get_uniq();
+		$_SESSION[ABCMS_SES]['form'][$csrf]['mark_time'] = $this->boots['time'];
+		$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_name'] = $this->get_uniq();
+		$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu'] = $csrf;
+		$_SESSION[ABCMS_SES]['form'][$csrf]['void_name'] = $this->get_uniq();
+		$_SESSION[ABCMS_SES]['form'][$csrf]['full_name'] = $this->get_uniq();
+		$_SESSION[ABCMS_SES]['form'][$csrf]['full_valu'] = $this->get_uniq();
+		$_SESSION[ABCMS_SES]['form'][$csrf]['test_name'] = $this->get_uniq();
+		$_SESSION[ABCMS_SES]['form'][$csrf]['test_valu'] = 'abc';
+		// form security token injection
+		$inject_tokens[] = <<<EOF
+<input type='hidden' name='button'												value=''>
+<input type='hidden' name='csrf'												value='{$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu']}'>
+<input type='hidden' name='{$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_name']}'	value='{$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu']}'>
+<input type='hidden' name='{$_SESSION[ABCMS_SES]['form'][$csrf]['void_name']}'	value='{$_SESSION[ABCMS_SES]['form'][$csrf]['full_valu']}'>
+<input type='hidden' name='{$_SESSION[ABCMS_SES]['form'][$csrf]['full_name']}'	value=''>
+EOF;
+		$captcha = (!empty($_SESSION[ABCMS_SES]['user']) ? NULL : "Enter CAPTCHA <input name='{$_SESSION[ABCMS_SES]['form'][$csrf]['test_name']}' value='{$_SESSION[ABCMS_SES]['form'][$csrf]['test_valu']}'>\n");
+		// button security onclick injection
+		// javascript submission means button name/value not in $_POST
+		$inject_onclick[] = <<<EOF
+<div>
+{$captcha}
+\$1 onclick="
+this.disabled=true;
+event.preventDefault();
+var submit = this.value;		this.value = 'Sending...';
+var button = this.innerText;	this.innerText = 'Sending...';
+setTimeout(() => {
+	this.form['{$_SESSION[ABCMS_SES]['form'][$csrf]['void_name']}'].value = '';
+	this.form['{$_SESSION[ABCMS_SES]['form'][$csrf]['full_name']}'].value = '{$_SESSION[ABCMS_SES]['form'][$csrf]['full_valu']}';
+	this.form['button'].value = submit;
+	this.value = submit;
+	this.innerText = button;
+	HTMLFormElement.prototype.submit.call(this.form);
+ }, {$delay});
+"
+\$2
+</div>
+EOF;
+	}
+	// perform injection, nested for <form>s and <button>s
+	$num = 0;
+	if (!($html = preg_replace_callback(
+		ABCMS_REGEX_FORM,
+		// replace <form> matches corresponding to injection arrays so each form gets their own tokens
+		function($matches) use (&$num, $inject_tokens, $inject_onclick) {
+			// require button click submital, ignore "enter"
+			if (!($replace = preg_replace(ABCMS_REGEX_CLIK, "<form onkeydown='if(event.key === \"Enter\") event.preventDefault();' ", $matches[1]))) { $this->error_wsod("Form security injection failed."); }
+			$replace .= $matches[2];
+			// onclick event for all buttons
+			if (!($replace = preg_replace(ABCMS_REGEX_BUTT, $inject_onclick[$num], $replace))) { $this->error_wsod("Form security injection failed."); }
+			// security tokens
+			$replace .= $inject_tokens[$num].'</form>';
+			++$num;
+			return $replace;
+		},
+		$html))) {
+		$this->error_wsod("Form security injection failed.");
+	}
+	return;
+}
+private function output_debug(string &$html = NULL) : void {	// inject debug information for administrators
+	if ($this->input['role'] < ABCMS_ROLE_ADMINS) { return; }
+	$injection =
+		'<div style="margin-top: 7rem; background-color: #EEEEEE; text-align: left; padding: 20px;">'.
+		'<br>THIS:<br><pre>'.print_r($this,TRUE).'</pre>'.
+		'<br>_COOKIE:<br><pre>'.print_r($_COOKIE,TRUE).'</pre>'.
+		'<br>_SESSION:<br><pre>'.print_r($_SESSION,TRUE).'</pre>'.
+		'</div>'.
+		'</body>';
+	if (!($html = preg_replace("/<\/body>/ui", $injection, $html))) { $this->error_wsod("Form debug injection failed."); }
+	return;
+}
+
+
+
 
 
 
 
 /*************************************************************************************************
-SECTION SETUP: Compile boot settings with core and extension preferences.
+SECTION SETTINGS: Compile boot settings with core and extension preferences.
 */
 // Read or create the core settings JSON file. 
 private function set_settings(
@@ -580,7 +690,7 @@ private function set_settings(
 	$this->compiles['core']['documentroot']		= (__DIR__); // My documentroot
 	$this->compiles['core']['projectroot']		= (dirname(__DIR__)); // My project folder
 	$this->compiles['core']['project']			= (basename(dirname(__DIR__))); // My project name
-	$this->compiles['core']['auto']				= (($auto = realpath(__DIR__ . '/../vendor/autoload.php')) ? $auto : FALSE); // Composer auto-loader
+	$this->compiles['core']['auto']				= (realpath(__DIR__ . '/../vendor/autoload.php') ?: FALSE); // auto-loader location
 	$this->compiles['core']['session_folder']	= (realpath(ABCMS_SESSIONS) ?: ABCMS_SESSIONS); // My session folder
 	$this->compiles['core']['session_cookie']	= $this->get_hash('session_cookie'); // My session cookie name
 	$this->compiles['core']['session_logins']	= $this->get_hash('session_logins'); // My login cookie name
@@ -604,10 +714,6 @@ private function set_settings(
 	$this->output_equate(ABCMS_EXT_BEGIN,	'admin',	'/admin/');
 	$this->output_extend(ABCMS_EXT_BEGIN,	'code',		'CLI-GET-POST',	'IEU',	'abcms->admincode',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
 	$this->output_equate(ABCMS_EXT_BEGIN,	'code',		'/admin/code');
-	$this->output_extend(ABCMS_EXT_BEGIN,	'corelive',	'CLI-GET-POST',	'IEU',	'abcms->admincorelive',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
-	$this->output_equate(ABCMS_EXT_BEGIN,	'corelive',	'/admin/corelive');
-	$this->output_extend(ABCMS_EXT_BEGIN,	'corelivesession',	'CLI-GET-POST',	'IEU',	'abcms->admincorelivesession',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
-	$this->output_equate(ABCMS_EXT_BEGIN,	'corelivesession',	'/admin/corelivesession');
 	// Frontend page extensions
 	$this->output_extend(ABCMS_EXT_PAGE,	'home',		'CLI-GET-POST',	'IE',	'abcms->pagehome',		ABCMS_ROLE_PUBLIC,	-10);
 	$this->output_equate(ABCMS_EXT_PAGE,	'home',		'/');
@@ -635,8 +741,8 @@ private function set_settings(
 	$this->output_equate(ABCMS_EXT_PAGE,	'cron',		'/admin/cron');
 	$this->output_extend(ABCMS_EXT_PAGE,	'browse',	'CLI-GET-POST',	'IE',	'abcms->adminbrowse',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
 	$this->output_equate(ABCMS_EXT_PAGE,	'browse',	'/admin/browse');
-	$this->output_extend(ABCMS_EXT_PAGE,	'browse',	'CLI-GET-POST',	'IE',	'abcms->admintests',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
-	$this->output_equate(ABCMS_EXT_PAGE,	'browse',	'/admin/tests');
+	$this->output_extend(ABCMS_EXT_PAGE,	'tests',	'CLI-GET-POST',	'IE',	'abcms->admintests',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_equate(ABCMS_EXT_PAGE,	'tests',	'/admin/tests');
 	// Variable Extensions
 	$variable['variable'] = "Yoo hooey!<br>";
 	$this->output_extend('/nainoiainc/abcms/variable',	'',	'CLI-GET-POST',	'IE',	'abcms->pagevariable',	ABCMS_ROLE_PUBLIC,	-10, ...$variable);	
@@ -697,6 +803,9 @@ public function settings_get(
 	$hok = ($hok ?: $this->extension());
 	return (isset($this->settings[ABCMS_EXT_SETS][$hok]) ? $this->settings[ABCMS_EXT_SETS][$hok] : NULL);
 }
+
+
+
 
 
 
@@ -763,6 +872,9 @@ public function see_errors() : ?string {	// Format private errors for public
 public function get_settings() : array {	// Get private settings for public
 	return $this->settings;
 }
+
+
+
 
 
 
@@ -991,6 +1103,19 @@ public function set_cookie(
 
 
 
+
+
+
+/*************************************************************************************************
+SECTION FORMS: Create, secure, and process forms.
+*/
+
+
+
+
+
+
+
 /*************************************************************************************************
 SECTION DATABASE: Store data in JSON, CSV, SQLite, or MySQL.
 */
@@ -1011,107 +1136,6 @@ public function get_database(string $filename, mixed $data) : mixed {
 
 
 
-/*************************************************************************************************
-SECTION FORMS: Create, secure, and process forms.
-*/
-// form security
-private function html_security(string &$html) : void {
-	// no forms
-	if (!($num = preg_match_all(ABCMS_REGEX_FORM, $html))) { return; }
-	// too many forms
-	if ($num > ABCMS_SES_PAGE) { $this->error_wsod("Too many forms open on one page."); }
-	// start session
-	// DOM is better than preg_replace() for HTML injection, but why slow down for one occasion?
-	if (!$this->session_start(1)) {
-		$this->set_errors("All forms disabled because session security failed.");
-		// disable forms actually with <fieldset> and cosmetically with CSS with missing CSRF as safety net
-		if (!($html = preg_replace(ABCMS_REGEX_FORM, '$1<fieldset disabled style="border: none; margin: 0; padding: 0; min-width: 0; display: contents;">$2</fieldset>$3', $html)) ||
-			!($html = preg_replace("/<\/head>/ui", "<style>form { pointer-events: none; opacity: 0.5; }</style></head>", $html))) {
-			$this->error_wsod("Form disabled because security session failed.");
-		}
-		return;
-	}
-	// compile injections
-	$delay = ABCMS_SES_WAIT * 1000;
-	$inject_tokens = $inject_onclick = [];
-	for($x = 0; $x < $num; ++$x) {
-		// security tokens per form
-		$csrf = $this->get_uniq();
-		$_SESSION[ABCMS_SES]['form'][$csrf]['mark_time'] = $this->boots['time'];
-		$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_name'] = $this->get_uniq();
-		$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu'] = $csrf;
-		$_SESSION[ABCMS_SES]['form'][$csrf]['void_name'] = $this->get_uniq();
-		$_SESSION[ABCMS_SES]['form'][$csrf]['full_name'] = $this->get_uniq();
-		$_SESSION[ABCMS_SES]['form'][$csrf]['full_valu'] = $this->get_uniq();
-		$_SESSION[ABCMS_SES]['form'][$csrf]['test_name'] = $this->get_uniq();
-		$_SESSION[ABCMS_SES]['form'][$csrf]['test_valu'] = 'abc';
-		// form security token injection
-		$inject_tokens[] = <<<EOF
-<input type='hidden' name='button'												value=''>
-<input type='hidden' name='csrf'												value='{$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu']}'>
-<input type='hidden' name='{$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_name']}'	value='{$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu']}'>
-<input type='hidden' name='{$_SESSION[ABCMS_SES]['form'][$csrf]['void_name']}'	value='{$_SESSION[ABCMS_SES]['form'][$csrf]['full_valu']}'>
-<input type='hidden' name='{$_SESSION[ABCMS_SES]['form'][$csrf]['full_name']}'	value=''>
-EOF;
-		$captcha = (!empty($_SESSION[ABCMS_SES]['user']) ? NULL : "Enter CAPTCHA <input name='{$_SESSION[ABCMS_SES]['form'][$csrf]['test_name']}' value='{$_SESSION[ABCMS_SES]['form'][$csrf]['test_valu']}'>\n");
-		// button security onclick injection
-		// javascript submission means button name/value not in $_POST
-		$inject_onclick[] = <<<EOF
-<div>
-{$captcha}
-\$1 onclick="
-this.disabled=true;
-event.preventDefault();
-var submit = this.value;		this.value = 'Sending...';
-var button = this.innerText;	this.innerText = 'Sending...';
-setTimeout(() => {
-	this.form['{$_SESSION[ABCMS_SES]['form'][$csrf]['void_name']}'].value = '';
-	this.form['{$_SESSION[ABCMS_SES]['form'][$csrf]['full_name']}'].value = '{$_SESSION[ABCMS_SES]['form'][$csrf]['full_valu']}';
-	this.form['button'].value = submit;
-	this.value = submit;
-	this.innerText = button;
-	HTMLFormElement.prototype.submit.call(this.form);
- }, {$delay});
-"
-\$2
-</div>
-EOF;
-	}
-	// perform injection, nested for <form>s and <button>s
-	$num = 0;
-	if (!($html = preg_replace_callback(
-		ABCMS_REGEX_FORM,
-		// replace <form> matches corresponding to injection arrays so each form gets their own tokens
-		function($matches) use (&$num, $inject_tokens, $inject_onclick) {
-			// require button click submital, ignore "enter"
-			if (!($replace = preg_replace(ABCMS_REGEX_CLIK, "<form onkeydown='if(event.key === \"Enter\") event.preventDefault();' ", $matches[1]))) { $this->error_wsod("Form security injection failed."); }
-			$replace .= $matches[2];
-			// onclick event for all buttons
-			if (!($replace = preg_replace(ABCMS_REGEX_BUTT, $inject_onclick[$num], $replace))) { $this->error_wsod("Form security injection failed."); }
-			// security tokens
-			$replace .= $inject_tokens[$num].'</form>';
-			++$num;
-			return $replace;
-		},
-		$html))) {
-		$this->error_wsod("Form security injection failed.");
-	}
-	return;
-}
-// inject debug information
-private function html_debug(string &$html = NULL) : void {
-	if ($this->input['role'] < ABCMS_ROLE_ADMINS) { return; }
-	$injection =
-		'<div style="margin-top: 7rem; background-color: #EEEEEE; text-align: left; padding: 20px;">'.
-		'<br>THIS:<br><pre>'.print_r($this,TRUE).'</pre>'.
-		'<br>_COOKIE:<br><pre>'.print_r($_COOKIE,TRUE).'</pre>'.
-		'<br>_SESSION:<br><pre>'.print_r($_SESSION,TRUE).'</pre>'.
-		'</div>'.
-		'</body>';
-	if (!($html = preg_replace("/<\/body>/ui", $injection, $html))) { $this->error_wsod("Form debug injection failed."); }
-	return;
-}
-
 
 
 
@@ -1119,6 +1143,9 @@ private function html_debug(string &$html = NULL) : void {
 SECTION CRON: Execute rountine core and extension maintenance functions.
 */
 // replace PHP session garbage collection with CRON job to purge stale and excess sessions
+
+
+
 
 
 
@@ -1139,8 +1166,8 @@ EOF
 		NULL,			// js
 		<<<EOF
 <div style='width:100%; display: flex; justify-content: space-between; padding: 10px 0; background-color: #999999; color: #333333; font-weight: bold;'>
-<div style='float: left; display: inline-block; margin: 0 20px;'><a href='/admin' title='A Basic Content Management System'>ABCMS Console</a></div>
-<div style='float: right; display: inline-block; margin: 0 20px;'><a href='/' title='Close Console'>X</a></div>
+<div><a href='/admin' title='A Basic Content Management System'>ABCMS Console</a></div>
+<div><a href='/' title='Close Console'>X</a></div>
 </div>
 EOF
 		,				// header
@@ -1152,15 +1179,6 @@ EOF
 }
 private function admincode(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 	highlight_file($this->settings['core']['filename']);
-	return NULL;
-}
-private function admincorelive(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	abcms_dump(NULL, 'page');
-	return NULL;
-}
-private function admincorelivesession(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	$this->session_start(1);
-	abcms_dump(NULL, 'page');
 	return NULL;
 }
 private function adminstatus(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
@@ -1183,14 +1201,11 @@ echo <<<EOF
 <a href='/admin/init'>/admin/init</a><br>
 <a href='/admin/cron'>/admin/cron</a><br>
 <a href='/admin/browse'>/admin/browse</a><br>
-<a href='/admin/corelive'>/admin/corelive</a><br>
-<a href='/admin/corelivesession'>/admin/corelivesession</a><br>
+<a href='/admin/tests'>/admin/tests</a><br>
 <br>
 <a href='/bogus'>/bogus</a><br>
 <a href='/abcms/bogus'>/abcms/bogus</a><br>
 <a href='/admin/bogus'>/admin/bogus</a><br>
-<br>
-{$GLOBALS['abcms_constant']('ABCMS_GOOD')} 
 EOF;	
 	return NULL;
 }
@@ -1239,8 +1254,8 @@ private function admintests(mixed &...$unused) : ?bool { // Non-function wrapper
 	$returned3 = $this->settings_get();
 ?>
 <h1>Tests</h1>
-<?php echo $GLOBALS['abcms_constant']('ABCMS_GOOD'); ?> Hello World. I am alive.<br>
-<?php echo $GLOBALS['abcms_constant']('ABCMS_GOOD'); ?> Thank you!<br>
+<?php echo constant('ABCMS_GOOD'); ?> Hello World. I am alive.<br>
+<?php echo constant('ABCMS_GOOD'); ?> Thank you!<br>
 <br>
 Variable1: <?php echo $variable['variable'] . ' ' . $returned['variable'];?><br>
 Variable2: <?php print_r($variable2);?><br>
@@ -1253,9 +1268,15 @@ UUIDV4: <?php echo $this->get_uuid();?><br>
 
 
 
+
+
+
 /*************************************************************************************************
 SECTION WEBSERVANT: Display /Admin/HASH/Webservant/ application.
 */
+
+
+
 
 
 
@@ -1267,21 +1288,32 @@ SECTION UPDATER: Display /Admin/HASH/Updater/ application.
 
 
 
+
+
+
+/*************************************************************************************************
+SECTION WEBFILES: Display /ABCMS/Webfiles/ application.
+*/
+
+
+
+
+
+
+
 /*************************************************************************************************
 SECTION HOMEPAGE: Display /ABCMS/* application.
 */
 public function htmldefault(
 	mixed &...$unused,
 ) : ?bool {
-	$admin = ($this->input['role'] < ABCMS_ROLE_ADMINS ? NULL : "<div style='float: right; display: inline-block; margin: 0 20px;'><a href='/admin' title='Admin Console'>\u{2699}</a></div>");
 	return $this->htmldoc(
 		...$args = array(
 		NULL,			// css
 		NULL,			// js
 		<<<EOF
-<div style='width:100%; display: flex; justify-content: space-between; padding: 10px 0; color: #333333; font-weight: bold;'>
-<div style='float: left; display: inline-block; margin: 0 20px;'><a href='/' title='A Basic Content Management System'><span style='font-size: 5rem;'>\$abcms()</span></a></div>
-{$admin}
+<div style='width:100%; display: flex; justify-content: center; padding: 10px 0; '>
+<div><a href='/' title='A Basic Content Management System'><span style='font-size: 4rem; font-weight: bold; color: #999999;'>\$abcms()</span></a></div>
 </div>
 EOF
 		,				// header
@@ -1295,13 +1327,13 @@ private function pagehome(mixed &...$unused) : ?bool { // Non-function wrapper s
 $admin = ($this->input['role'] < ABCMS_ROLE_ADMINS ? NULL : " / <a href='/admin'>Console</a>");
 $logout = (empty($this->input['user']) ? NULL : " / <a href='/abcms/logout'>Logout</a>");
 ?>
-<h1>A Basic Content Management System</h1>
+<h1>A Basic Content Management System&trade;</h1>
 <div style='text-align: center;'>
 <p style='line-height: 2rem;'>
 AKA "<a href='https://www.AionianBible.org' target='_blank'>Aionian Bible</a> Content Management System"<br>
 A PHP web developer toolkit and CMS in a single file.<br>
 Everything is an extension with the &dollar;abcms() router.<br>
-Install with Composer or run me in a document root.<br>
+Install ABCMS&trade; with Composer or run me in a document root.<br>
 </p>
 <p>
 <a href='/abcms/more'>More</a> / <a href='/abcms/account'>Account</a><?php echo $admin; ?><?php echo $logout; ?>
@@ -1432,10 +1464,6 @@ private function pagevariable2(array &$variable) : ?bool {
 
 
 
-/*************************************************************************************************
-SECTION WEBFILES: Display /ABCMS/Webfiles/ application.
-*/
-
 
 
 
@@ -1561,6 +1589,9 @@ public function get_hash(?string $input): string {
 public function hsc(?string $string): ?string {
 	return (NULL === $string ? NULL : htmlspecialchars(($string), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML401, 'UTF-8'));
 }
+
+
+
 
 
 
@@ -1806,6 +1837,9 @@ function smtp(
 
 
 
+
+
+
 /*************************************************************************************************
 SECTION THEME: Define default webpage template.
 */
@@ -1818,20 +1852,9 @@ public function htmldoc(
 	int		$flag	= 1,	// control flag
 ) : ?bool {					// return boolean
 // helpful defaults
-global $abcms;
-$admin = NULL;
-if (isset($abcms->boots)) {
-	$title = mb_strtoupper($this->hsc($abcms->boots['urldomain']));
-	$lower = mb_strtolower($this->hsc($abcms->boots['urlfull']));
-	$admin = ($abcms->input['role'] >= ABCMS_ROLE_ADMINS ? "<div style='float: right; display: inline-block; margin: 0 20px;'><a href='/admin' title='Admin Console'>\u{2699}</a></div>" : NULL);
-}
-else if (isset($_SERVER['HTTP_HOST']) && FALSE !== filter_var($_SERVER['HTTP_HOST'], FILTER_VALIDATE_DOMAIN)) {
-	$title = mb_strtoupper($this->hsc($_SERVER['HTTP_HOST']));
-	$lower = mb_strtolower($title);
-}
-else {
-	$title = $lower = "A Basic Content Management System";
-}
+$title = mb_strtoupper($this->hsc($this->boots['urldomain']));
+$lower = mb_strtolower($this->hsc($this->boots['urlfull']));
+$admin = ($this->input['role'] >= ABCMS_ROLE_ADMINS ? "<div><a href='/admin' title='Admin Console'>\u{2699}</a></div>" : NULL);
 $favicon = (is_readable('./favicon.ico') ? '/favicon.ico' : (is_readable('./public/favicon.ico') ? '/public/favicon.ico' : 'data:,'));
 // page template
 ?>
@@ -1845,12 +1868,12 @@ $favicon = (is_readable('./favicon.ico') ? '/favicon.ico' : (is_readable('./publ
 <meta name='description' content='<?php echo $title; ?>'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <meta name='mobile-web-app-capable' content='yes'>
-<!-- need to generate the manifest! -->
+<!-- generate manifest! -->
 <link rel="manifest" href="/manifest.json">
 <meta name='theme-color' content='#336699'>
 <meta name='color-scheme' content='light dark'>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:;">
-<!-- 3. Base URL (if used) -->
+<!-- 3. Base URL -->
 <!-- 4. Document Title -->
 <title><?php echo $title; ?></title>
 <!-- 5. Preconnect/Preload hints for third-party resources -->
@@ -1861,10 +1884,10 @@ $favicon = (is_readable('./favicon.ico') ? '/favicon.ico' : (is_readable('./publ
 <style>
 /* width include padding, to also include margins > width: calc(100% - 30px); */
 *, *::before, *::after { box-sizing: border-box; }
-html, body, header, main, footer { margin: 0; padding: 0; width: 100%; text-align: center; }
-header, main, footer, div { overflow-wrap: break-word; }
-html { font-size: 100%; }
-body { display: flex; flex-direction: column; min-height: 100vh; color: #333333; background-color: #FFFFFF; font-size: 1.125rem; line-height: 1.3; font-family: Arial, sans-serif; }
+html, body, #page, header, main, footer { margin: 0; padding: 0; width: 100%; text-align: center; }
+html { font-size: 100%; overflow-wrap: break-word; word-wrap: break-word; }
+body { color: #333333; background-color: #FFFFFF; font-size: 1.125rem; line-height: 1.3; font-family: Arial, sans-serif; }
+#page { display: flex; flex-direction: column; min-height: 100vh; }
 main { flex: 1;	max-width: 1024px; min-width: min(360px, 100%); margin: 1rem auto; padding: 1rem 3rem; text-align: justify; }
 h1, h2, h3, h4 { color: #336699; }
 h1 { text-align: center; }
@@ -1888,18 +1911,19 @@ input:required { border: 1px solid blue; }
 @media screen and (max-width: 1065px) { main { margin: 0; } }
 <?php $this->output('/htmldefault_css', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($css)); ?>
 </style>
-<!-- 7. External Stylesheets (CSS) -->
-<!-- 8. JavaScript Files (Use defer or async to prevent blocking) -->
+<!-- 7. External stylesheets (CSS) -->
+<!-- 8. JavaScript files, defer or async to prevent blocking -->
 <script>
 <?php $this->output('/htmldefault_js', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($js)); ?>
 </script>
 </head>
 <body>
+<div id='page'>
 <header>
 <?php
 if (!$head) { $head = <<<EOF
 <div style='width:100%; display: flex; justify-content: space-between; padding: 10px 0; background-color: #999999; color: #333333; font-weight: bold;'>
-<div style='float: left; display: inline-block; margin: 0 20px;'><a href='/' title='{$title}'>{$title}</a></div>
+<div><a href='/' title='{$title}'>{$title}</a></div>
 {$admin}
 </div>
 EOF;
@@ -1924,6 +1948,7 @@ $this->output('/htmldefault_page', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUB
 $this->output('/htmldefault_foot', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($foot ?: "<h4><a href='/'>{$lower}</a></h4>"));
 ?>
 </footer>
+</div>
 </body>
 <?php
 return NULL; // done
@@ -1934,61 +1959,4 @@ return NULL; // done
 // end object
 }; }
 return $_abcms;
-}
-
-
-
-
-/*************************************************************************************************
-SECTION ADDITIONAL: Define global functions beyond abcms().
-*/
-// Coredump global function in case $abcms instantiation fails.
-function abcms_dump(
-	\Throwable $e = NULL, // error thrown
-	string $display = 'html', // output format
-) : void {
-	// initialize
-	global $abcms;
-	$live		= (isset($abcms->input['auto']) ? TRUE : FALSE);
-	$exception	= (isset($e) ? (htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8') ?: 'Unknown exception.') : 'Intentional debugging.');
-	$system		= (error_get_last() ?? array('message' => 'NA'));
-	$composer	= array();
-	if ($live && abcms()->input['auto']) {
-		foreach (Composer\InstalledVersions::getInstalledPackagesByType('abcms-extension') as $name) {
-			$composer[$name] = Composer\InstalledVersions::getInstallPath($name);
-		}
-	}
-	// HTML
-	if ('html' == $display) {
-		echo ob_get_clean() ?: "<br> My apologies. The CMS object is unavailable. <a href='/'>Try again</a>.";
-		echo <<< EOF
-<dialog open style='position: absolute; inset: 0; margin: auto; width: 350px; height: 150px; background-color: red; color: white; text-align: center; padding: 7px;'>
-I am terribly sorry.<br>
-{$exception}<br>
-Please inform webmaster of this coredump.<br>
-<br>
-<form method="dialog"><button>Resume</button></form>
-</dialog>
-EOF;
-	}
-	// log
-	ini_set('error_log', ABCMS_ABCMSLOG);
-	error_log("ABCMS->COREDUMP()\n" . print_r(array('COREDUMP_EXCEPTION' => $exception, 'COREDUMP_SYSTEM' => $system), TRUE));
-	// corefile
-	file_put_contents(
-		ABCMS_COREDUMP,
-		print_r(array(
-			'COREDUMP_EXCEPTION'=> $exception,
-			'COREDUMP_SYSTEM'	=> $system,
-			'COREDUMP_ABCMS'	=> ($live ? $abcms : 'NA'),
-			'COREDUMP_GLOBALS'	=> $GLOBALS,
-			'COREDUMP_COMPOSER' => $composer,
-		), TRUE),
-	);
-	// page
-	if ('page' == $display) {
-		echo '<pre>';
-		readfile(ABCMS_COREDUMP);
-		echo '</pre>';
-	}
 }
