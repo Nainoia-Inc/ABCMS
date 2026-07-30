@@ -2,20 +2,10 @@
 /*************************************************************************************************
 SECTION INTRODUCTION: A Basic Content Management System and PHP toolkit.
 */
-$abcms = NULL; // assigned in abcms() __construct
-
-
-
-
-
-
 
 /*************************************************************************************************
 SECTION CONSTANTS: Immutable constants for clarity and speed.
 */
-// general
-const ABCMS_GOOD		= "<span style='color: green;'>\u{2611}</span> "; // good symbol
-const ABCMS_BAD			= "<span style='color: red;'>\u{2612}</span> "; // bad symbol
 // extensions
 const ABCMS_EXT_SELF	= "/nainoiainc/abcms";
 const ABCMS_EXT_SETS	= "/abcmsset";
@@ -79,46 +69,61 @@ const ABCMS_EXTORD_MAX	=  9999;
 
 
 /*************************************************************************************************
-SECTION TRY/CATCH: Run the CMS.
+SECTION TRY/CATCH: Run in an anonymous function for a zero global footprint.
 */
-try { // try abcms()->output()
-	abcms()->output( // try abcms()->output() router and extension manager
-		ABCMS_EXT_ALPHA, // entry extension
+(function() {
+$code = 0; // assume success
+try { // try output
+	abcms()->output( // router extension manager
+		ABCMS_EXT_ALPHA, // entry point
 		'CLI-GET-POST', // methods extended
-		'abcms->htmldoc', // default function
+		'abcms()->htmldoc', // default function
 		ABCMS_ROLE_PUBLIC, // minimum role
-		1, // 1 = exclusive allowed
+		1, // exclusive allowed
 		FALSE, // default required
-		...$args = array( // abcms->htmldoc() arguments
+		...$args = array( // abcms()->htmldoc() arguments
 			NULL, // css
 			NULL, // js
 			NULL, // header
 			<<<EOF
 <h1>Status</h1>
-Hello World. Graceful termination.<br>
-Fatal error. Core extension failed.<br>
+So sorry. Fatal error.<br>
+Core extension failed.<br>
 <br>
 Please contact the webmaster for help.
 EOF
 			, // main
 			NULL, // footer
-			1, // exclusive flag
+			1, // exclusive allowed
 		),
 	);
 }
 catch (\Throwable $e) { // catch exceptions
-	ob_end_clean(); // trash buffered output
-	$exception	= (htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8') ?: 'Unknown exception.'); // thrown message
-	$system		= (error_get_last() ?? array('message' => 'NA')); // error message
-	$composer	= array(); // composer extensions
-	if ($abcms->input['auto']??FALSE) {
+	$exception = (htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8') ?: 'Unknown exception.'); // thrown message
+	$system = (error_get_last() ?? array('message' => 'NA')); // error message
+	$composer = array(); // composer extensions
+	if (class_exists(\Composer\InstalledVersions::class)) {
 		foreach (Composer\InstalledVersions::getInstalledPackagesByType('abcms-extension') as $name) {
 			$composer[$name] = Composer\InstalledVersions::getInstallPath($name);
 		}
 	}
-	// HTML output
+	$buffer = NULL; while(ob_get_level()) { $buffer .= ob_get_clean(); } // examine buffer
+	$title = mb_strtolower(htmlspecialchars($_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI'])); // website title
 	echo <<< EOF
-<dialog open style='position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; max-width: 100%; max-height: 100%; width: 100vw; height: 100vh; margin: 0; padding: 0; border: 0; background-color: #336699;'>
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'>
+<meta name='description' content='{$title}'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<meta name='mobile-web-app-capable' content='yes'>
+<link rel="manifest" href="/manifest.json">
+<meta name='theme-color' content='#336699'>
+<meta name='color-scheme' content='light dark'>
+<title>{$title}</title>
+<link rel="icon" href="favicon.ico">
+</head>
+<body style='display: flex; align-items: center; justify-content: center; max-width: 100%; max-height: 100%; width: 100vw; height: 100vh; margin: 0; padding: 0; border: 0; background-color: #336699;'>
 <div style='display: flex; align-items: center; justify-content: center; width: 90%; height: 90%; margin: 0; padding: 0; border: 0; background-color: #FFFFFF;'>
 <div style='margin: auto; text-align: center; font-size: 30px; line-height: 1.5; font-family: Arial, sans-serif; color: #333333;'>
 My sincere apologies.<br>
@@ -132,25 +137,26 @@ ERROR MESSAGE:
 <a href='/'>Click here to try again</a>.
 </div>
 </div>
-</dialog>
-EOF;
-	// log error
-	error_log("ABCMS->COREDUMP()\n" . print_r(array('COREDUMP_EXCEPTION' => $exception, 'COREDUMP_SYSTEM' => $system), TRUE));
-	// dump corefile
-	file_put_contents(
+</body></html>
+EOF; // echo HTML
+	error_log("ABCMS->COREDUMP()\n" . print_r(array('COREDUMP_EXCEPTION' => $exception, 'COREDUMP_SYSTEM' => $system), TRUE)); // log error
+	file_put_contents( // dump corefile
 		ABCMS_COREDUMP,
 		print_r(array(
 			'ABCMS_EXCEPTION'	=> $exception,
 			'ABCMS_SYSTEM'		=> $system,
-			'ABCMS_OBJECT'		=> ($abcms??'$abcms not consructed'),
+			'ABCMS_OBJECT'		=> (abcms()?:'constructor failed'),
 			'ABCMS_GLOBALS'		=> $GLOBALS,
+			'ABCMS_BUFFER'		=> $buffer,
 			'ABCMS_COMPOSER'	=> $composer,
 		), TRUE),
 	);
+	$code = 1; // return failure
 }
 finally { // clean up
 }
-return TRUE; // done, function definitions follow
+exit($code);
+ ; })(); // done, function definitions follow
 
 
 
@@ -161,9 +167,10 @@ return TRUE; // done, function definitions follow
 /*************************************************************************************************
 SECTION CONSTRUCT: Instantiate object and validate inputs.
 */
-function abcms() : object { // abcms() function returns $abcms object
-static $_abcms = NULL; if (NULL === $_abcms) { // create once
-$GLOBALS['abcms'] = $_abcms = new class {	// $abcms object assigned
+function abcms() : ?object { // return object or NULL
+static $_abcms = FALSE; if (FALSE === $_abcms) { // create once
+$_abcms = NULL;								// constructed or NULL
+$_abcms = new class {						// object assigned
 readonly	array	$boots;					// bootstrap input before session
 readonly	array	$input;					// sanitized input after session
 readonly	array	$settings;				// read application settings
@@ -175,15 +182,20 @@ private		bool	$formvalid	= FALSE;	// form tested valid
 private		bool	$formhuman	= FALSE;	// form tested human
 // Construct object
 function __construct() {
+	if (__FILE__ !== $_SERVER['SCRIPT_FILENAME'] || basename(__FILE__) !== 'index.php') { $this->error_wsod("ABCMS must be called directly, not included."); } // must call, not include
 	if (!ini_set('error_log', ABCMS_ABCMSLOG)) {	$this->error_wsod("Error location not found."); } // error location
 	if (FALSE === $this->set_settings(TRUE)){		$this->error_wsod("Application settings not found."); } // read settings
 	$this->boots = array( // bootstrap settings for session_start(), then session user validates inputs
+		'cli' => ($cli = ('cli' === PHP_SAPI ? TRUE : FALSE)), // CLI execution
+		'argc' => $_SERVER['argc'], // CLI argument count
+		'argv' => $_SERVER['argv'], // CLI arguments
 		'time' => time(), // current time()
 		'uagent' => (($_SERVER['REMOTE_ADDR']??'')?:'unknown').(($_SERVER['HTTP_USER_AGENT']??'')?:'unknown'), // user identity hash
+		'auto' => $this->settings['core']['auto'], // Auto-Loader
 		// URL full
 		'urlfull' => ($urlfull =
 			// CLI domain
-			('cli' === PHP_SAPI ? ('https://localhost' . 
+			($cli ? ('https://localhost' . 
 			// CLI URI validation or default
 			($_SERVER['argc']>1 && '/' === $_SERVER['argv'][1][0] && FALSE !== filter_var('http://localhost' . $_SERVER['argv'][1], FILTER_VALIDATE_URL) ? $_SERVER['argv'][1] : '/abcms/help')) :
 			// HTTP secure
@@ -197,7 +209,7 @@ function __construct() {
 		// URL domain
 		'urldomain' => (mb_strtolower($urlparsed['host'], 'UTF-8')),
 		// URL request method
-		'urlmethod' => ('cli' === PHP_SAPI ? 'CLI' : ((empty($_SERVER['REQUEST_METHOD']) || !in_array($_SERVER['REQUEST_METHOD'], ABCMS_REGEX_META)) ? 'GET' : $_SERVER['REQUEST_METHOD'])),
+		'urlmethod' => ($cli ? 'CLI' : ((empty($_SERVER['REQUEST_METHOD']) || !in_array($_SERVER['REQUEST_METHOD'], ABCMS_REGEX_META)) ? 'GET' : $_SERVER['REQUEST_METHOD'])),
 	);
 	$session = $this->session_start(0); // lazy session start
 	$this->input = array( // sanitize inputs with session user
@@ -206,7 +218,7 @@ function __construct() {
 		// my user
 		'user' => $_SESSION[ABCMS_SES]['user']??NULL,
 		// my role
-		'role' => ($role = ('cli' === PHP_SAPI ? ABCMS_ROLE_CLI : $_SESSION[ABCMS_SES]['user']['role']??ABCMS_ROLE_PUBLIC)),
+		'role' => ($role = ($cli ? ABCMS_ROLE_CLI : $_SESSION[ABCMS_SES]['user']['role']??ABCMS_ROLE_PUBLIC)),
 		// URL path variables 'v'
 		'urlvars' => (!preg_match_all(ABCMS_REGEX_URLV, $urlparsed['path'], $matches, PREG_PATTERN_ORDER) ?
 			// None
@@ -225,21 +237,11 @@ function __construct() {
 		'urlquery' => ($this->input_valid('q', ((!empty($urlparsed['query']) && mb_parse_str($urlparsed['query'], $result)) ? $result : array()), $role)),
 		// POST variables 'p'
 		'postvars' => array(), // ($this->input_valid('p', $_POST, $role)),
-		// CLI command line execution
-		'cli' => ('cli' === PHP_SAPI ? TRUE : FALSE),
-		// CLI argument count
-		'argc' => $_SERVER['argc'],
-		// CLI arguments
-		'argv' => $_SERVER['argv'],
-		// Auto-Loader
-		'auto' => $this->settings['core']['auto'],
 	);
-	// require composer
-	if ($this->input['auto']) { require_once($this->input['auto']); }
-	// variables within path
-	if (0 !== stripos($urlparsed['path'], $this->input['urlstripped'])) { $this->set_errors("URL questioned, variables within path"); }
-	// Done
-	return;
+	if ($this->boots['auto']) { require_once($this->boots['auto']); } // require composer
+	if (0 !== stripos($urlparsed['path'], $this->input['urlstripped'])) { $this->set_errors("URL questioned, variables within path"); }	// variables within path
+	if (ob_get_level() > 0) { ob_end_clean(); }	// dump unknown buffers
+	return; // Done
 }
 // Disallowed methods
 public function __set(string $name, mixed $value) : void { $this->error_wsod("Dynamic properties disallowed."); }
@@ -491,8 +493,7 @@ private function output_call(
 				else { $this->error_wsod("Calling invalid operator."); }
 				// Execute function/method
 				if (!method_exists($newobject, $funcmeth)) { $this->error_wsod("Calling invalid object method: {$funcmeth}"); }
-				global $abcms; // Global pointer to 'abcms' object 
-				if (ABCMS_EXT_SELF != $whoami && $newobject === $abcms) { // Disallow abcms() privates unless extension is ABCMS
+				if (ABCMS_EXT_SELF != $whoami && $newobject === $this) { // Disallow abcms() privates unless extension is ABCMS
 					$reflection = new ReflectionClass($this);
 					if ($reflection->getMethod($funcmeth)->isPrivate()) { $this->error_wsod("Calling private method disallowed."); }
 				}
@@ -709,43 +710,43 @@ private function set_settings(
 	// 'U' = Uno/single extension, default multiple extensions cooperate 
 	// 'D' = Default included, default excluded if extended by $ord < 0
 	// Bootstrap extensions
-	$this->output_extend(ABCMS_EXT_BEGIN,	'',			'CLI-GET-POST',	'IEU',	'abcms->htmldefault',	ABCMS_ROLE_PUBLIC,	-10);
-	$this->output_extend(ABCMS_EXT_BEGIN,	'admin',	'CLI-GET-POST',	'IEU',	'abcms->htmladmin',		ABCMS_ROLE_ADMINS,	-20);
+	$this->output_extend(ABCMS_EXT_BEGIN,	'',			'CLI-GET-POST',	'IEU',	'abcms()->htmldefault',		ABCMS_ROLE_PUBLIC,	-10);
+	$this->output_extend(ABCMS_EXT_BEGIN,	'admin',	'CLI-GET-POST',	'IEU',	'abcms()->htmladmin',		ABCMS_ROLE_ADMINS,	-20);
 	$this->output_equate(ABCMS_EXT_BEGIN,	'admin',	'/admin/');
-	$this->output_extend(ABCMS_EXT_BEGIN,	'code',		'CLI-GET-POST',	'IEU',	'abcms->admincode',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_extend(ABCMS_EXT_BEGIN,	'code',		'CLI-GET-POST',	'IEU',	'abcms()->admincode',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
 	$this->output_equate(ABCMS_EXT_BEGIN,	'code',		'/admin/code');
 	// Frontend page extensions
-	$this->output_extend(ABCMS_EXT_PAGE,	'home',		'CLI-GET-POST',	'IE',	'abcms->pagehome',		ABCMS_ROLE_PUBLIC,	-10);
+	$this->output_extend(ABCMS_EXT_PAGE,	'home',		'CLI-GET-POST',	'IE',	'abcms()->pagehome',		ABCMS_ROLE_PUBLIC,	-10);
 	$this->output_equate(ABCMS_EXT_PAGE,	'home',		'/');
 	$this->output_equate(ABCMS_EXT_PAGE,	'home',		'/abcms');
-	$this->output_extend(ABCMS_EXT_PAGE,	'more',		'CLI-GET-POST',	'IE',	'abcms->pagemore',		ABCMS_ROLE_PUBLIC,	-10);
+	$this->output_extend(ABCMS_EXT_PAGE,	'more',		'CLI-GET-POST',	'IE',	'abcms()->pagemore',		ABCMS_ROLE_PUBLIC,	-10);
 	$this->output_equate(ABCMS_EXT_PAGE,	'more',		'/abcms/more');
 	$this->output_equate(ABCMS_EXT_PAGE,	'more',		'/admin/more');
-	$this->output_extend(ABCMS_EXT_PAGE,	'contact',	'CLI-GET-POST',	'IE',	'abcms->pagecontact',	ABCMS_ROLE_PUBLIC,	-10);
+	$this->output_extend(ABCMS_EXT_PAGE,	'contact',	'CLI-GET-POST',	'IE',	'abcms()->pagecontact',		ABCMS_ROLE_PUBLIC,	-10);
 	$this->output_equate(ABCMS_EXT_PAGE,	'contact',	'/abcms/contact');
-	$this->output_extend(ABCMS_EXT_PAGE,	'account',	'CLI-GET-POST',	'IE',	'abcms->pageaccount',	ABCMS_ROLE_PUBLIC,	-10);
+	$this->output_extend(ABCMS_EXT_PAGE,	'account',	'CLI-GET-POST',	'IE',	'abcms()->pageaccount',		ABCMS_ROLE_PUBLIC,	-10);
 	$this->output_equate(ABCMS_EXT_PAGE,	'account',	'/abcms/account');
-	$this->output_extend(ABCMS_EXT_PAGE,	'logout',	'CLI-GET-POST',	'IE',	'abcms->pagelogout',	ABCMS_ROLE_PUBLIC,	-10);
+	$this->output_extend(ABCMS_EXT_PAGE,	'logout',	'CLI-GET-POST',	'IE',	'abcms()->pagelogout',		ABCMS_ROLE_PUBLIC,	-10);
 	$this->output_equate(ABCMS_EXT_PAGE,	'logout',	'/abcms/logout');
 	// Admin page extensions
-	$this->output_extend(ABCMS_EXT_PAGE,	'status',	'CLI-GET-POST',	'IE',	'abcms->adminstatus',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_extend(ABCMS_EXT_PAGE,	'status',	'CLI-GET-POST',	'IE',	'abcms()->adminstatus',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
 	$this->output_equate(ABCMS_EXT_PAGE,	'status',	'/admin');
 	$this->output_equate(ABCMS_EXT_PAGE,	'status',	'/admin/status');
-	$this->output_extend(ABCMS_EXT_PAGE,	'phpinfo',	'CLI-GET-POST',	'IE',	'abcms->adminphpinfo',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_extend(ABCMS_EXT_PAGE,	'phpinfo',	'CLI-GET-POST',	'IE',	'abcms()->adminphpinfo',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
 	$this->output_equate(ABCMS_EXT_PAGE,	'phpinfo',	'/admin/phpinfo');
-	$this->output_extend(ABCMS_EXT_PAGE,	'help',		'CLI-GET-POST',	'IE',	'abcms->adminhelp',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_extend(ABCMS_EXT_PAGE,	'help',		'CLI-GET-POST',	'IE',	'abcms()->adminhelp',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
 	$this->output_equate(ABCMS_EXT_PAGE,	'help',		'/admin/help');
-	$this->output_extend(ABCMS_EXT_PAGE,	'init',		'CLI-GET-POST',	'IE',	'abcms->admininit',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_extend(ABCMS_EXT_PAGE,	'init',		'CLI-GET-POST',	'IE',	'abcms()->admininit',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
 	$this->output_equate(ABCMS_EXT_PAGE,	'init',		'/admin/init');
-	$this->output_extend(ABCMS_EXT_PAGE,	'cron',		'CLI-GET-POST',	'IE',	'abcms->admincron',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_extend(ABCMS_EXT_PAGE,	'cron',		'CLI-GET-POST',	'IE',	'abcms()->admincron',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
 	$this->output_equate(ABCMS_EXT_PAGE,	'cron',		'/admin/cron');
-	$this->output_extend(ABCMS_EXT_PAGE,	'browse',	'CLI-GET-POST',	'IE',	'abcms->adminbrowse',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_extend(ABCMS_EXT_PAGE,	'browse',	'CLI-GET-POST',	'IE',	'abcms()->adminbrowse',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
 	$this->output_equate(ABCMS_EXT_PAGE,	'browse',	'/admin/browse');
-	$this->output_extend(ABCMS_EXT_PAGE,	'tests',	'CLI-GET-POST',	'IE',	'abcms->admintests',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
+	$this->output_extend(ABCMS_EXT_PAGE,	'tests',	'CLI-GET-POST',	'IE',	'abcms()->admintests',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
 	$this->output_equate(ABCMS_EXT_PAGE,	'tests',	'/admin/tests');
 	// Variable Extensions
 	$variable['variable'] = "Yoo hooey!<br>";
-	$this->output_extend('/nainoiainc/abcms/variable',	'',	'CLI-GET-POST',	'IE',	'abcms->pagevariable',	ABCMS_ROLE_PUBLIC,	-10, ...$variable);	
+	$this->output_extend('/nainoiainc/abcms/variable',	'',	'CLI-GET-POST',	'IE',	'abcms()->pagevariable',	ABCMS_ROLE_PUBLIC,	-10, ...$variable);	
 	$variable2['variable'] = array(
 		'a' => 1,
 		'b' => 2,
@@ -754,9 +755,9 @@ private function set_settings(
 		'e' => 5,
 		'f' => array(1,2,3,4,5),
 	);
-	$this->output_extend('/nainoiainc/abcms/variable2',	'',	'CLI-GET-POST',	'IE',	'abcms->pagevariable2',	ABCMS_ROLE_PUBLIC,	-10, ...$variable2);
+	$this->output_extend('/nainoiainc/abcms/variable2',	'',	'CLI-GET-POST',	'IE',	'abcms()->pagevariable2',	ABCMS_ROLE_PUBLIC,	-10, ...$variable2);
 	// Test extensions add to all pages
-	//$this->output_extend(ABCMS_EXT_PAGE,				'',	'CLI-GET-POST',	'IED',	'abcms->pagetest',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MAX);
+	//$this->output_extend(ABCMS_EXT_PAGE,				'',	'CLI-GET-POST',	'IED',	'abcms()->pagetest',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MAX);
 
 	// Extension settings completed
 	// Settings strategy
@@ -1184,7 +1185,7 @@ private function admincode(mixed &...$unused) : ?bool { // Non-function wrapper 
 private function adminstatus(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 	static $count = 3;
 	if ($count===3) { echo "<h1>Status</h1>"; }
-	echo ABCMS_GOOD."Helping you! {$count}<br>\n";
+	echo "Helping you! {$count}<br>\n";
 	--$count;
 	if ($count>0) { return TRUE; }
 echo <<<EOF
@@ -1254,8 +1255,8 @@ private function admintests(mixed &...$unused) : ?bool { // Non-function wrapper
 	$returned3 = $this->settings_get();
 ?>
 <h1>Tests</h1>
-<?php echo constant('ABCMS_GOOD'); ?> Hello World. I am alive.<br>
-<?php echo constant('ABCMS_GOOD'); ?> Thank you!<br>
+Hello World. I am alive.<br>
+Thank you!<br>
 <br>
 Variable1: <?php echo $variable['variable'] . ' ' . $returned['variable'];?><br>
 Variable2: <?php print_r($variable2);?><br>
@@ -1313,7 +1314,7 @@ public function htmldefault(
 		NULL,			// js
 		<<<EOF
 <div style='width:100%; display: flex; justify-content: center; padding: 10px 0; '>
-<div><a href='/' title='A Basic Content Management System'><span style='font-size: 4rem; font-weight: bold; color: #999999;'>\$abcms()</span></a></div>
+<div><a href='/' title='A Basic Content Management System'><span style='font-size: 4rem; font-weight: bold; color: #999999;'>abcms()</span></a></div>
 </div>
 EOF
 		,				// header
@@ -1601,7 +1602,7 @@ SECTION EMAIL: Define SMTP email utility.
  */
 // Adapted by Claude.AI from https://github.com/arkanis/smtp_send.
 // Licensed as arkanis/smtp_send (c) 2014-2021 Stephan Soller, MIT License.
-function smtp(
+public function smtp(
 	string	$from,		// Envelope + header from address
 	string	$name,		// Display name for from header
 	array	$to,		// Recipient addresses
@@ -1814,7 +1815,7 @@ function smtp(
 	$body .= "--{$mixedBoundary}--\r\n";
 	$log .= "\r\nABCMS SMTP ATTACHMENTS: success"; // log
 
-	// Normalize line endings and dot-stuff in the DATA section (RFC 5321 §4.5.2)
+	// Normalize line endings and dot-stuff in DATA (RFC 5321 §4.5.2)
 	$payload = $headers . "\r\n" . $body;
 	$payload = preg_replace("/\r\n|\r|\n/", "\r\n", $payload);
 	$payload = preg_replace("/^\./m", '..', $payload);
@@ -1861,26 +1862,16 @@ $favicon = (is_readable('./favicon.ico') ? '/favicon.ico' : (is_readable('./publ
 <!DOCTYPE html>
 <html lang='en'>
 <head>
-<!-- 1. Character encoding (First 1024 bytes) -->
 <meta charset='utf-8'>
-<!-- 2. Security and browser behavior meta tags -->
-<!-- NOTE: X-Frame-Options, Strict-Transport-Security, and Permissions-Policy require HTTP response headers and Referrer-Policy can be meta but is typically a header -->
 <meta name='description' content='<?php echo $title; ?>'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <meta name='mobile-web-app-capable' content='yes'>
-<!-- generate manifest! -->
 <link rel="manifest" href="/manifest.json">
 <meta name='theme-color' content='#336699'>
 <meta name='color-scheme' content='light dark'>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:;">
-<!-- 3. Base URL -->
-<!-- 4. Document Title -->
 <title><?php echo $title; ?></title>
-<!-- 5. Preconnect/Preload hints for third-party resources -->
 <link rel="icon" href="<?php echo $favicon; ?>">
-<!-- 6. Inline style (CSS) -->
-<!-- Base-Blue#336699, Complement-Brown#996633, Split-Green#669933, Split-Magenta#993366, Lighter-Teal#339999, Darker-Indigo#333399 -->
-<!-- Black#000000, #111111, #222222, Text#333333, .... White#FFFFFF -->
 <style>
 /* width include padding, to also include margins > width: calc(100% - 30px); */
 *, *::before, *::after { box-sizing: border-box; }
@@ -1888,7 +1879,7 @@ html, body, #page, header, main, footer { margin: 0; padding: 0; width: 100%; te
 html { font-size: 100%; overflow-wrap: break-word; word-wrap: break-word; }
 body { color: #333333; background-color: #FFFFFF; font-size: 1.125rem; line-height: 1.3; font-family: Arial, sans-serif; }
 #page { display: flex; flex-direction: column; min-height: 100vh; }
-main { flex: 1;	max-width: 1024px; min-width: min(360px, 100%); margin: 1rem auto; padding: 1rem 3rem; text-align: justify; }
+main { flex: 1;	max-width: 1024px; min-width: min(360px, 100%); margin: 1rem auto; padding: 0rem 3rem 1rem 3rem; text-align: justify; }
 h1, h2, h3, h4 { color: #336699; }
 h1 { text-align: center; }
 .bold { font-weight: 700; }
@@ -1909,12 +1900,10 @@ form.form-grid {
 label { text-align: right; }
 input:required { border: 1px solid blue; }
 @media screen and (max-width: 1065px) { main { margin: 0; } }
-<?php $this->output('/htmldefault_css', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($css)); ?>
+<?php $this->output('/htmldefault_css', 'CLI-GET-POST', 'abcms()->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($css)); ?>
 </style>
-<!-- 7. External stylesheets (CSS) -->
-<!-- 8. JavaScript files, defer or async to prevent blocking -->
 <script>
-<?php $this->output('/htmldefault_js', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($js)); ?>
+<?php $this->output('/htmldefault_js', 'CLI-GET-POST', 'abcms()->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($js)); ?>
 </script>
 </head>
 <body>
@@ -1928,7 +1917,7 @@ if (!$head) { $head = <<<EOF
 </div>
 EOF;
 }
-$this->output('/htmldefault_head', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($head ?: "<h2>$title</h2>"));
+$this->output('/htmldefault_head', 'CLI-GET-POST', 'abcms()->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($head ?: "<h2>$title</h2>"));
 ?>
 </header>
 <main>
@@ -1940,12 +1929,12 @@ Request not found.<br>
 <a href='/'>Try again from the homepage.</a>
 EOF;
 }
-$this->output('/htmldefault_page', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($main));
+$this->output('/htmldefault_page', 'CLI-GET-POST', 'abcms()->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($main));
 ?>
 </main>
 <footer>
 <?php
-$this->output('/htmldefault_foot', 'CLI-GET-POST', 'abcms->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($foot ?: "<h4><a href='/'>{$lower}</a></h4>"));
+$this->output('/htmldefault_foot', 'CLI-GET-POST', 'abcms()->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($foot ?: "<h4><a href='/'>{$lower}</a></h4>"));
 ?>
 </footer>
 </div>
