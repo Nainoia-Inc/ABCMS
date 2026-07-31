@@ -7,12 +7,12 @@ SECTION INTRODUCTION: A Basic Content Management System and PHP toolkit.
 SECTION CONSTANTS: Immutable constants to share.
 */
 // files
-const ABCMS_ABCMSLOG	= "../private/nainoiainc/abcms/ABCMS.errorlog";
-const ABCMS_COREDUMP	= "../private/nainoiainc/abcms/ABCMS.coredump";
-const ABCMS_SESSIONS	= "../private/nainoiainc/abcms/ABCMS.sessions";
-const ABCMS_SETTINGS	= "../private/nainoiainc/abcms/ABCMS.settings";
-const ABCMS_DATABASE	= "../private/nainoiainc/abcms/ABCMS.database";
-const ABCMS_PASSWORD	= "../private/nainoiainc/abcms/ABCMS.deleteme";
+const ABCMS_ABCMSLOG	= __DIR__ . "/../private/nainoiainc/abcms/ABCMS.errorlog";
+const ABCMS_COREDUMP	= __DIR__ . "/../private/nainoiainc/abcms/ABCMS.coredump";
+const ABCMS_SESSIONS	= __DIR__ . "/../private/nainoiainc/abcms/ABCMS.sessions";
+const ABCMS_SETTINGS	= __DIR__ . "/../private/nainoiainc/abcms/ABCMS.settings";
+const ABCMS_DATABASE	= __DIR__ . "/../private/nainoiainc/abcms/ABCMS.database";
+const ABCMS_PASSWORD	= __DIR__ . "/../private/nainoiainc/abcms/ABCMS.deleteme";
 // extensions
 const ABCMS_EXT_SELF	= "/nainoiainc/abcms";
 const ABCMS_EXT_INIT	= "/init";
@@ -45,7 +45,6 @@ const ABCMS_SES_KILL	= 1;				// cookie lifetime to guarrantee removal
 const ABCMS_SES_WAIT	= 4;				// javascript submission delay to prevent robots
 const ABCMS_SES_OPEN	= 21;				// max form security token sets open
 const ABCMS_SES_PAGE	= 7;				// max forms on one page
-const ABCMS_SES_SLAP	= 60;				// minutes to retry after malicious session detected
 const ABCMS_SES_HITS	= 20;				// max session hits within ABCMS_SES_TIME before suspect
 const ABCMS_SES_TIME	= 20;				// max session time for ABCMS_SES_HITS before suspect
 
@@ -480,7 +479,7 @@ private function output_call(
 				if (!method_exists($newobject, $funcmeth)) { $this->error_wsod("Calling invalid object method: {$funcmeth}"); }
 				if (ABCMS_EXT_SELF != $whoami && $newobject === $this) { // Disallow abcms() privates unless extension is ABCMS
 					$reflection = new ReflectionClass($this);
-					if ($reflection->getMethod($funcmeth)->isPrivate()) { $this->error_wsod("Calling private method disallowed."); }
+					if (!$reflection->getMethod($funcmeth)->isPublic()) { $this->error_wsod("Calling private/protected method disallowed."); }
 				}
 				$result = (bool)$newobject->$funcmeth(...$args); // Execute
 			}
@@ -926,7 +925,7 @@ KILL:	// set errors
 		// slap the evil
 		if ($slap) {
 			http_response_code($slap);
-			header('Retry-After: '.ABCMS_SES_SLAP);
+			header('Retry-After: 3600'); // retry after an hour
 			exit('Suspected attack: '.$error);
 		}
 		// session destroyed
@@ -1168,10 +1167,10 @@ else { ; }
 ?>
 <form action='' method='post' accept-charset='UTF-8' class='form-grid'>
 <label for='Account_Email'		>Email:</label>			<input type='email'		id='Account_Email'		name='Account_Email'	value='<?php echo $this->hsc(($_POST['Account_Email']??''));	?>'>
-<label for='Account_Security'	>Email2:</label>		<input type='email'		id='Account_Email2'		name='Account_Email2'	value='<?php echo $this->hsc(($_POST['Account_Email2']??''));	?>'>
-<label for='Account_Security'	>One:</label>			<input type='text'		id='Account_One'		name='Account_One'		value=''>
-<label for='Account_Security'	>Two:</label>			<input type='text'		id='Account_Two'		name='Account_Two'		value=''>
-<label for='Account_Security'	>Tre:</label>			<input type='text'		id='Account_Tre'		name='Account_Tre'		value=''>
+<label for='Account_Email2'		>Email2:</label>		<input type='email'		id='Account_Email2'		name='Account_Email2'	value='<?php echo $this->hsc(($_POST['Account_Email2']??''));	?>'>
+<label for='Account_One'		>One:</label>			<input type='text'		id='Account_One'		name='Account_One'		value=''>
+<label for='Account_Two'		>Two:</label>			<input type='text'		id='Account_Two'		name='Account_Two'		value=''>
+<label for='Account_Tre'		>Tre:</label>			<input type='text'		id='Account_Tre'		name='Account_Tre'		value=''>
 <label for='Account_Password'	>Password:</label>		<input type='password'	id='Account_Password'	name='Account_Password'	value=''>
 <label></label>											<input type='submit'	id='submit'				name='submit'			value='submit'>
 </form>
