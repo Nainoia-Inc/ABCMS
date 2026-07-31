@@ -6,27 +6,6 @@ SECTION INTRODUCTION: A Basic Content Management System and PHP toolkit.
 /*************************************************************************************************
 SECTION CONSTANTS: Immutable constants to share.
 */
-// extensions
-const ABCMS_EXT_SELF	= "/nainoiainc/abcms";
-const ABCMS_EXT_INIT	= "/init";
-const ABCMS_EXT_INITX	= "/nainoiainc/abcms".ABCMS_EXT_INIT;
-const ABCMS_EXT_MAIN	= "/theme_main";
-const ABCMS_EXT_MAINX	= "/nainoiainc/abcms".ABCMS_EXT_MAIN;
-// regex
-// includefile?function #^(|/vendor/package/filepath)(|?(|classobject(::|->|()->))funcmeth)#
-const ABCMS_REGEX_FUNC	= "/^((\/[^?]+)\?)?((([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x{7f}-\x{ff}]*))?$/u";
-const ABCMS_REGEX_HOOK	= "/^\/[^\/]+\/[^\/]+\/[^\/]+$/u"; // Path-like, but not a filepath
-const ABCMS_REGEX_METH	= "/(CLI|GET|POST|PUT|HEAD|DELETE|PATCH|OPTIONS|CONNECT|TRACE)/u";
-const ABCMS_REGEX_META	= array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE');
-const ABCMS_REGEX_PATH	= "/^(\/[^\/]*)(\/.+)?$/u";
-const ABCMS_REGEX_URLV	= "/\/([A-Za-z0-9\-_.~]+)=([A-Za-z0-9\-_.~]+)/u";
-const ABCMS_REGEX_VARS	= "/^[A-Za-z0-9\-_.~]+$/u";
-const ABCMS_REGEX_UUID	= "/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i";
-const ABCMS_REGEX_FORM	= "/(<form[^>]*>)(.+?)(<\/form>)/uis";
-const ABCMS_REGEX_CLIK	= "/^<form/uis";
-const ABCMS_REGEX_BUTT	= array("/(<input\s+[^>]*?type\s*=\s*['\"]submit['\"])(>|\s+[^>]*?>)/ui", "/(<button)([^<]+<\/button>)/ui");
-// arrays
-const ABCMS_ARRAY_TYPE	= array('mixed','string','array','integer','float','bool','boolean','email','domain','uri','url','ip','mac','uuid','path');
 // files
 const ABCMS_ABCMSLOG	= "../private/nainoiainc/abcms/ABCMS.errorlog";
 const ABCMS_COREDUMP	= "../private/nainoiainc/abcms/ABCMS.coredump";
@@ -34,6 +13,28 @@ const ABCMS_SESSIONS	= "../private/nainoiainc/abcms/ABCMS.sessions";
 const ABCMS_SETTINGS	= "../private/nainoiainc/abcms/ABCMS.settings";
 const ABCMS_DATABASE	= "../private/nainoiainc/abcms/ABCMS.database";
 const ABCMS_PASSWORD	= "../private/nainoiainc/abcms/ABCMS.deleteme";
+// extensions
+const ABCMS_EXT_SELF	= "/nainoiainc/abcms";
+const ABCMS_EXT_INIT	= "/init";
+const ABCMS_EXT_INITX	= "/nainoiainc/abcms".ABCMS_EXT_INIT;
+const ABCMS_EXT_MAIN	= "/theme_main";
+const ABCMS_EXT_MAINX	= "/nainoiainc/abcms".ABCMS_EXT_MAIN;
+// roles
+const ABCMS_ROLE_PUBLIC	= 0;
+const ABCMS_ROLE_AUTHEN	= 1;
+const ABCMS_ROLE_READER	= 2;
+const ABCMS_ROLE_WRITER	= 3;
+const ABCMS_ROLE_EDITOR	= 4;
+const ABCMS_ROLE_MANAGE	= 5;
+const ABCMS_ROLE_ADMINS	= 6;
+const ABCMS_ROLE_CLI	= 7;
+const ABCMS_ROLE_SET	= array(0,1,2,3,4,5,6,7);
+// regex
+// includefile?function #^(|/vendor/package/filepath)(|?(|classobject(::|->|()->))funcmeth)#
+const ABCMS_REGEX_FUNC	= "/^((\/[^?]+)\?)?((([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x{7f}-\x{ff}]*))?$/u";
+const ABCMS_REGEX_HOOK	= "/^\/[^\/]+\/[^\/]+\/[^\/]+$/u"; // hook bane, path-like, but not a filepath
+const ABCMS_REGEX_URLV	= "/\/([A-Za-z0-9\-_.~]+)=([A-Za-z0-9\-_.~]+)/u"; // URL variable
+const ABCMS_REGEX_FORM	= "/(<form[^>]*>)(.+?)(<\/form>)/uis"; // form security injection
 // session
 const ABCMS_SES			= ABCMS_EXT_SELF;	// unique session key for ABCMS
 const ABCMS_SES_ROTA	= 60*15;			// seconds total before rotate session tokens
@@ -47,16 +48,7 @@ const ABCMS_SES_PAGE	= 7;				// max forms on one page
 const ABCMS_SES_SLAP	= 60;				// minutes to retry after malicious session detected
 const ABCMS_SES_HITS	= 20;				// max session hits within ABCMS_SES_TIME before suspect
 const ABCMS_SES_TIME	= 20;				// max session time for ABCMS_SES_HITS before suspect
-// roles
-const ABCMS_ROLE_PUBLIC	= 0;
-const ABCMS_ROLE_AUTHEN	= 1;
-const ABCMS_ROLE_READER	= 2;
-const ABCMS_ROLE_WRITER	= 3;
-const ABCMS_ROLE_EDITOR	= 4;
-const ABCMS_ROLE_MANAGE	= 5;
-const ABCMS_ROLE_ADMINS	= 6;
-const ABCMS_ROLE_CLI	= 7;
-const ABCMS_ROLE_SET	= array(0,1,2,3,4,5,6,7);
+
 
 
 
@@ -206,13 +198,14 @@ function __construct() {
 		// URL domain
 		'urldomain' => (mb_strtolower($urlparsed['host'], 'UTF-8')),
 		// URL request method
-		'urlmethod' => ($cli ? 'CLI' : ((empty($_SERVER['REQUEST_METHOD']) || !in_array($_SERVER['REQUEST_METHOD'], ABCMS_REGEX_META)) ? 'GET' : $_SERVER['REQUEST_METHOD'])),
+		'urlmethod' => ($cli ? 'CLI' : ((empty($_SERVER['REQUEST_METHOD']) ||
+			!in_array($_SERVER['REQUEST_METHOD'], array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE'))) ? 'GET' : $_SERVER['REQUEST_METHOD'])),
 		// URL stripped of variables, no trailing slash
 		'urlstripped' => ($urlstripped = '/'.(trim(preg_replace(ABCMS_REGEX_URLV, '/', $urlparsed['path']), '/'))),
 		// URL urldecoded
 		'urlpathall' => (urldecode($urlstripped)),
 		// URL first segment for primary router
-		'urlpathone' => (urldecode((!($ret = preg_match(ABCMS_REGEX_PATH, $urlstripped, $matches)) ? '/' : $matches[1]))),
+		'urlpathone' => (urldecode((!($ret = preg_match("/^(\/[^\/]*)(\/.+)?$/u", $urlstripped, $matches)) ? '/' : $matches[1]))),
 		// URL second plus segments for secondary router
 		'urlpathext' => (urldecode((!$ret || empty($matches[2]) ? '/' : $matches[2]))),
 	);
@@ -276,9 +269,9 @@ private function input_variable(
 	int		$role,			// Minimum role
 	?array	$reg = NULL,	// Regex validation
 ) : void {
-	if (!preg_match(ABCMS_REGEX_VARS, $var) ||
+	if (!preg_match("/^[A-Za-z0-9\-_.~]+$/u", $var) ||
 		!empty($this->compiles[$cat][$var]) ||
-		!in_array($type, ABCMS_ARRAY_TYPE) ||
+		!in_array($type, array('mixed','string','array','integer','float','bool','boolean','email','domain','uri','url','ip','mac','uuid','path')) ||
 		!in_array($role, ABCMS_ROLE_SET)) {
 		$this->error_log("Invalid or duplicate variable.");
 		return;
@@ -320,7 +313,7 @@ private function input_valid(
 			case 'path'		:	if ('/' !== $val[0] || FALSE === filter_var('http://localhost'.$val, FILTER_VALIDATE_URL)) {					break; }			continue 2;
 			case 'uri'		:	if (!mb_check_encoding($val, 'ASCII') || FALSE === filter_var('http://localhost'.$val, FILTER_VALIDATE_URL)) {	break; }			continue 2;
 			case 'url'		:	if (!mb_check_encoding($val, 'ASCII') || FALSE === filter_var($val, FILTER_VALIDATE_URL)) {						break; }			continue 2;
-			case 'uuid'		:	if (!preg_match(ABCMS_REGEX_UUID, $val)) {																		break; }			continue 2;			
+			case 'uuid'		:	if (!preg_match("/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i", $val)) {			break; }			continue 2;			
 			// Variable found, but undefined type registered by input_variable()
 			default:			$this->error_wsod("Undefined URL variable type, '{$this->settings[$cat][$var]['type']}'");
 		}
@@ -519,7 +512,7 @@ public function output_extend(
 	$key = array_diff_key($key, array('I','O','E','U','D'));
 	// Error checks
 	if (!preg_match(ABCMS_REGEX_HOOK, $hok) || // Hook valid
-		(!empty($met) && !preg_match(ABCMS_REGEX_METH, $met)) || // Method valid
+		(!empty($met) && !preg_match("/(CLI|GET|POST|PUT|HEAD|DELETE|PATCH|OPTIONS|CONNECT|TRACE)/u", $met)) || // Method valid
 		(isset($ctl['I']) && isset($ctl['O'])) || // Input Output exclusive
 		!empty($key) || // Control flags valid
 		(!empty($fun) && !preg_match(ABCMS_REGEX_FUNC, $fun))) { // Function valid
@@ -626,10 +619,12 @@ EOF;
 		// replace <form> matches corresponding to injection arrays so each form gets their own tokens
 		function($matches) use (&$num, $inject_tokens, $inject_onclick) {
 			// require button click submital, ignore "enter"
-			if (!($replace = preg_replace(ABCMS_REGEX_CLIK, "<form onkeydown='if(event.key === \"Enter\") event.preventDefault();' ", $matches[1]))) { $this->error_wsod("Form security injection failed."); }
+			if (!($replace = preg_replace("/^<form/ui", "<form onkeydown='if(event.key === \"Enter\") event.preventDefault();' ", $matches[1]))) { $this->error_wsod("Form security injection failed."); }
 			$replace .= $matches[2];
 			// onclick event for all buttons
-			if (!($replace = preg_replace(ABCMS_REGEX_BUTT, $inject_onclick[$num], $replace))) { $this->error_wsod("Form security injection failed."); }
+			if (!($replace = preg_replace(array("/(<input\s+[^>]*?type\s*=\s*['\"]submit['\"])(>|\s+[^>]*?>)/ui", "/(<button)([^<]+<\/button>)/ui"), $inject_onclick[$num], $replace))) {
+				$this->error_wsod("Form security injection failed.");
+			}
 			// security tokens
 			$replace .= $inject_tokens[$num].'</form>';
 			++$num;
