@@ -4,14 +4,14 @@ SECTION INTRODUCTION: A Basic Content Management System and PHP toolkit.
 */
 
 /*************************************************************************************************
-SECTION CONSTANTS: Immutable constants for clarity and speed.
+SECTION CONSTANTS: Immutable constants to share.
 */
 // extensions
 const ABCMS_EXT_SELF	= "/nainoiainc/abcms";
-const ABCMS_EXT_SETS	= "/abcmsset";
-const ABCMS_EXT_ALPHA	= "/begin";
-const ABCMS_EXT_BEGIN	= "/nainoiainc/abcms".ABCMS_EXT_ALPHA;
-const ABCMS_EXT_PAGE	= "/nainoiainc/abcms/htmldefault_page";
+const ABCMS_EXT_INIT	= "/init";
+const ABCMS_EXT_INITX	= "/nainoiainc/abcms".ABCMS_EXT_INIT;
+const ABCMS_EXT_MAIN	= "/theme_main";
+const ABCMS_EXT_MAINX	= "/nainoiainc/abcms".ABCMS_EXT_MAIN;
 // regex
 // includefile?function #^(|/vendor/package/filepath)(|?(|classobject(::|->|()->))funcmeth)#
 const ABCMS_REGEX_FUNC	= "/^((\/[^?]+)\?)?((([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x{7f}-\x{ff}]*))?$/u";
@@ -33,8 +33,7 @@ const ABCMS_COREDUMP	= "../private/nainoiainc/abcms/ABCMS.coredump";
 const ABCMS_SESSIONS	= "../private/nainoiainc/abcms/ABCMS.sessions";
 const ABCMS_SETTINGS	= "../private/nainoiainc/abcms/ABCMS.settings";
 const ABCMS_DATABASE	= "../private/nainoiainc/abcms/ABCMS.database";
-// flags
-const ABCMS_FLAG_JSON	= JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT;
+const ABCMS_PASSWORD	= "../private/nainoiainc/abcms/ABCMS.deleteme";
 // session
 const ABCMS_SES			= ABCMS_EXT_SELF;	// unique session key for ABCMS
 const ABCMS_SES_ROTA	= 60*15;			// seconds total before rotate session tokens
@@ -58,9 +57,6 @@ const ABCMS_ROLE_MANAGE	= 5;
 const ABCMS_ROLE_ADMINS	= 6;
 const ABCMS_ROLE_CLI	= 7;
 const ABCMS_ROLE_SET	= array(0,1,2,3,4,5,6,7);
-// other
-const ABCMS_EXTORD_MIN	= -9999;
-const ABCMS_EXTORD_MAX	=  9999;
 
 
 
@@ -71,17 +67,17 @@ const ABCMS_EXTORD_MAX	=  9999;
 /*************************************************************************************************
 SECTION TRY/CATCH: Run in an anonymous function for a zero global footprint.
 */
-(function() {
+(function() { // anonymous
 $code = 0; // assume success
 try { // try output
-	abcms()->output( // router extension manager
-		ABCMS_EXT_ALPHA, // entry point
+	abcms()->output( // extension router
+		ABCMS_EXT_INIT, // entry point
 		'CLI-GET-POST', // methods extended
-		'abcms()->htmldoc', // default function
+		'abcms()->theme', // default function
 		ABCMS_ROLE_PUBLIC, // minimum role
 		1, // exclusive allowed
 		FALSE, // default required
-		...$args = array( // abcms()->htmldoc() arguments
+		...$args = array( // theme() arguments
 			NULL, // css
 			NULL, // js
 			NULL, // header
@@ -99,8 +95,8 @@ EOF
 	);
 }
 catch (\Throwable $e) { // catch exceptions
-	$exception = (htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8') ?: 'Unknown exception.'); // thrown message
-	$system = (error_get_last() ?? array('message' => 'NA')); // error message
+	$exception = (htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8') ?: 'Unknown exception.'); // thrown error
+	$system = (error_get_last() ?? array('message' => 'NA')); // system error
 	$composer = array(); // composer extensions
 	if (class_exists(\Composer\InstalledVersions::class)) {
 		foreach (Composer\InstalledVersions::getInstalledPackagesByType('abcms-extension') as $name) {
@@ -108,7 +104,7 @@ catch (\Throwable $e) { // catch exceptions
 		}
 	}
 	$buffer = NULL; while(ob_get_level()) { $buffer .= ob_get_clean(); } // examine buffer
-	$title = mb_strtolower(htmlspecialchars($_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI'])); // website title
+	$title = mb_strtolower(htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://').$_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI'])); // website title
 	echo <<< EOF
 <!DOCTYPE html>
 <html lang='en'>
@@ -119,6 +115,7 @@ catch (\Throwable $e) { // catch exceptions
 <meta name='mobile-web-app-capable' content='yes'>
 <link rel="manifest" href="/manifest.json">
 <meta name='theme-color' content='#336699'>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;">
 <meta name='color-scheme' content='light dark'>
 <title>{$title}</title>
 <link rel="icon" href="favicon.ico">
@@ -129,15 +126,14 @@ body { display: flex; align-items: center; justify-content: center; max-width: 1
 </style>
 </head>
 <body><div id='outer'><div id='inner'>
-My sincere apologies.<br>
-I appear to have lost my balance.<br>
+My sincere apologies.
+I lost my balance, brains, or both.<br>
 Please try again, wait, or contact the webmaster.<br>
 <br>
-ERROR MESSAGE:
+LINK: "{$title}"<br>
+ERROR: "{$exception}"<br>
 <br>
-"{$exception}"<br>
-<br>
-<a href='/'>Click here to try again</a>.
+<a href='/'>Please try again from the homepage</a>.
 </div></div></body></html>
 EOF; // echo HTML
 	error_log("ABCMS->COREDUMP()\n" . print_r(array('COREDUMP_EXCEPTION' => $exception, 'COREDUMP_SYSTEM' => $system), TRUE)); // log error
@@ -183,7 +179,6 @@ private		bool	$formvalid	= FALSE;	// form tested valid
 private		bool	$formhuman	= FALSE;	// form tested human
 // Construct object
 function __construct() {
-	if (__FILE__ !== $_SERVER['SCRIPT_FILENAME'] || basename(__FILE__) !== 'index.php') { $this->error_wsod("I must be the party, not just included."); } // must call, not include
 	while(ob_get_level() > 0) { if(ob_get_clean()) { $this->error_wsod("That is wrong, I got stuff in my buffers."); } } // dump unknown buffers
 	if (!ini_set('error_log', ABCMS_ABCMSLOG)) { $this->error_wsod("Error location not found."); } // error location
 	if (FALSE === $this->set_settings(TRUE)){ $this->error_wsod("Application settings not found."); } // read settings
@@ -199,7 +194,7 @@ function __construct() {
 			// CLI domain
 			($cli ? ('https://localhost' . 
 			// CLI URI validation or default
-			($_SERVER['argc']>1 && '/' === $_SERVER['argv'][1][0] && FALSE !== filter_var('http://localhost' . $_SERVER['argv'][1], FILTER_VALIDATE_URL) ? $_SERVER['argv'][1] : '/abcms/help')) :
+			($_SERVER['argc']>1 && '/' === $_SERVER['argv'][1][0] && FALSE !== filter_var('http://localhost' . $_SERVER['argv'][1], FILTER_VALIDATE_URL) ? $_SERVER['argv'][1] : '/console/help')) :
 			// HTTP secure
 			((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://') .
 			// HTTP domain validation including multibyte to punycode
@@ -212,6 +207,14 @@ function __construct() {
 		'urldomain' => (mb_strtolower($urlparsed['host'], 'UTF-8')),
 		// URL request method
 		'urlmethod' => ($cli ? 'CLI' : ((empty($_SERVER['REQUEST_METHOD']) || !in_array($_SERVER['REQUEST_METHOD'], ABCMS_REGEX_META)) ? 'GET' : $_SERVER['REQUEST_METHOD'])),
+		// URL stripped of variables, no trailing slash
+		'urlstripped' => ($urlstripped = '/'.(trim(preg_replace(ABCMS_REGEX_URLV, '/', $urlparsed['path']), '/'))),
+		// URL urldecoded
+		'urlpathall' => (urldecode($urlstripped)),
+		// URL first segment for primary router
+		'urlpathone' => (urldecode((!($ret = preg_match(ABCMS_REGEX_PATH, $urlstripped, $matches)) ? '/' : $matches[1]))),
+		// URL second plus segments for secondary router
+		'urlpathext' => (urldecode((!$ret || empty($matches[2]) ? '/' : $matches[2]))),
 	);
 	$session = $this->session_start(0); // lazy session start
 	$this->input = array( // sanitize inputs with session user
@@ -221,27 +224,15 @@ function __construct() {
 		'user' => $_SESSION[ABCMS_SES]['user']??NULL,
 		// my role
 		'role' => ($role = ($cli ? ABCMS_ROLE_CLI : $_SESSION[ABCMS_SES]['user']['role']??ABCMS_ROLE_PUBLIC)),
-		// URL path variables 'v'
-		'urlvars' => (!preg_match_all(ABCMS_REGEX_URLV, $urlparsed['path'], $matches, PREG_PATTERN_ORDER) ?
-			// None
-			array() :
-			// Validate variables
-			$this->input_valid('v', array_combine(array_map('urldecode', $matches[1]), array_map('urldecode', $matches[2])), $role)),
-		// URL stripped of variables, no trailing slash
-		'urlstripped' => ($urlstripped = '/'.(trim(preg_replace(ABCMS_REGEX_URLV, '/', $urlparsed['path']), '/'))),
-		// URL urldecoded
-		'urlpathall' => (urldecode($urlstripped)),
-		// URL first segment for primary router
-		'urlpathone' => (urldecode((!($ret = preg_match(ABCMS_REGEX_PATH, $urlstripped, $matches)) ? '/' : $matches[1]))),
-		// URL second plus segments for secondary router
-		'urlpathext' => (urldecode((!$ret || empty($matches[2]) ? '/' : $matches[2]))),
+		'urlvars' => (!preg_match_all(ABCMS_REGEX_URLV, $urlparsed['path'], $matches, PREG_PATTERN_ORDER) ? array() : // URL path variables 'v', none
+			$this->input_valid('v', array_combine(array_map('urldecode', $matches[1]), array_map('urldecode', $matches[2])), $role)), // validate path variables
 		// URL query variables 'q' from parse_str() because CLI has no $_GET
 		'urlquery' => ($this->input_valid('q', ((!empty($urlparsed['query']) && mb_parse_str($urlparsed['query'], $result)) ? $result : array()), $role)),
 		// POST variables 'p'
 		'postvars' => array(), // ($this->input_valid('p', $_POST, $role)),
 	);
 	if ($this->boots['auto']) { require_once($this->boots['auto']); } // require composer
-	if (0 !== stripos($urlparsed['path'], $this->input['urlstripped'])) { $this->set_errors("URL questioned, variables within path"); }	// variables within path
+	if (0 !== stripos($urlparsed['path'], $this->boots['urlstripped'])) { $this->set_errors("URL questioned, variables within path"); }	// variables within path
 	return; // Done
 }
 // Disallowed methods
@@ -347,7 +338,7 @@ private function input_valid(
 
 
 /*************************************************************************************************
-SECTION OUTPUT: Everything is a routed extension.
+SECTION OUTPUT: Yes everything is a routed extension.
 */
 // Hooked function output path router extension manager
 public function output(
@@ -379,13 +370,13 @@ public function output(
 		$hooky = $this->settings['route'][$hook]; // Shortened reference
 		$ext = array_merge_recursive( // Merge extensions with matches
 			$ext, // Default
-			(!empty($hooky['eq'][$this->input['urlpathall']]) &&
-			 !empty($hooky['ex'][$hooky['eq'][$this->input['urlpathall']]]) ?
-			 $hooky['ex'][$hooky['eq'][$this->input['urlpathall']]] : // Full path
-			('/' !== $this->input['urlpathone'] &&
-			 !empty($hooky['eq'][$this->input['urlpathone'].'/']) &&
-			 !empty($hooky['ex'][$hooky['eq'][$this->input['urlpathone'].'/']]) ?
-			 $hooky['ex'][$hooky['eq'][$this->input['urlpathone'].'/']] : // OR path segment.'/'
+			(!empty($hooky['eq'][$this->boots['urlpathall']]) &&
+			 !empty($hooky['ex'][$hooky['eq'][$this->boots['urlpathall']]]) ?
+			 $hooky['ex'][$hooky['eq'][$this->boots['urlpathall']]] : // Full path
+			('/' !== $this->boots['urlpathone'] &&
+			 !empty($hooky['eq'][$this->boots['urlpathone'].'/']) &&
+			 !empty($hooky['ex'][$hooky['eq'][$this->boots['urlpathone'].'/']]) ?
+			 $hooky['ex'][$hooky['eq'][$this->boots['urlpathone'].'/']] : // OR path segment.'/'
 			 array())), // OR nothing
 			(!empty($hooky['eq']['']) && !empty($hooky['ex'][$hooky['eq']['']])	? $hooky['ex'][$hooky['eq']['']] : array()), // AND empty path
 			(!empty($hooky['ex'][''])											? $hooky['ex'][''] : array())); // AND empty name
@@ -410,7 +401,7 @@ public function output(
 				$this->output_call($whoami, $extout['fun'], $out, ...$args); // Execute output filter
 			}
 			// ABCMS security output filter and injection, <FORM> security, and XSS checks, etc.
-			if (ABCMS_EXT_BEGIN == $hook) {
+			if (ABCMS_EXT_INITX == $hook) {
 				$this->output_security($out);	// inject security
 				$this->output_debug($out);	// TEMP CODE
 			}
@@ -520,7 +511,7 @@ public function output_extend(
 										// 'D' = Default included, default excluded if extended by $ord < 0
 	string	$fun,						// Includefile?function
 	int		$rol = ABCMS_ROLE_PUBLIC,	// Minimum role permission
-	int		$ord = 0,					// Order considered, ABCMS_EXTORD_MIN >= $ord <= ABCMS_EXTORD_MAX
+	int		$ord = 0,					// Order considered, PHP_INT_MIN >= $ord <= PHP_INT_MAX 
 	mixed	...$arg,					// Argument alternatives
 ) : bool {
 	// Control string to array indices
@@ -541,7 +532,7 @@ public function output_extend(
 		'met'	=> $met,
 		'fun'	=> $fun,
 		'rol'	=> $rol,
-		'ord'	=> min(ABCMS_EXTORD_MAX, max(ABCMS_EXTORD_MIN, $ord)),
+		'ord'	=> $ord,
 		'ctl'	=> $ctl,
 		'who'	=> $this->extension(),
 		'arg'	=> $arg,
@@ -669,30 +660,35 @@ private function output_debug(string &$html = NULL) : void {	// inject debug inf
 
 
 /*************************************************************************************************
-SECTION SETTINGS: Compile boot settings with core and extension preferences.
+SECTION SETTINGS: Compile core and extension boot settings.
 */
 // Read or create the core settings JSON file. 
 private function set_settings(
 	bool	$boot = FALSE,	// Bootstrap load existing
 ) : bool {
-	// Overwrite?
+	// overwrite?
 	if ($boot && file_exists(ABCMS_SETTINGS)) {
 		if (NULL === ($this->settings = json_decode(file_get_contents(ABCMS_SETTINGS), TRUE))) {
 			$this->error_wsod("System, ".json_last_error_msg().", ".$this->error_get_last());
 		}
 		return TRUE;
 	}
-	// Start with zero
 	$this->compiles = array();
-	// Core application settings
+	// core settings
 	touch(__FILE__);
 	$this->compiles['core']['filename']			= (__FILE__); // My filename
-	$this->compiles['core']['getmyinode']		= getmyinode(); // My inode
-	$this->compiles['core']['getlastmod']		= getlastmod(); // My modified date
 	$this->compiles['core']['documentroot']		= (__DIR__); // My documentroot
 	$this->compiles['core']['projectroot']		= (dirname(__DIR__)); // My project folder
 	$this->compiles['core']['project']			= (basename(dirname(__DIR__))); // My project name
 	$this->compiles['core']['auto']				= (realpath(__DIR__ . '/../vendor/autoload.php') ?: FALSE); // auto-loader location
+	$this->compiles['core']['getmyinode']		= getmyinode(); // My inode
+	$this->compiles['core']['getlastmod']		= getlastmod(); // My modified date
+	$password									= $this->get_uniq(); // My clear password
+	$this->compiles['core']['password']			= password_hash($password, PASSWORD_DEFAULT); // My hashed password
+	if (FALSE===$this->set_json(ABCMS_PASSWORD, 'DELETE ASAP: '.$password)) { $this->error_wsod("Settings password failure."); } // Temporary storage
+	$password = NULL;
+	$this->error_log("Retrieve new password and delete the file please.");
+	$this->compiles['core']['secret']			= $this->get_uniq(); // My hashing secret
 	$this->compiles['core']['session_folder']	= (realpath(ABCMS_SESSIONS) ?: ABCMS_SESSIONS); // My session folder
 	$this->compiles['core']['session_cookie']	= $this->get_hash('session_cookie'); // My session cookie name
 	$this->compiles['core']['session_logins']	= $this->get_hash('session_logins'); // My login cookie name
@@ -701,89 +697,40 @@ private function set_settings(
 	$this->compiles['core']['smtp_user']		= NULL; // SMTP username
 	$this->compiles['core']['smtp_pass']		= NULL; // SMTP password
 	$this->compiles['core']['smtp_ehlo']		= NULL; // SMTP EHLO
-	// Register variables
+	// register URL PATH variables
 	$this->input_varpath('debug',	'bool',		ABCMS_ROLE_ADMINS);
+	// register $_GET variables
 	$this->input_varget('debug',	'bool',		ABCMS_ROLE_ADMINS);
-	// Register _POST variables
-	// Extension controls
+	// register _POST variables
+	// extension controls
 	// 'I' = Input -OR- 'O' = Output filter, default Input
 	// 'E' = Exclusive to my extension or omit me, default anyone
 	// 'U' = Uno/single extension, default multiple extensions cooperate 
 	// 'D' = Default included, default excluded if extended by $ord < 0
-	// Bootstrap extensions
-	$this->output_extend(ABCMS_EXT_BEGIN,	'',			'CLI-GET-POST',	'IEU',	'abcms()->htmldefault',		ABCMS_ROLE_PUBLIC,	-10);
-	$this->output_extend(ABCMS_EXT_BEGIN,	'admin',	'CLI-GET-POST',	'IEU',	'abcms()->htmladmin',		ABCMS_ROLE_ADMINS,	-20);
-	$this->output_equate(ABCMS_EXT_BEGIN,	'admin',	'/admin/');
-	$this->output_extend(ABCMS_EXT_BEGIN,	'code',		'CLI-GET-POST',	'IEU',	'abcms()->admincode',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
-	$this->output_equate(ABCMS_EXT_BEGIN,	'code',		'/admin/code');
-	// Frontend page extensions
-	$this->output_extend(ABCMS_EXT_PAGE,	'home',		'CLI-GET-POST',	'IE',	'abcms()->pagerouter',		ABCMS_ROLE_PUBLIC,	-10);
-	$this->output_equate(ABCMS_EXT_PAGE,	'home',		'/');
-	$this->output_equate(ABCMS_EXT_PAGE,	'home',		'/abcms');
-	$this->output_equate(ABCMS_EXT_PAGE,	'home',		'/abcms/');
-	// Admin page extensions
-	$this->output_extend(ABCMS_EXT_PAGE,	'admin',	'CLI-GET-POST',	'IE',	'abcms()->adminrouter',		ABCMS_ROLE_ADMINS,	-10);
-	$this->output_equate(ABCMS_EXT_PAGE,	'admin',	'/admin');
-	$this->output_equate(ABCMS_EXT_PAGE,	'admin',	'/admin/');
-	// Variable Extensions
-	$variable['variable'] = "Yoo hooey!<br>";
-	$this->output_extend('/nainoiainc/abcms/variable',	'',	'CLI-GET-POST',	'IE',	'abcms()->pagevariable',	ABCMS_ROLE_PUBLIC,	-10, ...$variable);	
-	$variable2['variable'] = array(
-		'a' => 1,
-		'b' => 2,
-		'c' => 3,
-		'd' => 4,
-		'e' => 5,
-		'f' => array(1,2,3,4,5),
-	);
-	$this->output_extend('/nainoiainc/abcms/variable2',	'',	'CLI-GET-POST',	'IE',	'abcms()->pagevariable2',	ABCMS_ROLE_PUBLIC,	-10, ...$variable2);
-	// Test extensions add to all pages
-	//$this->output_extend(ABCMS_EXT_PAGE,				'',	'CLI-GET-POST',	'IED',	'abcms()->pagetest',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MAX);
-
-	// Extension settings completed
-	// Settings strategy
+	// bootstrap extensions
+	$this->output_extend(ABCMS_EXT_INITX,	'',			'CLI-GET-POST',	'IEU',	'abcms()->home_theme',		ABCMS_ROLE_PUBLIC,	-10);
+	$this->output_extend(ABCMS_EXT_INITX,	'console',	'CLI-GET-POST',	'IEU',	'abcms()->console_theme',	ABCMS_ROLE_ADMINS,	-20);
+	$this->output_equate(ABCMS_EXT_INITX,	'console',	'/console/');
+	$this->output_extend(ABCMS_EXT_INITX,	'code',		'CLI-GET-POST',	'IEU',	'abcms()->console_code',	ABCMS_ROLE_ADMINS,	-999);
+	$this->output_equate(ABCMS_EXT_INITX,	'code',		'/console/code');
+	// frontend extensions
+	$this->output_extend(ABCMS_EXT_MAINX,	'home',		'CLI-GET-POST',	'IE',	'abcms()->home_router',		ABCMS_ROLE_PUBLIC,	-10);
+	$this->output_equate(ABCMS_EXT_MAINX,	'home',		'/');
+	$this->output_equate(ABCMS_EXT_MAINX,	'home',		'/home');
+	$this->output_equate(ABCMS_EXT_MAINX,	'home',		'/home/');
+	// admin extensions
+	$this->output_extend(ABCMS_EXT_MAINX,	'console',	'CLI-GET-POST',	'IE',	'abcms()->console_router',	ABCMS_ROLE_ADMINS,	-10);
+	$this->output_equate(ABCMS_EXT_MAINX,	'console',	'/console');
+	$this->output_equate(ABCMS_EXT_MAINX,	'console',	'/console/');
 	// INIT.php run by composer or at will if ABCMS or plugin changes to rebuild the settings extension array
-	$this->settings_extend('/nainoiainc/abcms', array('test'=>'Changed','test2'=>'asdasdsa','test3'=>array('a'=>3,'b'=>2,'c'=>1),'test4'=>'new boy!'));
-	// LOOP THROUGH ALL INIT NOW
-	// How extend settings and then record the settings in the input hash?
-	// Perhaps let extensions add values to the settings array so extension adds its own settings via extension? Yes!
-	// Then after execture all INIT then call settings_assign() for all extensions and see what results!
-
-	// clean up
-	$this->settings_clean();
+	// while() { include init.php; }
+	// clean up - remove mixed non-exclusive or exclusive routes.
+	while(0) { ; }
+	// write settings to disk
 	if (FALSE===$this->set_json(ABCMS_SETTINGS, $this->compiles)) {	$this->error_wsod("Settings write failure."); }
 	if ($boot) { $this->settings = $this->compiles; }
 	unset($this->compiles);
 	return TRUE;
-}
-// Output settings
-public function settings_assign(
-	array	&$set,		// Default settings
-) : array {
-	return(($this->compiles[ABCMS_EXT_SETS][$this->extension()] = $this->output(ABCMS_EXT_SETS, '', '', ABCMS_ROLE_ADMINS, 0, FALSE, ...$set)));
-}
-// Output settings extend
-public function settings_extend(
-	string	$hok,		// /vendor/extension
-	array	$set,		// Default settings
-	int		$ord = 0,	// Default order
-) : bool {
-	return $this->output_extend($hok.ABCMS_EXT_SETS, '', '', '', '', ABCMS_ROLE_ADMINS, $ord, ...$set);
-}
-// Output settings
-private function settings_clean(
-) : void {
-	foreach($this->compiles['route'] as $hook => $route) {
-		if (preg_match("#".ABCMS_EXT_SETS."$#", $hook)) { unset($this->compiles['route'][$hook]); }
-	}
-	return;
-}
-// Output settings
-public function settings_get(
-	string	$hok = NULL,// /vendor/extension
-) : ?array {
-	$hok = ($hok ?: $this->extension());
-	return (isset($this->settings[ABCMS_EXT_SETS][$hok]) ? $this->settings[ABCMS_EXT_SETS][$hok] : NULL);
 }
 
 
@@ -896,7 +843,7 @@ public function session_start(
 			];
 	}
 	// destroy session
-	if ($cmd < 0) { $error = 'You are logged out.'; goto DOIT; }
+	if ($cmd < 0) { $error = 'You are logged out.'; goto KILL; }
 	// already started
 	if ($session_active) { return TRUE; }
 	// already headers
@@ -970,7 +917,7 @@ public function session_start(
 	$posthandled = TRUE;
 	// destroy session by request or for corruption
 	if ($error) {
-DOIT:	// set errors
+KILL:	// set errors
 		$this->set_errors($error);
 		// start session to destroy
 		if (!$session_active) { $session_active = session_start($options); }
@@ -985,7 +932,7 @@ DOIT:	// set errors
 		if ($slap) {
 			http_response_code($slap);
 			header('Retry-After: '.ABCMS_SES_SLAP);
-			exit($error);
+			exit('Suspected attack: '.$error);
 		}
 		// session destroyed
 		return FALSE;
@@ -1004,6 +951,18 @@ DOIT:	// set errors
 				unset($_SESSION[ABCMS_SES]['form'][$csrf]);
 				$this->formvalid = TRUE;
 				$this->formhuman = ($formhuman ? TRUE :FALSE);
+				// process login immediately on page load
+				if ('/home/login' === $this->boots['urlstripped'] && $this->formhuman) {
+					if (empty(($_POST['Account_Email']??NULL).($_POST['Account_Email2']??NULL)) ||
+						empty($_POST['Account_Password']) ||
+						!password_verify($_POST['Account_Password'], $this->settings['core']['password'])) {
+						$error = 'Login failed, session ended.';
+						goto KILL; // failed login kills session
+					}
+					$_SESSION[ABCMS_SES]['user'] = $this->get_database('user', $_POST);
+					$_SESSION[ABCMS_SES]['session_logins'] = $this->get_uniq();
+					$this->set_cookie($this->settings['core']['session_logins'], $_SESSION[ABCMS_SES]['session_logins'], $_SESSION[ABCMS_SES]['valid']['create'] + ABCMS_SES_LIFE);
+				}
 			}
 			else {
 				$this->set_errors("Form timedout");
@@ -1089,16 +1048,6 @@ public function set_cookie(
 
 
 /*************************************************************************************************
-SECTION FORMS: Create, secure, and process forms.
-*/
-
-
-
-
-
-
-
-/*************************************************************************************************
 SECTION DATABASE: Store data in JSON, CSV, SQLite, or MySQL.
 */
 // Set Database
@@ -1122,288 +1071,75 @@ public function get_database(string $filename, mixed $data) : mixed {
 
 
 /*************************************************************************************************
-SECTION CRON: Execute rountine core and extension maintenance functions.
+SECTION HOME: Display /home/* application.
 */
-// replace PHP session garbage collection with CRON job to purge stale and excess sessions
-
-
-
-
-
-
-
-/*************************************************************************************************
-SECTION ADMIN: Display /Admin/HASH/* application.
-*/
-// Admin webpage template
-private function htmladmin(
+public function home_theme(
 	mixed &...$unused,
 ) : ?bool {
-	return $this->htmldoc(
-		...$args = array(
-		<<<EOF
-body { border: 2rem solid #999999; border-top: 0; }
-EOF
-		,				// css
-		NULL,			// js
-		<<<EOF
-<div style='width:100%; display: flex; justify-content: space-between; padding: 10px 0; background-color: #999999; color: #333333; font-weight: bold;'>
-<div><a href='/admin' title='A Basic Content Management System'>ABCMS Console</a></div>
-<div><a href='/' title='Close Console'>X</a></div>
-</div>
-EOF
-		,				// header
-		NULL,			// main
-		NULL,			// footer
-		1,				// exclusive?
-		),
-	);
-}
-private function adminrouter(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-switch ($this->input['urlpathall']) {
-case '/admin':
-case '/admin/status':	$this->adminstatus();	break;
-case '/admin/phpinfo':	$this->adminphpinfo();	break;
-case '/admin/help':		$this->adminhelp();		break;
-case '/admin/init':		$this->admininit();		break;
-case '/admin/cron':		$this->admincron();		break;
-case '/admin/browse':	$this->adminbrowse();	break;
-case '/admin/tests':	$this->admintests();	break;
-default:				$this->pagenotfound();	break;
-}
-return NULL;
-}
-private function admincode(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	highlight_file($this->settings['core']['filename']);
-	return NULL;
-}
-private function adminstatus(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-echo <<<EOF
-<h1>Status</h1>
-<br>
-<a href='/'>Home</a><br>
-<a href='/abcms'>ABCMS</a><br>
-<br>
-<a href='/admin'>/admin</a><br>
-<a href='/admin/more'>More</a><br>
-<a href='/admin/status'>/admin/status</a><br>
-<a href='/admin/help'>/admin/help</a><br>
-<a href='/admin/code'>/admin/code</a><br>
-<a href='/admin/phpinfo'>/admin/phpinfo</a><br>
-<a href='/admin/init'>/admin/init</a><br>
-<a href='/admin/cron'>/admin/cron</a><br>
-<a href='/admin/browse'>/admin/browse</a><br>
-<a href='/admin/tests'>/admin/tests</a><br>
-<br>
-<a href='/bogus'>/bogus</a><br>
-<a href='/abcms/bogus'>/abcms/bogus</a><br>
-<a href='/admin/bogus'>/admin/bogus</a><br>
-EOF;	
-	return NULL;
-}
-private function adminhelp(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-echo <<<EOF
-<h1>Help</h1>
-EOF;	
-	return NULL;
-}
-private function admininit(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	$result = $this->set_settings(); // recreate settings
-echo <<<EOF
-<h1>Init</h1>
-Result: {$result}
-EOF;	
-	return NULL;
-}
-private function admincron(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	echo "<h1>Cron</h1>Hello!";
-	return NULL;
-}
-private function adminphpinfo(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	echo "<h1>PHP Info</h1>";
-	phpinfo();
-	return NULL;
-}
-private function adminbrowse(mixed &...$unused) : ?bool {
-	echo "<h1>Browser</h1>";
-	$path = $this->settings['core']['projectroot'];
-	$display = <<< EOF
-Filename: {$path}<br>
-<br>
-EOF;
-	$files = array_diff(scandir($path), array('..'));
-	foreach($files as $file) {
-		$display .= $file."<br>\n";
-	}
-	echo $display;
-	return NULL;
-}
-private function admintests(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	$variable['variable'] = "Yoo hoo!<br>";
-	$returned = $this->output('/variable', 'CLI-GET-POST', '', ABCMS_ROLE_PUBLIC, -1, FALSE, ...$variable);
-	$variable2['variable'] = array();
-	$returned2 = $this->output('/variable2', 'CLI-GET-POST', '', ABCMS_ROLE_PUBLIC, -1, FALSE, ...$variable2);
-	$returned3 = $this->settings_get();
-?>
-<h1>Tests</h1>
-Hello World. I am alive.<br>
-Thank you!<br>
-<br>
-Variable1: <?php echo $variable['variable'] . ' ' . $returned['variable'];?><br>
-Variable2: <?php print_r($variable2);?><br>
-Settings: <?php print_r($returned3);?><br>
-UUIDV4: <?php echo $this->get_uuid();?><br>
-<?php
-	return NULL;
-}
-
-
-
-
-
-
-
-/*************************************************************************************************
-SECTION WEBSERVANT: Display /Admin/HASH/Webservant/ application.
-*/
-
-
-
-
-
-
-
-/*************************************************************************************************
-SECTION UPDATER: Display /Admin/HASH/Updater/ application.
-*/
-
-
-
-
-
-
-
-/*************************************************************************************************
-SECTION WEBFILES: Display /ABCMS/Webfiles/ application.
-*/
-
-
-
-
-
-
-
-/*************************************************************************************************
-SECTION HOMEPAGE: Display /ABCMS/* application.
-*/
-public function htmldefault(
-	mixed &...$unused,
-) : ?bool {
-	return $this->htmldoc(
-		...$args = array(
-		NULL,			// css
-		NULL,			// js
-		<<<EOF
+$footer =
+"<a href='/'>Home</a>".
+" / <a href='/home/more'>More</a>".
+" / <a href='/home/contact'>Contact</a>" .
+(empty($this->input['user']) ? " / <a href='/home/login'>Login</a>" : NULL) .
+(!empty($this->input['user']) ? " / <a href='/home/logout'>Logout</a>" : NULL) .
+($this->input['role'] < ABCMS_ROLE_ADMINS ? NULL : " / <a href='/console'>Console</a>"); // footer
+return $this->theme( // theme
+	...$args = array( // spreader
+	NULL,	// css
+	NULL,	// js
+	<<<EOF
 <div style='width:100%; display: flex; justify-content: center; padding: 10px 0; '>
-<div><a href='/' title='A Basic Content Management System'><span style='font-size: 4rem; font-weight: bold; color: #999999;'>abcms()</span></a></div>
+<div><a href='/' title='A Basic Content Management System' style='font-size: 4rem; font-weight: bold;'>abcms()</a></div>
 </div>
 EOF
-		,				// header
-		NULL,			// main
-		NULL,			// footer
-		1,				// exclusive?
-		),
-	);
+	,		// header
+	NULL,	// main
+	$footer,// footer
+	1,		// exclusive?
+	),
+);
 }
-private function pagerouter(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-switch ($this->input['urlpathall']) {
+private function home_router(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+switch ($this->boots['urlpathall']) {
 case '/':
-case '/abcms':			$this->pagehome();		break;
-case '/abcms/more':		$this->pagemore();		break;
-case '/abcms/contact':	$this->pagecontact();	break;
-case '/abcms/account':	$this->pageaccount();	break;
-case '/abcms/logout':	$this->pagelogout();	break;
-default:				$this->pagenotfound();	break;
+case '/home':			$this->home();			return NULL;
+case '/home/contact':	$this->home_contact();	return NULL;
+case '/home/login':		$this->home_login();	return NULL;
+case '/home/logout':	$this->home_logout();	return NULL;
+case '/home/more':		$this->home_more();		return NULL;
+default:				$this->home_notfound();	return NULL;
 }
 return NULL;
 }
-private function pagehome(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-$admin = ($this->input['role'] < ABCMS_ROLE_ADMINS ? NULL : " / <a href='/admin'>Console</a>");
-$logout = (empty($this->input['user']) ? NULL : " / <a href='/abcms/logout'>Logout</a>");
-?>
+private function home(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+echo <<<EOF
 <h1>A Basic Content Management System&trade;</h1>
 <div style='text-align: center;'>
 <p style='line-height: 2rem;'>
 AKA "<a href='https://www.AionianBible.org' target='_blank'>Aionian Bible</a> Content Management System"<br>
-A PHP web developer toolkit and CMS in a single file.<br>
-Everything is an extension with the abcms() router.<br>
-Install ABCMS&trade; with Composer or run me in a document root.<br>
-</p>
-<p>
-<a href='/abcms/more'>More</a> / <a href='/abcms/account'>Account</a><?php echo $admin; ?><?php echo $logout; ?>
+Nice, a PHP toolkit and CMS in one file.<br>
+Really, everything is a routed extension.<br>
+Composer or hey, just run index.php.<br>
 </p>
 </div>
-<?php
-	return NULL;
-}
-private function pagenotfound(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-echo <<<EOF
-<h1>Status</h1>
-Request not found.<br>
-<br>
-<a href='/'>Try again from the homepage.</a>
 EOF;
-return NULL;
-}
-private function pagemore(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-echo <<<EOF
-<h1>More</h1>
-<p>
-Welcome! I am <span class='italic'>A Basic Content Management System</span>,
-and also known as the <a href='https://www.AionianBible.org' target='_blank'>Aionian Bible</a> Content Management System.
-I am a PHP web developer toolkit and CMS in a single file.
-Everything is an extension with my &dollar;abcms() router.
-Install me with Composer or run me in a document root.
-</p>
-
-<p>
-All output is extendable which helps us think more simply about content management. We have inputs, processing, and outputs. The output function serves as both a command router and extension manager. The generic output() function does not even require a default function because it expects to be extended by you to do something meaningful. The ABCMS engine expects you to override the "/nainoiainc/abcms/begin" hook first. From there you output what you want and also include your own extendable calls to output() yourself. Since file and function locations are passed to the extension manager at execution time this model is even faster than Composer lazy loading which matches every registered object class with the file location on every call. Lazy loading does a lot of work! But ABMCS locates and includes only the needed extensions at execution time. ABCMS also allows the extension of files, functions, methods, objects, and classes, while Composer only allows the extension of classes.
-</p>
-
-<p>
-ABCMS uses PHP as the template engine. PHP is designed to intermingle both HTML and procedural function with conditional logic. And PHP is well known so that one does not need to learn another language like Symfony Twig or Laravel Blade. Symfony and Laravel template engines seem an unneccessary reduction of PHP template power. So PHP is the template engine for ABCMS. Frontend developers must understand PHP and HTML, but that is a simpler and more powerful recipe.
-</p>
-
-<p>
-The first version of ABCMS uses files alone for data storage. While SQL and other databases allow flexible and fast data storage and retrieval not every website application needs this level of data storage complexity. In fact SQL databases often encourage data storage complexity with all the possible data storage rows, columns, types, and indices. However, if a unit of data is only every accessed as a unit, such as a website page, why not store the entire	blob of page data in a single file? This is better for many applications. The page can then be quickly read as a single file rather than many reads of tiny pieces of data to build the page. I once heard Drupal brag that it made thousands of database calls to contruct a single page. Drupal should not brag about this, but instead be ashamed. An SQL database API may be added later for applications that require more complexity.
-</p>
-
-<p>
-Session security strategy breaks convention with a slightly longer session lifetime. However, threat is migtigated with the addition of a custom 64 byte security cookie name and token value for validating the session along with reasonable inactive and maxlifetime session threshholds. There is no "Remember Me" option for longer active logins because password lockers make it easier to login anyway. Additional form security is injected into every <form> with a CSRF token, honeypot, void pot, image captcha, javascript expected delay, and rapid submission triggers. Finally, the \$_SESSION is not protected from rogue extensions. So extension are discouraged from using \$_SESSION, but if needed sequester yourself to \$_SESSION[extension-name']. Users must be allowed to opt-in or opt-out of session cookies.
-</p>
-EOF;	
 	return NULL;
 }
-private function pagecontact(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+private function home_contact(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 ?><h1>Contact</h1>
 This is where to contact us.
 <?php
 	echo "<br><a href='/'>Home</a><br>";
 	return NULL;
 }
-private function pageaccount(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+private function home_login(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 echo "<h1>Account</h1>";
 if (!$this->session_start(1)) {
 	echo "Session failure!";
 	return NULL;
 }
-else if ($this->formhuman && ($_POST['Account_Password']??'') == 'abcms' ) {
-	$this->set_database('user', $_POST);
-	$_SESSION[ABCMS_SES]['user'] = $this->get_database('user', $_POST);
-	$_SESSION[ABCMS_SES]['session_logins'] = $this->get_uniq();
-	$this->set_cookie($this->settings['core']['session_logins'], $_SESSION[ABCMS_SES]['session_logins'], $_SESSION[ABCMS_SES]['valid']['create'] + ABCMS_SES_LIFE);
-
-	$email = $this->smtp(
+else if ($this->formvalid && $this->formhuman && $_SESSION[ABCMS_SES]['user']) {
+	$email = $this->email(
 		'jeff@dgjc.org',										// From
 		'Jeff Martin',											// Name
 		['jeff@dgjc.org'],										// Recipients
@@ -1438,9 +1174,9 @@ else { ; }
 <form action='' method='post' accept-charset='UTF-8' class='form-grid'>
 <label for='Account_Email'		>Email:</label>			<input type='email'		id='Account_Email'		name='Account_Email'	value='<?php echo $this->hsc(($_POST['Account_Email']??''));	?>'>
 <label for='Account_Security'	>Email2:</label>		<input type='email'		id='Account_Email2'		name='Account_Email2'	value='<?php echo $this->hsc(($_POST['Account_Email2']??''));	?>'>
-<label for='Account_Security'	>One:</label>			<input type='text'		id='Account_One'		name='Account_One'		value='<?php echo $this->hsc(($_POST['Account_One']??''));		?>'>
-<label for='Account_Security'	>Two:</label>			<input type='text'		id='Account_Two'		name='Account_Two'		value='<?php echo $this->hsc(($_POST['Account_Two']??''));		?>'>
-<label for='Account_Security'	>Tre:</label>			<input type='text'		id='Account_Tre'		name='Account_Tre'		value='<?php echo $this->hsc(($_POST['Account_Tre']??''));		?>'>
+<label for='Account_Security'	>One:</label>			<input type='text'		id='Account_One'		name='Account_One'		value=''>
+<label for='Account_Security'	>Two:</label>			<input type='text'		id='Account_Two'		name='Account_Two'		value=''>
+<label for='Account_Security'	>Tre:</label>			<input type='text'		id='Account_Tre'		name='Account_Tre'		value=''>
 <label for='Account_Password'	>Password:</label>		<input type='password'	id='Account_Password'	name='Account_Password'	value=''>
 <label></label>											<input type='submit'	id='submit'				name='submit'			value='submit'>
 </form>
@@ -1448,7 +1184,7 @@ else { ; }
 <?php
 return NULL;
 }
-private function pagelogout(mixed &...$unused) : void {
+private function home_logout(mixed &...$unused) : void {
 $this->session_start(-1); // destroy session and logout
 echo <<<EOF
 <h1>Status</h1>
@@ -1458,21 +1194,234 @@ Please contact the webmaster for help.
 EOF;
 return;
 }
-private function pagevariable(string &$variable) : ?bool {
-	$variable .= "Yoo hoo baby!<br>";
+private function home_more(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+echo <<<EOF
+<h1>More</h1>
+<p>
+Welcome! I am <span class='italic'>A Basic Content Management System</span>,
+and also known as the <a href='https://www.AionianBible.org' target='_blank'>Aionian Bible</a> Content Management System.
+I am a PHP web developer toolkit and CMS in a single file.
+Everything is an extension with my &dollar;abcms() router.
+Install me with Composer or run me in a document root.
+</p>
+
+<p>
+All output is extendable which helps us think more simply about content management. We have inputs, processing, and outputs. The output function serves as both a command router and extension manager. The generic output() function does not even require a default function because it expects to be extended by you to do something meaningful. The ABCMS engine expects you to override the "/nainoiainc/abcms/begin" hook first. From there you output what you want and also include your own extendable calls to output() yourself. Since file and function locations are passed to the extension manager at execution time this model is even faster than Composer lazy loading which matches every registered object class with the file location on every call. Lazy loading does a lot of work! But ABMCS locates and includes only the needed extensions at execution time. ABCMS also allows the extension of files, functions, methods, objects, and classes, while Composer only allows the extension of classes.
+</p>
+
+<p>
+ABCMS uses PHP as the template engine. PHP is designed to intermingle both HTML and procedural function with conditional logic. And PHP is well known so that one does not need to learn another language like Symfony Twig or Laravel Blade. Symfony and Laravel template engines seem an unneccessary reduction of PHP template power. So PHP is the template engine for ABCMS. Frontend developers must understand PHP and HTML, but that is a simpler and more powerful recipe.
+</p>
+
+<p>
+The first version of ABCMS uses files alone for data storage. While SQL and other databases allow flexible and fast data storage and retrieval not every website application needs this level of data storage complexity. In fact SQL databases often encourage data storage complexity with all the possible data storage rows, columns, types, and indices. However, if a unit of data is only every accessed as a unit, such as a website page, why not store the entire	blob of page data in a single file? This is better for many applications. The page can then be quickly read as a single file rather than many reads of tiny pieces of data to build the page. I once heard Drupal brag that it made thousands of database calls to contruct a single page. Drupal should not brag about this, but instead be ashamed. An SQL database API may be added later for applications that require more complexity.
+</p>
+
+<p>
+Session security strategy breaks convention with a slightly longer session lifetime. However, threat is migtigated with the addition of a custom 64 byte security cookie name and token value for validating the session along with reasonable inactive and maxlifetime session threshholds. There is no "Remember Me" option for longer active logins because password lockers make it easier to login anyway. Additional form security is injected into every <form> with a CSRF token, honeypot, void pot, image captcha, javascript expected delay, and rapid submission triggers. Finally, the \$_SESSION is not protected from rogue extensions. So extension are discouraged from using \$_SESSION, but if needed sequester yourself to \$_SESSION[extension-name']. Users must be allowed to opt-in or opt-out of session cookies.
+</p>
+EOF;	
 	return NULL;
 }
-private function pagevariable2(array &$variable) : ?bool {
-	$variable = array(
-		'a' => 2,
-		'b' => 3,
-		'c' => 4,
-		'd' => 5,
-		'e' => 6,
-		'f' => array(2,3,4,5,6),
+private function home_notfound(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+echo <<<EOF
+<h1>Status</h1>
+Request not found.<br>
+<br>
+<a href='/'>Try again from the homepage.</a>
+EOF;
+return NULL;
+}
+
+
+
+
+
+
+/*************************************************************************************************
+SECTION WEBFILES: Display /home/webfiles/ application.
+*/
+
+
+
+
+
+
+
+/*************************************************************************************************
+SECTION CONSOLE: Display /console/* application.
+*/
+// Admin webpage template
+private function console_theme(
+	mixed &...$unused,
+) : ?bool {
+	return $this->theme(
+		...$args = array(
+		<<<EOF
+body { border: 2rem solid #999999; border-top: 0; }
+header a:link, header a:visited { color: #336699; }
+header a:hover, header a:focus { color: #99ccff; }
+header a:active { color: #993366; }
+EOF
+		,				// css
+		NULL,			// js
+		<<<EOF
+<div style='width:100%; display: flex; justify-content: space-between; padding: 10px 0; background-color: #999999; color: #333333; font-weight: bold;'>
+<div><a href='/console'>Console</a></div>
+<div><a href='/' title='Close Console'>X</a></div>
+</div>
+EOF
+		,				// header
+		NULL,			// main
+		NULL,			// footer
+		1,				// exclusive?
+		),
 	);
+}
+private function console_router(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+switch ($this->boots['urlpathall']) {
+case '/console':
+case '/console/menu':		$this->console_menu();		return NULL;
+case '/console/browse':		$this->console_browse();	return NULL;
+case '/console/cron':		$this->console_cron();		return NULL;
+case '/console/help':		$this->console_help();		return NULL;
+case '/console/init':		$this->console_init();		return NULL;
+case '/console/more':		$this->home_more();			return NULL;
+case '/console/phpinfo':	$this->console_phpinfo();	return NULL;
+case '/console/status':		$this->console_status();	return NULL;
+case '/console/tests':		$this->console_tests();		return NULL;
+default:					$this->home_notfound();		return NULL;
+}
+return NULL;
+}
+private function console_menu(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+echo <<<EOF
+<h1>Menu</h1>
+<br>
+<a href='/'					>/</a><br>
+<a href='/home'				>/home</a><br>
+<br>
+<a href='/console'			>/console</a><br>
+<a href='/console/more'		>/console/more</a><br>
+<a href='/console/status'	>/console/status</a><br>
+<a href='/console/help'		>/console/help</a><br>
+<a href='/console/code' target='_blank'>/console/code</a><br>
+<a href='/console/phpinfo'	>/console/phpinfo</a><br>
+<a href='/console/init'		>/console/init</a><br>
+<a href='/console/cron'		>/console/cron</a><br>
+<a href='/console/browse'	>/console/browse</a><br>
+<a href='/console/tests'	>/console/tests</a><br>
+<br>
+<a href='/bogus'>/bogus</a><br>
+<a href='/home/bogus'>/home/bogus</a><br>
+<a href='/console/bogus'>/console/bogus</a><br>
+EOF;	
 	return NULL;
 }
+private function console_browse(mixed &...$unused) : ?bool {
+	echo "<h1>Browser</h1>";
+	$path = $this->settings['core']['projectroot'];
+	$display = <<< EOF
+Filename: {$path}<br>
+<br>
+EOF;
+	$files = array_diff(scandir($path), array('..'));
+	foreach($files as $file) {
+		$display .= $file."<br>\n";
+	}
+	echo $display;
+	return NULL;
+}
+private function console_code(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+	highlight_file($this->settings['core']['filename']);
+	return NULL;
+}
+private function console_cron(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+	echo "<h1>Cron</h1>Hello!";
+	return NULL;
+}
+private function console_help(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+echo <<<EOF
+<h1>Help</h1>
+EOF;	
+	return NULL;
+}
+private function console_init(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+	$result = $this->set_settings(); // recreate settings
+echo <<<EOF
+<h1>Init</h1>
+Result: {$result}
+EOF;	
+	return NULL;
+}
+private function console_phpinfo(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+	echo "<h1>PHP Info</h1>";
+	phpinfo();
+	return NULL;
+}
+private function console_status(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+echo <<<EOF
+<h1>Status</h1>
+<br>
+<a href='/'					>/</a><br>
+<a href='/home'				>/home</a><br>
+<br>
+<a href='/console'			>/console</a><br>
+<a href='/console/more'		>/console/more</a><br>
+<a href='/console/status'	>/console/status</a><br>
+<a href='/console/help'		>/console/help</a><br>
+<a href='/console/code'		>/console/code</a><br>
+<a href='/console/phpinfo'	>/console/phpinfo</a><br>
+<a href='/console/init'		>/console/init</a><br>
+<a href='/console/cron'		>/console/cron</a><br>
+<a href='/console/browse'	>/console/browse</a><br>
+<a href='/console/tests'	>/console/tests</a><br>
+<br>
+<a href='/bogus'>/bogus</a><br>
+<a href='/home/bogus'>/home/bogus</a><br>
+<a href='/console/bogus'>/console/bogus</a><br>
+EOF;	
+	return NULL;
+}
+private function console_tests(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+echo <<<EOF
+<h1>Tests</h1>
+Hello World. I am alive.<br>
+Thank you!<br>
+EOF;
+return NULL;
+}
+
+
+
+
+
+
+
+/*************************************************************************************************
+SECTION CRON: Execute core and extension maintenance functions.
+*/
+// replace PHP session garbage collection with CRON job to purge stale and excess sessions
+
+
+
+
+
+
+
+/*************************************************************************************************
+SECTION WEBSERVANT: Display /console/webservant/ application.
+*/
+
+
+
+
+
+
+
+/*************************************************************************************************
+SECTION UPDATER: Display /console/updater/ application.
+*/
 
 
 
@@ -1518,7 +1467,7 @@ public function get_file(string $filename, string &$data) : bool {
 }
 // Set json
 public function set_json(string $filename, mixed $value) : bool {
-	if (FALSE === $this->set_file($filename, json_encode($value, ABCMS_FLAG_JSON))) {
+	if (FALSE === $this->set_file($filename, json_encode($value, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT))) {
 		$this->error_log("System file_put_contents(), ".$this->error_get_last());
 		return FALSE;
 	}
@@ -1591,12 +1540,9 @@ public function get_uniq(): string {
 public function get_dbid(): string {
 	return chr(random_int(97,122)).chr(random_int(97,122)).bin2hex(random_bytes(15));
 }
-// Unique hash for getmyinode() + getlastmod() + $string, not for permanent storage, 64 bytes
+// Unique hash for 'documentroot' + getmyinode() + getlastmod() + $string, not for permanent storage, 64 bytes
 public function get_hash(?string $input): string {
-	if (isset($this->settings)) {
-		return hash('sha256', $this->settings['core']['getmyinode'].$this->settings['core']['getlastmod'].$input);
-	}
-	return hash('sha256', getmyinode().getlastmod().$input);
+	return hash('sha256', ($this->compiles['core']['secret']??$this->settings['core']['secret']).getmyinode().getlastmod().$input);
 }
 // htmlspecialchars() wrapper
 public function hsc(?string $string): ?string {
@@ -1610,11 +1556,11 @@ public function hsc(?string $string): ?string {
 
 
 /*************************************************************************************************
-SECTION EMAIL: Define SMTP email utility.
+SECTION EMAIL: Define SMTP email utility method.
  */
 // Adapted by Claude.AI from https://github.com/arkanis/smtp_send.
 // Licensed as arkanis/smtp_send (c) 2014-2021 Stephan Soller, MIT License.
-public function smtp(
+public function email(
 	string	$from,		// Envelope + header from address
 	string	$name,		// Display name for from header
 	array	$to,		// Recipient addresses
@@ -1856,7 +1802,7 @@ public function smtp(
 /*************************************************************************************************
 SECTION THEME: Define default webpage template.
 */
-public function htmldoc(
+public function theme(
 	?string	$css	= NULL,	// css override
 	?string	$js		= NULL,	// js override
 	?string	$head	= NULL,	// header override
@@ -1866,8 +1812,7 @@ public function htmldoc(
 ) : ?bool {					// return boolean
 // helpful defaults
 $title = mb_strtoupper($this->hsc($this->boots['urldomain']));
-$lower = mb_strtolower($this->hsc($this->boots['urlfull']));
-$admin = ($this->input['role'] >= ABCMS_ROLE_ADMINS ? "<div><a href='/admin' title='Admin Console'>\u{2699}</a></div>" : NULL);
+$lower = mb_strtolower($title);
 $favicon = (is_readable('./favicon.ico') ? '/favicon.ico' : (is_readable('./public/favicon.ico') ? '/public/favicon.ico' : 'data:,'));
 // page template
 ?>
@@ -1885,22 +1830,24 @@ $favicon = (is_readable('./favicon.ico') ? '/favicon.ico' : (is_readable('./publ
 <title><?php echo $title; ?></title>
 <link rel="icon" href="<?php echo $favicon; ?>">
 <style>
-/* width include padding, to also include margins > width: calc(100% - 30px); */
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #page, header, main, footer { margin: 0; padding: 0; width: 100%; text-align: center; }
 html { font-size: 100%; overflow-wrap: break-word; word-wrap: break-word; }
 body { color: #333333; background-color: #FFFFFF; font-size: 1.125rem; line-height: 1.3; font-family: Arial, sans-serif; }
 #page { display: flex; flex-direction: column; min-height: 100vh; }
+header a:link, header a:visited { color: #999999; }
+header a:hover, header a:focus { color: #99ccff; }
+header a:active { color: #993366; }
 main { flex: 1;	max-width: 1024px; min-width: min(360px, 100%); margin: 1rem auto; padding: 0rem 3rem 1rem 3rem; text-align: justify; }
+footer { margin-bottom: 1rem; }
 h1, h2, h3, h4 { color: #336699; }
 h1 { text-align: center; }
 .bold { font-weight: 700; }
 .italic { font-style: italic; }
 a { text-decoration: none; }
-a:link { color: #333399; }
-a:visited { color: #336699; }
-a:hover { color: #339999; }
-a:focus { color: #339999; }
+a:link { color: #6cc9ff; }
+a:visited { color: #996633; }
+a:hover, a:focus { color: #99ccff; }
 a:active { color: #993366; }
 form.form-grid {
 	display: grid;
@@ -1912,42 +1859,25 @@ form.form-grid {
 label { text-align: right; }
 input:required { border: 1px solid blue; }
 @media screen and (max-width: 1065px) { main { margin: 0; } }
-<?php $this->output('/htmldefault_css', 'CLI-GET-POST', 'abcms()->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($css)); ?>
+<?php echo $css; ?>
 </style>
 <script>
-<?php $this->output('/htmldefault_js', 'CLI-GET-POST', 'abcms()->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($js)); ?>
+<?php echo $js; ?>
 </script>
 </head>
 <body>
 <div id='page'>
 <header>
-<?php
-if (!$head) { $head = <<<EOF
-<div style='width:100%; display: flex; justify-content: space-between; padding: 10px 0; background-color: #999999; color: #333333; font-weight: bold;'>
-<div><a href='/' title='{$title}'>{$title}</a></div>
-{$admin}
-</div>
-EOF;
-}
-$this->output('/htmldefault_head', 'CLI-GET-POST', 'abcms()->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($head ?: "<h2>$title</h2>"));
-?>
+<?php echo ($head ?: "<div style='width:100%; display: flex; justify-content: center; padding: 10px 0; '><div><a href='/' style='font-size: 4rem; font-weight: bold;'>{$title}</a></div></div>"); ?>
 </header>
 <main>
 <?php
-if (!$main) { $main = <<<EOF
-<h1>Status</h1>
-Request not found.<br>
-<br>
-<a href='/'>Try again from the homepage.</a>
-EOF;
-}
-$this->output('/htmldefault_page', 'CLI-GET-POST', 'abcms()->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($main));
+if (!$main) { $main = "<h1>Status</h1>Request not found.<br><br><a href='/'>Try again from the homepage.</a>"; }
+$this->output(ABCMS_EXT_MAIN, 'CLI-GET-POST', 'abcms()->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($main));
 ?>
 </main>
 <footer>
-<?php
-$this->output('/htmldefault_foot', 'CLI-GET-POST', 'abcms()->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($foot ?: "<h4><a href='/'>{$lower}</a></h4>"));
-?>
+<?php echo ($foot ?: "<h4><a href='/'>{$lower}</a></h4>"); ?>
 </footer>
 </div>
 </body>
