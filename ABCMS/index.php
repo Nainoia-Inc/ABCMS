@@ -122,10 +122,13 @@ catch (\Throwable $e) { // catch exceptions
 <meta name='color-scheme' content='light dark'>
 <title>{$title}</title>
 <link rel="icon" href="favicon.ico">
+<style>
+body { display: flex; align-items: center; justify-content: center; max-width: 100%; max-height: 100%; width: 100vw; height: 100vh; margin: 0; padding: 0; border: 0; background-color: #336699; }
+#outer { display: flex; align-items: center; justify-content: center; width: 90%; height: 90%; margin: 0; padding: 0; border: 0; background-color: #FFFFFF; }
+#inner { margin: auto; text-align: center; font-size: 30px; line-height: 1.5; font-family: Arial, sans-serif; color: #333333; }
+</style>
 </head>
-<body style='display: flex; align-items: center; justify-content: center; max-width: 100%; max-height: 100%; width: 100vw; height: 100vh; margin: 0; padding: 0; border: 0; background-color: #336699;'>
-<div style='display: flex; align-items: center; justify-content: center; width: 90%; height: 90%; margin: 0; padding: 0; border: 0; background-color: #FFFFFF;'>
-<div style='margin: auto; text-align: center; font-size: 30px; line-height: 1.5; font-family: Arial, sans-serif; color: #333333;'>
+<body><div id='outer'><div id='inner'>
 My sincere apologies.<br>
 I appear to have lost my balance.<br>
 Please try again, wait, or contact the webmaster.<br>
@@ -135,9 +138,7 @@ ERROR MESSAGE:
 "{$exception}"<br>
 <br>
 <a href='/'>Click here to try again</a>.
-</div>
-</div>
-</body></html>
+</div></div></body></html>
 EOF; // echo HTML
 	error_log("ABCMS->COREDUMP()\n" . print_r(array('COREDUMP_EXCEPTION' => $exception, 'COREDUMP_SYSTEM' => $system), TRUE)); // log error
 	file_put_contents( // dump corefile
@@ -182,9 +183,10 @@ private		bool	$formvalid	= FALSE;	// form tested valid
 private		bool	$formhuman	= FALSE;	// form tested human
 // Construct object
 function __construct() {
-	if (__FILE__ !== $_SERVER['SCRIPT_FILENAME'] || basename(__FILE__) !== 'index.php') { $this->error_wsod("ABCMS must be called directly, not included."); } // must call, not include
-	if (!ini_set('error_log', ABCMS_ABCMSLOG)) {	$this->error_wsod("Error location not found."); } // error location
-	if (FALSE === $this->set_settings(TRUE)){		$this->error_wsod("Application settings not found."); } // read settings
+	if (__FILE__ !== $_SERVER['SCRIPT_FILENAME'] || basename(__FILE__) !== 'index.php') { $this->error_wsod("I must be the party, not just included."); } // must call, not include
+	while(ob_get_level() > 0) { if(ob_get_clean()) { $this->error_wsod("That is wrong, I got stuff in my buffers."); } } // dump unknown buffers
+	if (!ini_set('error_log', ABCMS_ABCMSLOG)) { $this->error_wsod("Error location not found."); } // error location
+	if (FALSE === $this->set_settings(TRUE)){ $this->error_wsod("Application settings not found."); } // read settings
 	$this->boots = array( // bootstrap settings for session_start(), then session user validates inputs
 		'cli' => ($cli = ('cli' === PHP_SAPI ? TRUE : FALSE)), // CLI execution
 		'argc' => $_SERVER['argc'], // CLI argument count
@@ -240,7 +242,6 @@ function __construct() {
 	);
 	if ($this->boots['auto']) { require_once($this->boots['auto']); } // require composer
 	if (0 !== stripos($urlparsed['path'], $this->input['urlstripped'])) { $this->set_errors("URL questioned, variables within path"); }	// variables within path
-	if (ob_get_level() > 0) { ob_end_clean(); }	// dump unknown buffers
 	return; // Done
 }
 // Disallowed methods
@@ -716,34 +717,14 @@ private function set_settings(
 	$this->output_extend(ABCMS_EXT_BEGIN,	'code',		'CLI-GET-POST',	'IEU',	'abcms()->admincode',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
 	$this->output_equate(ABCMS_EXT_BEGIN,	'code',		'/admin/code');
 	// Frontend page extensions
-	$this->output_extend(ABCMS_EXT_PAGE,	'home',		'CLI-GET-POST',	'IE',	'abcms()->pagehome',		ABCMS_ROLE_PUBLIC,	-10);
+	$this->output_extend(ABCMS_EXT_PAGE,	'home',		'CLI-GET-POST',	'IE',	'abcms()->pagerouter',		ABCMS_ROLE_PUBLIC,	-10);
 	$this->output_equate(ABCMS_EXT_PAGE,	'home',		'/');
 	$this->output_equate(ABCMS_EXT_PAGE,	'home',		'/abcms');
-	$this->output_extend(ABCMS_EXT_PAGE,	'more',		'CLI-GET-POST',	'IE',	'abcms()->pagemore',		ABCMS_ROLE_PUBLIC,	-10);
-	$this->output_equate(ABCMS_EXT_PAGE,	'more',		'/abcms/more');
-	$this->output_equate(ABCMS_EXT_PAGE,	'more',		'/admin/more');
-	$this->output_extend(ABCMS_EXT_PAGE,	'contact',	'CLI-GET-POST',	'IE',	'abcms()->pagecontact',		ABCMS_ROLE_PUBLIC,	-10);
-	$this->output_equate(ABCMS_EXT_PAGE,	'contact',	'/abcms/contact');
-	$this->output_extend(ABCMS_EXT_PAGE,	'account',	'CLI-GET-POST',	'IE',	'abcms()->pageaccount',		ABCMS_ROLE_PUBLIC,	-10);
-	$this->output_equate(ABCMS_EXT_PAGE,	'account',	'/abcms/account');
-	$this->output_extend(ABCMS_EXT_PAGE,	'logout',	'CLI-GET-POST',	'IE',	'abcms()->pagelogout',		ABCMS_ROLE_PUBLIC,	-10);
-	$this->output_equate(ABCMS_EXT_PAGE,	'logout',	'/abcms/logout');
+	$this->output_equate(ABCMS_EXT_PAGE,	'home',		'/abcms/');
 	// Admin page extensions
-	$this->output_extend(ABCMS_EXT_PAGE,	'status',	'CLI-GET-POST',	'IE',	'abcms()->adminstatus',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
-	$this->output_equate(ABCMS_EXT_PAGE,	'status',	'/admin');
-	$this->output_equate(ABCMS_EXT_PAGE,	'status',	'/admin/status');
-	$this->output_extend(ABCMS_EXT_PAGE,	'phpinfo',	'CLI-GET-POST',	'IE',	'abcms()->adminphpinfo',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
-	$this->output_equate(ABCMS_EXT_PAGE,	'phpinfo',	'/admin/phpinfo');
-	$this->output_extend(ABCMS_EXT_PAGE,	'help',		'CLI-GET-POST',	'IE',	'abcms()->adminhelp',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
-	$this->output_equate(ABCMS_EXT_PAGE,	'help',		'/admin/help');
-	$this->output_extend(ABCMS_EXT_PAGE,	'init',		'CLI-GET-POST',	'IE',	'abcms()->admininit',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
-	$this->output_equate(ABCMS_EXT_PAGE,	'init',		'/admin/init');
-	$this->output_extend(ABCMS_EXT_PAGE,	'cron',		'CLI-GET-POST',	'IE',	'abcms()->admincron',		ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
-	$this->output_equate(ABCMS_EXT_PAGE,	'cron',		'/admin/cron');
-	$this->output_extend(ABCMS_EXT_PAGE,	'browse',	'CLI-GET-POST',	'IE',	'abcms()->adminbrowse',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
-	$this->output_equate(ABCMS_EXT_PAGE,	'browse',	'/admin/browse');
-	$this->output_extend(ABCMS_EXT_PAGE,	'tests',	'CLI-GET-POST',	'IE',	'abcms()->admintests',	ABCMS_ROLE_ADMINS,	ABCMS_EXTORD_MIN);
-	$this->output_equate(ABCMS_EXT_PAGE,	'tests',	'/admin/tests');
+	$this->output_extend(ABCMS_EXT_PAGE,	'admin',	'CLI-GET-POST',	'IE',	'abcms()->adminrouter',		ABCMS_ROLE_ADMINS,	-10);
+	$this->output_equate(ABCMS_EXT_PAGE,	'admin',	'/admin');
+	$this->output_equate(ABCMS_EXT_PAGE,	'admin',	'/admin/');
 	// Variable Extensions
 	$variable['variable'] = "Yoo hooey!<br>";
 	$this->output_extend('/nainoiainc/abcms/variable',	'',	'CLI-GET-POST',	'IE',	'abcms()->pagevariable',	ABCMS_ROLE_PUBLIC,	-10, ...$variable);	
@@ -1178,17 +1159,27 @@ EOF
 		),
 	);
 }
+private function adminrouter(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+switch ($this->input['urlpathall']) {
+case '/admin':
+case '/admin/status':	$this->adminstatus();	break;
+case '/admin/phpinfo':	$this->adminphpinfo();	break;
+case '/admin/help':		$this->adminhelp();		break;
+case '/admin/init':		$this->admininit();		break;
+case '/admin/cron':		$this->admincron();		break;
+case '/admin/browse':	$this->adminbrowse();	break;
+case '/admin/tests':	$this->admintests();	break;
+default:				$this->pagenotfound();	break;
+}
+return NULL;
+}
 private function admincode(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 	highlight_file($this->settings['core']['filename']);
 	return NULL;
 }
 private function adminstatus(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	static $count = 3;
-	if ($count===3) { echo "<h1>Status</h1>"; }
-	echo "Helping you! {$count}<br>\n";
-	--$count;
-	if ($count>0) { return TRUE; }
 echo <<<EOF
+<h1>Status</h1>
 <br>
 <a href='/'>Home</a><br>
 <a href='/abcms'>ABCMS</a><br>
@@ -1324,6 +1315,18 @@ EOF
 		),
 	);
 }
+private function pagerouter(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+switch ($this->input['urlpathall']) {
+case '/':
+case '/abcms':			$this->pagehome();		break;
+case '/abcms/more':		$this->pagemore();		break;
+case '/abcms/contact':	$this->pagecontact();	break;
+case '/abcms/account':	$this->pageaccount();	break;
+case '/abcms/logout':	$this->pagelogout();	break;
+default:				$this->pagenotfound();	break;
+}
+return NULL;
+}
 private function pagehome(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 $admin = ($this->input['role'] < ABCMS_ROLE_ADMINS ? NULL : " / <a href='/admin'>Console</a>");
 $logout = (empty($this->input['user']) ? NULL : " / <a href='/abcms/logout'>Logout</a>");
@@ -1333,7 +1336,7 @@ $logout = (empty($this->input['user']) ? NULL : " / <a href='/abcms/logout'>Logo
 <p style='line-height: 2rem;'>
 AKA "<a href='https://www.AionianBible.org' target='_blank'>Aionian Bible</a> Content Management System"<br>
 A PHP web developer toolkit and CMS in a single file.<br>
-Everything is an extension with the &dollar;abcms() router.<br>
+Everything is an extension with the abcms() router.<br>
 Install ABCMS&trade; with Composer or run me in a document root.<br>
 </p>
 <p>
@@ -1342,6 +1345,15 @@ Install ABCMS&trade; with Composer or run me in a document root.<br>
 </div>
 <?php
 	return NULL;
+}
+private function pagenotfound(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+echo <<<EOF
+<h1>Status</h1>
+Request not found.<br>
+<br>
+<a href='/'>Try again from the homepage.</a>
+EOF;
+return NULL;
 }
 private function pagemore(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 echo <<<EOF
