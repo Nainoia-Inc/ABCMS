@@ -6,13 +6,6 @@ SECTION INTRODUCTION: A Basic Content Management System and PHP toolkit.
 /*************************************************************************************************
 SECTION CONSTANTS: Immutable constants to share.
 */
-// files
-const ABCMS_ABCMSLOG	= __DIR__ . "/../private/nainoiainc/abcms/ABCMS.errorlog";
-const ABCMS_COREDUMP	= __DIR__ . "/../private/nainoiainc/abcms/ABCMS.coredump";
-const ABCMS_SESSIONS	= __DIR__ . "/../private/nainoiainc/abcms/ABCMS.sessions";
-const ABCMS_SETTINGS	= __DIR__ . "/../private/nainoiainc/abcms/ABCMS.settings";
-const ABCMS_DATABASE	= __DIR__ . "/../private/nainoiainc/abcms/ABCMS.database";
-const ABCMS_PASSWORD	= __DIR__ . "/../private/nainoiainc/abcms/ABCMS.deleteme";
 // extensions
 const ABCMS_EXT_SELF	= "/nainoiainc/abcms";
 const ABCMS_EXT_INIT	= "/init";
@@ -37,16 +30,15 @@ const ABCMS_REGEX_URLV	= "/\/([A-Za-z0-9\-_.~]+)=([A-Za-z0-9\-_.~]+)/u"; // URL 
 const ABCMS_REGEX_FORM	= "/(<form[^>]*>)(.+?)(<\/form>)/uis"; // form security injection
 // session
 const ABCMS_SES			= ABCMS_EXT_SELF;	// unique session key for ABCMS
-const ABCMS_SES_ROTA	= 60*15;			// seconds total before rotate session tokens
-const ABCMS_SES_IDLE	= 60*60*24*4;		// seconds idle before destroy session
-const ABCMS_SES_LIFE	= 60*60*24*11;		// seconds total before destroy session
-const ABCMS_SES_FORM	= 60*60;			// seconds total before remove form security tokens
-const ABCMS_SES_KILL	= 1;				// cookie lifetime to guarrantee removal
-const ABCMS_SES_WAIT	= 4;				// javascript submission delay to prevent robots
-const ABCMS_SES_OPEN	= 21;				// max form security token sets open
-const ABCMS_SES_PAGE	= 7;				// max forms on one page
-const ABCMS_SES_HITS	= 20;				// max session hits within ABCMS_SES_TIME before suspect
-const ABCMS_SES_TIME	= 20;				// max session time for ABCMS_SES_HITS before suspect
+const ABCMS_SES_ROTA	= 60*15;			// rotate session after 15 minutes
+const ABCMS_SES_IDLE	= 60*60*24*1;		// destroy session after 1 day idle
+const ABCMS_SES_LIFE	= 60*60*24*3;		// destroy session after 3 days total
+const ABCMS_SES_FORM	= 60*60;			// remove form security tokens after 1 hour
+const ABCMS_SES_WAIT	= 4;				// javascript form submission delay to stymie robots
+const ABCMS_SES_OPEN	= 21;				// max form security token sets open total
+const ABCMS_SES_PAGE	= 7;				// max forms alowed on one page
+const ABCMS_SES_HITS	= 20;				// number of session hits to track
+const ABCMS_SES_TIME	= 20;				// max session hit time before suspect, 20 in 20 seconds
 
 
 
@@ -129,7 +121,7 @@ ERROR: "{$exception}"<br>
 EOF; // echo HTML
 	error_log("ABCMS->COREDUMP()\n" . print_r(array('COREDUMP_EXCEPTION' => $exception, 'COREDUMP_SYSTEM' => $system), TRUE)); // log error
 	file_put_contents( // dump corefile
-		ABCMS_COREDUMP,
+		__DIR__ . "/../private/nainoiainc/abcms/ABCMS.coredump",
 		print_r(array(
 			'ABCMS_EXCEPTION'	=> $exception,
 			'ABCMS_SYSTEM'		=> $system,
@@ -170,8 +162,8 @@ private		bool	$formvalid	= FALSE;	// form tested valid
 private		bool	$formhuman	= FALSE;	// form tested human
 // Construct object
 function __construct() {
+	if (!ini_set('error_log', __DIR__ . "/../private/nainoiainc/abcms/ABCMS.errorlog")) { $this->error_wsod("Error file location not customized."); } // error location
 	while(ob_get_level() > 0) { if(ob_get_clean()) { $this->error_wsod("That is wrong, I got stuff in my buffers."); } } // dump unknown buffers
-	if (!ini_set('error_log', ABCMS_ABCMSLOG)) { $this->error_wsod("Error location not found."); } // error location
 	if (FALSE === $this->set_settings(TRUE)){ $this->error_wsod("Application settings not found."); } // read settings
 	$this->boots = array( // bootstrap settings for session_start(), then session user validates inputs
 		'cli' => ($cli = ('cli' === PHP_SAPI ? TRUE : FALSE)), // CLI execution
@@ -550,18 +542,17 @@ public function output_equate(
 	return TRUE;
 }
 private function output_security(string &$html) : void {	// html form security injection
-	// no forms
-	if (!($num = preg_match_all(ABCMS_REGEX_FORM, $html))) { return; }
-	// too many forms
-	if ($num > ABCMS_SES_PAGE) { $this->error_wsod("Too many forms open on one page."); }
-	// start session
+
+	if (!($num = preg_match_all(ABCMS_REGEX_FORM, $html))) { return; } // no forms to secure
+
 	// DOM is better than preg_replace() for HTML injection, but why slow down for one occasion?
-	if (!$this->session_start(1)) {
-		$this->set_errors("All forms disabled because session security failed.");
+	if ($num > ABCMS_SES_PAGE || // too many forms
+		!$this->session_start(1)) { // session failed
+		$this->set_errors("All forms disabled because to many forms or session security failed.");
 		// disable forms actually with <fieldset> and cosmetically with CSS with missing CSRF as safety net
 		if (!($html = preg_replace(ABCMS_REGEX_FORM, '$1<fieldset disabled style="border: none; margin: 0; padding: 0; min-width: 0; display: contents;">$2</fieldset>$3', $html)) ||
 			!($html = preg_replace("/<\/head>/ui", "<style>form { pointer-events: none; opacity: 0.5; }</style></head>", $html))) {
-			$this->error_wsod("Form disabled because security session failed.");
+			$this->error_wsod("Form security efforts failed so must bomb.");
 		}
 		return;
 	}
@@ -661,8 +652,9 @@ private function set_settings(
 	bool	$boot = FALSE,	// Bootstrap load existing
 ) : bool {
 	// overwrite?
-	if ($boot && file_exists(ABCMS_SETTINGS)) {
-		if (NULL === ($this->settings = json_decode(file_get_contents(ABCMS_SETTINGS), TRUE))) {
+	$storage = __DIR__ . "/../private/nainoiainc/abcms/ABCMS.settings";
+	if ($boot && file_exists($storage)) {
+		if (NULL === ($this->settings = json_decode(file_get_contents($storage), TRUE))) {
 			$this->error_wsod("System, ".json_last_error_msg().", ".$this->error_get_last());
 		}
 		return TRUE;
@@ -678,14 +670,16 @@ private function set_settings(
 	$this->compiles['core']['getmyinode']		= getmyinode(); // My inode
 	$this->compiles['core']['getlastmod']		= getlastmod(); // My modified date
 	$password									= $this->get_uniq(); // My clear password
-	$this->compiles['core']['password']			= password_hash($password, PASSWORD_DEFAULT); // My hashed password
-	if (FALSE===$this->set_json(ABCMS_PASSWORD, 'DELETE ASAP: '.$password)) { $this->error_wsod("Settings password failure."); } // Temporary storage
+	$this->compiles['core']['password']			= password_hash($password, PASSWORD_DEFAULT); // Reset when rebuild settings
+	if (FALSE===$this->set_json(__DIR__ . "/../private/nainoiainc/abcms/ABCMS.deleteme", 'DELETE ASAP: '.$password)) { $this->error_wsod("Settings password failure."); } // Temporary storage
 	$password = NULL;
 	$this->error_log("Retrieve new password and delete the file please.");
 	$this->compiles['core']['secret']			= $this->get_uniq(); // My hashing secret
-	$this->compiles['core']['session_folder']	= (realpath(ABCMS_SESSIONS) ?: ABCMS_SESSIONS); // My session folder
+	if (!is_dir(($dir = __DIR__ . "/../private/nainoiainc/abcms/ABCMS.sessions")) && !mkdir($dir, 0755, true)) { $this->error_wsod("Session folder does not exist."); }
+	$this->compiles['core']['session_folder']	= $dir; // My session folder
 	$this->compiles['core']['session_cookie']	= $this->get_hash('session_cookie'); // My session cookie name
 	$this->compiles['core']['session_logins']	= $this->get_hash('session_logins'); // My login cookie name
+	$this->compiles['core']['session_killit']	= TRUE; // kill when close browser
 	$this->compiles['core']['smtp_host']		= NULL; // SMTP server
 	$this->compiles['core']['smtp_port']		= NULL; // SMTP port
 	$this->compiles['core']['smtp_user']		= NULL; // SMTP username
@@ -719,9 +713,9 @@ private function set_settings(
 	// INIT.php run by composer or at will if ABCMS or plugin changes to rebuild the settings extension array
 	// while() { include init.php; }
 	// clean up - remove mixed non-exclusive or exclusive routes.
-	while(0) { ; }
+	while(0) { ; } // loop through extension SETTINGS.php
 	// write settings to disk
-	if (FALSE===$this->set_json(ABCMS_SETTINGS, $this->compiles)) {	$this->error_wsod("Settings write failure."); }
+	if (FALSE===$this->set_json($storage, $this->compiles)) {	$this->error_wsod("Settings write failure."); }
 	if ($boot) { $this->settings = $this->compiles; }
 	unset($this->compiles);
 	return TRUE;
@@ -824,7 +818,7 @@ public function session_start(
 			'gc_probability'	=> '1',											// garbage collection, turn off and replace with cron!
 			'gc_divisor'		=> '100',										// garbage collection, turn off and replace with cron!
 			'gc_maxlifetime'	=> ABCMS_SES_LIFE,								// garbage collection, turn off and replace with cron!
-			'cookie_lifetime'	=> ABCMS_SES_LIFE,								// cookie lifetime
+			'cookie_lifetime'	=> ($this->settings['core']['session_killit'] ? 0 : ABCMS_SES_LIFE), // cookie lifetime, kill when close browser
 			'cookie_path'		=> '/',											// whole domain
 			'cookie_domain'		=> $this->boots['urldomain'],					// current sub.domain only
 			'cookie_secure'		=> '1',											// HTTPS only
@@ -851,10 +845,6 @@ public function session_start(
 	}
 	// start session
 	if (!session_start($options)) { $this->error_wsod("Session start failed.");	}
-	// Too many sessions open?
-	if (0 && "to many sessions") {
-		// Remove oldest sessions to get under the limit
-	}
 	// initialize flags
 	$session_active = TRUE;
 	$_COOKIE[$options['name']] = session_id(); 
@@ -916,9 +906,9 @@ KILL:	// set errors
 		// start session to destroy
 		if (!$session_active) { $session_active = session_start($options); }
 		// remove cookies
-		$this->set_cookie($options['name'], '', ABCMS_SES_KILL); // session cookie
-		if (isset($_SESSION[ABCMS_SES]['valid']['cookie'])) { $this->set_cookie($_SESSION[ABCMS_SES]['valid']['cookie'], '', ABCMS_SES_KILL); } // secret cookie
-		$this->set_cookie($this->settings['core']['session_logins'], '', ABCMS_SES_KILL); // login cookie
+		$this->set_cookie($options['name'], '', 1); // kill session cookie
+		if (isset($_SESSION[ABCMS_SES]['valid']['cookie'])) { $this->set_cookie($_SESSION[ABCMS_SES]['valid']['cookie'], '', 1); } // kill secret cookie
+		$this->set_cookie($this->settings['core']['session_logins'], '', 1); // kill login cookie
 		// PHP says mark sessions for garbage collection to prevent races, but don't want garbage around
 		$_SESSION = [];
 		if ($session_active && !session_destroy()) { $this->error_log("Session destroy failed.");	}
@@ -966,8 +956,7 @@ KILL:	// set errors
 		if (($num = (count($_SESSION[ABCMS_SES]['form']??[]) - ABCMS_SES_OPEN)) > 0) {
 			array_splice($_SESSION[ABCMS_SES]['form'], 0, $num);
 		}
-		// rotate if exceed rotate time or my $user updated
-		if ($now > ($valid['rotate'] + ABCMS_SES_ROTA)) {
+		if ($now > ($valid['rotate'] + ABCMS_SES_ROTA)) { // rotate if exceed rotate time or $user role updated
 			// session cookie
 			if (!session_regenerate_id(TRUE)) { $this->error_wsod("Session regeneration failed."); }
 			$_COOKIE[$options['name']] = session_id();
@@ -1012,8 +1001,8 @@ public function set_cookie(
 	string	$value,		// cookie value
 	int		$expires,	// expiration date
 ): void {
-	// headers sent
-	if (headers_sent()) { $this->error_wsod("Set cookie headers already sent"); }
+	if (headers_sent()) { $this->error_wsod("Set cookie headers already sent"); } // headers sent
+	if ($expires > 1 && $this->settings['core']['session_killit']) { $expires = 0; } // kill cookie on close browser
 	// Set cookie
 	if (!empty($cookie) && setcookie(
 		$cookie,
@@ -1050,6 +1039,7 @@ public function set_database(string $filename, mixed $data) : mixed {
 }
 // Get Database
 public function get_database(string $filename, mixed $data) : mixed {
+	touch(__DIR__ . "/../private/nainoiainc/abcms/ABCMS.database");
 	return array(
 		'userid'=> 1,
 		'first'	=> 'Jeff',
@@ -1155,7 +1145,7 @@ else if ($this->formvalid && $this->formhuman && $_SESSION[ABCMS_SES]['user']) {
 	echo "Submittal success! ({$email})";
 }
 else if ($this->formhuman) {
-	$this->set_cookie($this->settings['core']['session_logins'], '', ABCMS_SES_KILL);
+	$this->set_cookie($this->settings['core']['session_logins'], '', 1);
 	unset($_SESSION[ABCMS_SES]['user']);
 	unset($_SESSION[ABCMS_SES]['session_logins']);
 	echo "Invalid submittal, logged out";
@@ -1868,6 +1858,7 @@ input:required { border: 1px solid blue; }
 <?php
 if (!$main) { $main = "<h1>Status</h1>Request not found.<br><br><a href='/'>Try again from the homepage.</a>"; }
 $this->output(ABCMS_EXT_MAIN, 'CLI-GET-POST', 'abcms()->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($main));
+echo $this->see_errors();
 ?>
 </main>
 <footer>
