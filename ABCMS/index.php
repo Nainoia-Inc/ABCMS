@@ -33,13 +33,13 @@ const ABCMS_SES			= ABCMS_EXT_SELF;	// unique session key for ABCMS
 const ABCMS_SES_ROTA	= 60*15;			// rotate session after 15 minutes
 const ABCMS_SES_IDLE	= 60*60*24*1;		// destroy session after 1 day idle
 const ABCMS_SES_LIFE	= 60*60*24*3;		// destroy session after 3 days total
+const ABCMS_SES_BADA	= 60*60*24*1;		// bad actor lockout for 1 day
 const ABCMS_SES_FORM	= 60*60;			// remove form security tokens after 1 hour
-const ABCMS_SES_WAIT	= 4;				// javascript form submission delay to stymie robots
-const ABCMS_SES_OPEN	= 21;				// max form security token sets open total
-const ABCMS_SES_PAGE	= 7;				// max forms alowed on one page
-const ABCMS_SES_HITS	= 20;				// number of session hits to track
+const ABCMS_SES_WAIT	= 4;				// javascript form submission delay to stymie robots for 4 seconds
+const ABCMS_SES_OPEN	= 21;				// max number form security token sets open total
+const ABCMS_SES_PAGE	= 7;				// max number forms alowed on one page
+const ABCMS_SES_HITS	= 20;				// number of session hit times to track
 const ABCMS_SES_TIME	= 20;				// max session hit time before suspect, 20 in 20 seconds
-
 
 
 
@@ -679,6 +679,7 @@ private function set_settings(
 	$this->compiles['core']['session_folder']	= $dir; // My session folder
 	$this->compiles['core']['session_cookie']	= $this->get_hash('session_cookie'); // My session cookie name
 	$this->compiles['core']['session_logins']	= $this->get_hash('session_logins'); // My login cookie name
+	$this->compiles['core']['session_badact']	= $this->get_hash('session_badact'); // My bad actor cookie name
 	$this->compiles['core']['session_killit']	= TRUE; // kill when close browser
 	$this->compiles['core']['smtp_host']		= NULL; // SMTP server
 	$this->compiles['core']['smtp_port']		= NULL; // SMTP port
@@ -838,9 +839,10 @@ public function session_start(
 	if (headers_sent()) { $this->error_wsod("Session start failed, headers already sent.");	}
 	// conditional start, post validation first time only
 	$post = ('POST' === $this->boots['urlmethod'] && !$posthandled ? TRUE : FALSE);
-	if (0 === $cmd &&													// conditional
+	if (isset($_COOKIE[$this->settings['core']['session_badact']]) ||	// bad actor penalty
+		(0 === $cmd &&													// conditional
 		!isset($_COOKIE[$this->settings['core']['session_logins']]) &&	// no login cookie
-		!$post) {														// no $_POST
+		!$post)) {														// no $_POST
 		return FALSE;
 	}
 	// start session
@@ -912,11 +914,12 @@ KILL:	// set errors
 		// PHP says mark sessions for garbage collection to prevent races, but don't want garbage around
 		$_SESSION = [];
 		if ($session_active && !session_destroy()) { $this->error_log("Session destroy failed.");	}
-		// slap the evil
-		if ($slap) {
+		if ($slap) { // slap the evil and block with bad actor cookie
+			$_SESSION[ABCMS_SES]['session_badact'] = $this->get_uniq();
+			$this->set_cookie($this->settings['core']['session_badact'], $_SESSION[ABCMS_SES]['session_badact'], $now + ABCMS_SES_BADA, FALSE);
 			http_response_code($slap);
-			header('Retry-After: 3600'); // retry after an hour
-			exit('Suspected attack: '.$error);
+			header('Retry-After: '.ABCMS_SES_BADA);
+			$this->error_wsod($error);
 		}
 		// session destroyed
 		return FALSE;
@@ -997,12 +1000,13 @@ KILL:	// set errors
 }
 // Set cookie
 public function set_cookie(
-	string	$cookie,	// cookie name
-	string	$value,		// cookie value
-	int		$expires,	// expiration date
+	string	$cookie,		// cookie name
+	string	$value,			// cookie value
+	int		$expires,		// expiration date
+	bool	$killit = TRUE,	// heed kill it flag
 ): void {
 	if (headers_sent()) { $this->error_wsod("Set cookie headers already sent"); } // headers sent
-	if ($expires > 1 && $this->settings['core']['session_killit']) { $expires = 0; } // kill cookie on close browser
+	if ($killit && $expires > 1 && $this->settings['core']['session_killit']) { $expires = 0; } // kill cookie on close browser
 	// Set cookie
 	if (!empty($cookie) && setcookie(
 		$cookie,
@@ -1119,7 +1123,7 @@ This is where to contact us.
 private function home_login(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 echo "<h1>Account</h1>";
 if (!$this->session_start(1)) {
-	echo "Session failure!";
+	echo "Session failed or blocked. Try again later.";
 	return NULL;
 }
 else if ($this->formvalid && $this->formhuman && $_SESSION[ABCMS_SES]['user']) {
