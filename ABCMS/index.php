@@ -40,9 +40,12 @@ const ABCMS_SES_OPEN	= 21;				// max number form security token sets open total
 const ABCMS_SES_PAGE	= 7;				// max number forms alowed on one page
 const ABCMS_SES_HITS	= 20;				// number of session hit times to track
 const ABCMS_SES_TIME	= 20;				// max session hit time before suspect, 20 in 20 seconds
-
-
-
+// cookies allowed
+const ABCMS_COOK_LIFE	= 60*60*24*365;		// user allows permission for 1 year
+const ABCMS_COOK_NONE	= 0;				// user allows no cookies
+const ABCMS_COOK_FORM	= 1;				// user allows form security cookies
+const ABCMS_COOK_NAVS	= 2;				// user allows navigation cookies
+const ABCMS_COOK_TRAK	= 3;				// user allows tracking cookies
 
 
 
@@ -158,6 +161,7 @@ private		array	$compiles	= array();	// compile application settings
 private		array	$database	= array();	// database
 private		array	$errors		= array();	// runtime errors
 private		array	$debugs		= array();	// runtime debugs
+private		array	$stack		= array();	// runtime extension stack
 private		bool	$formvalid	= FALSE;	// form tested valid
 private		bool	$formhuman	= FALSE;	// form tested human
 // Construct object
@@ -373,6 +377,7 @@ public function output(
 	foreach($ext['I'] as $extin) { // Input extensions by priority
 		if (!$this->output_doit($extin, $whoami, $flag, ($must || $dopt), $exin)) { continue; } // Skip for reasons
 		if (!$must && $extin['ord'] < 0 && !isset($extin['ctl']['D'])) { $dopt = FALSE; } // Omit default if hook and one extension says not required
+		if ($this->input['role'] >= ABCMS_ROLE_ADMINS) { $this->stack[] = func_get_args(); } // log the exension stack when I am administrator TEMP???
 		if (isset($extin['arg'])) { $this->array_walk_merge($args, $extin['arg']); } // Extend arguments
 		if (empty($extin['fun'])) { continue; } // Extension only grabs exclusivity or set args
 		do { // Repeat hook extension until FALSE -OR- NULL
@@ -680,6 +685,7 @@ private function set_settings(
 	$this->compiles['core']['session_cookie']	= $this->get_hash('session_cookie'); // My session cookie name
 	$this->compiles['core']['session_logins']	= $this->get_hash('session_logins'); // My login cookie name
 	$this->compiles['core']['session_badact']	= $this->get_hash('session_badact'); // My bad actor cookie name
+	$this->compiles['core']['session_allows']	= $this->get_hash('session_allows'); // My user allows cookie name
 	$this->compiles['core']['session_killit']	= TRUE; // kill when close browser
 	$this->compiles['core']['smtp_host']		= NULL; // SMTP server
 	$this->compiles['core']['smtp_port']		= NULL; // SMTP port
@@ -839,7 +845,11 @@ public function session_start(
 	if (headers_sent()) { $this->error_wsod("Session start failed, headers already sent.");	}
 	// conditional start, post validation first time only
 	$post = ('POST' === $this->boots['urlmethod'] && !$posthandled ? TRUE : FALSE);
-	if (isset($_COOKIE[$this->settings['core']['session_badact']]) ||	// bad actor penalty
+	if (!isset($_COOKIE[$this->settings['core']['session_allows']])) { // TEMP CODE TO ALLOW COOKIES
+		$this->set_cookie($this->settings['core']['session_allows'], ABCMS_COOK_NAVS, $now + ABCMS_COOK_LIFE, FALSE);
+	}
+	if (empty($_COOKIE[$this->settings['core']['session_allows']]) ||	// user hasn't allowed cookies
+		isset($_COOKIE[$this->settings['core']['session_badact']]) ||	// bad actor penalty
 		(0 === $cmd &&													// conditional
 		!isset($_COOKIE[$this->settings['core']['session_logins']]) &&	// no login cookie
 		!$post)) {														// no $_POST
@@ -850,7 +860,7 @@ public function session_start(
 	// initialize flags
 	$session_active = TRUE;
 	$_COOKIE[$options['name']] = session_id(); 
-	$uagent = $error = $formhuman = NULL;
+	$error = $formhuman = NULL;
 	$csrf = ($post && !empty($_POST['csrf']) ? $_POST['csrf'] : '');
 	if (!empty($_SESSION[ABCMS_SES]['valid'])) { $valid = &$_SESSION[ABCMS_SES]['valid']; }
 	// validate session
@@ -862,7 +872,7 @@ public function session_start(
 		// rapid hit counter
 		$got20 = FALSE; $valid['counts'][] = $now; if (count($valid['counts']) > ABCMS_SES_HITS) { array_shift($valid['counts']); $got20 = TRUE; }
 		// uagent inconsistent
-		if ($valid['uagent'] !== ($uagent = $this->get_hash($this->boots['uagent']))) {											$error = 'Session ended, IP/Agent/Init reset.';		$slap = 400; }
+		if ($valid['uagent'] !== $this->boots['uagent']) {																		$error = 'Session ended, IP/Agent or Core reset.';	$slap = 400; }
 		// secrets differ
 		else if (!hash_equals($valid['secret'], ($_COOKIE[$valid['cookie']]??'x'))) {											$error = 'Session ended, secrets differ.';			$slap = 400; }
 		// rapid hits
@@ -985,7 +995,7 @@ KILL:	// set errors
 				'create'	=> $now,
 				'active'	=> $now,
 				'rotate'	=> $now,
-				'uagent'	=> ($uagent ?: $this->get_hash($this->boots['uagent'])),
+				'uagent'	=> $this->boots['uagent'],
 				'cookie'	=> $this->get_uniq(),
 				'secret'	=> $this->get_uniq(),
 				'counts'	=> array(),
