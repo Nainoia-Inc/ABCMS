@@ -268,7 +268,7 @@ private function input_valid(
 
 
 /*************************************************************************************************
-SECTION OUTPUT: Yes everything is a routed extension.
+SECTION OUTPUT: Everything is a routed extension.
 */
 // Hooked function output path router extension manager
 public function output(
@@ -582,8 +582,8 @@ private function settings(
 	$this->settings_extend(ABCMS_EXT_INITX,	'',			'CLI-GET-POST',	'IEU',	'abcms()->home_theme',		ABCMS_ROLE_PUBLIC,	-10);
 	$this->settings_extend(ABCMS_EXT_INITX,	'console',	'CLI-GET-POST',	'IEU',	'abcms()->console_theme',	ABCMS_ROLE_ADMINS,	-20);
 	$this->settings_equate(ABCMS_EXT_INITX,	'console',	'/console/');
-	$this->settings_extend(ABCMS_EXT_INITX,	'system',	'CLI-GET-POST',	'IEU',	'abcms()->system_router',	ABCMS_ROLE_ADMINS,	-999);
-	$this->settings_equate(ABCMS_EXT_INITX,	'system',	'/system/');
+	$this->settings_extend(ABCMS_EXT_INITX,	'command',	'CLI-GET-POST',	'IEU',	'abcms()->command_router',	ABCMS_ROLE_ADMINS,	-999);
+	$this->settings_equate(ABCMS_EXT_INITX,	'command',	'/command/');
 	// frontend extensions
 	$this->settings_extend(ABCMS_EXT_MAINX,	'home',		'CLI-GET-POST',	'IE',	'abcms()->home_router',		ABCMS_ROLE_PUBLIC,	-10);
 	$this->settings_equate(ABCMS_EXT_MAINX,	'home',		'/');
@@ -1083,7 +1083,7 @@ EOF
 	),
 );
 }
-private function home_router(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+private function home_router(mixed &...$unused) : ?bool {
 switch ($this->boots['urlpathall']) {
 case '/':
 case '/home':			$this->home();			return NULL;
@@ -1095,7 +1095,7 @@ default:				$this->home_notfound();	return NULL;
 }
 return NULL;
 }
-private function home(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+private function home(mixed &...$unused) : ?bool {
 echo <<<EOF
 <h1>A Basic Content Management System&trade;</h1>
 <p class='homepage'>
@@ -1107,14 +1107,14 @@ Composer or hey, just run index.php.<br>
 EOF;
 	return NULL;
 }
-private function home_contact(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+private function home_contact(mixed &...$unused) : ?bool {
 ?><h1>Contact</h1>
 This is where to contact us.
 <?php
 	echo "<br><a href='/'>Home</a><br>";
 	return NULL;
 }
-private function home_login(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+private function home_login(mixed &...$unused) : ?bool {
 
 echo "<h1>Account</h1>";
 
@@ -1166,7 +1166,7 @@ Please contact the webmaster for help.
 EOF;
 return;
 }
-private function home_more(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+private function home_more(mixed &...$unused) : ?bool {
 echo <<<EOF
 <h1>More</h1>
 <p>
@@ -1195,7 +1195,7 @@ Session security strategy breaks convention with a slightly longer session lifet
 EOF;	
 	return NULL;
 }
-private function home_notfound(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+private function home_notfound(mixed &...$unused) : ?bool {
 echo <<<EOF
 <h1>Status</h1>
 Request not found.<br>
@@ -1250,40 +1250,44 @@ EOF
 		),
 	);
 }
-private function console_router(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+private function console_router(mixed &...$unused) : ?bool {
 switch ($this->boots['urlpathall']) {
 case '/console':
 case '/console/menu':		$this->console_menu();		return NULL;
 case '/console/browse':		$this->console_browse();	return NULL;
-case '/console/cron':		$this->console_cron();		return NULL;
 case '/console/help':		$this->console_help();		return NULL;
-case '/console/init':		$this->console_init();		return NULL;
-case '/console/more':		$this->home_more();			return NULL;
-case '/console/phpinfo':	$this->console_phpinfo();	return NULL;
 case '/console/status':		$this->console_status();	return NULL;
 case '/console/tests':		$this->console_tests();		return NULL;
+case '/console/webservant':	$this->console_webservant();return NULL;
 default:					$this->home_notfound();		return NULL;
 }
 return NULL;
 }
-private function console_menu(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+private function console_menu(mixed &...$unused) : ?bool {
 echo <<<EOF
 <h1>Menu</h1>
 <br>
-<a href='/'					>/</a><br>
-<a href='/home'				>/home</a><br>
+<a href='/'						>/</a><br>
+<a href='/home'					>/home</a><br>
+<a href='/home/contact'			>/home/contact</a><br>
+<a href='/home/login'			>/home/login</a><br>
+<a href='/home/logout'			>/home/logout</a><br>
+<a href='/home/more'			>/home/more</a><br>
 <br>
-<a href='/console'			>/console</a><br>
-<a href='/console/more'		>/console/more</a><br>
-<a href='/console/status'	>/console/status</a><br>
-<a href='/console/help'		>/console/help</a><br>
-<a href='/console/init'		>/console/init</a><br>
-<a href='/console/cron'		>/console/cron</a><br>
-<a href='/console/browse'	>/console/browse</a><br>
-<a href='/console/tests'	>/console/tests</a><br>
+<a href='/console'				>/console</a><br>
+<a href='/console/menu'			>/console/menu</a><br>
+<a href='/console/browse'		>/console/browse</a><br>
+<a href='/console/help'			>/console/help</a><br>
+<a href='/console/status'		>/console/status</a><br>
+<a href='/console/tests'		>/console/tests</a><br>
+<a href='/console/webservant'	>/console/webservant</a><br>
 <br>
-<a href='/system/code'		target='_blank'>/system/code</a><br>
-<a href='/system/phpinfo'	target='_blank'>/system/phpinfo</a><br>
+<a href='/command/code'			target='_blank'>/command/code</a><br>
+<a href='/command/cron'			target='_blank'>/command/cron</a><br>
+<a href='/command/help'			target='_blank'>/command/help</a><br>
+<a href='/command/phpinfo'		target='_blank'>/command/phpinfo</a><br>
+<a href='/command/settings'		target='_blank'>/command/settings</a> (resets login)<br>
+<a href='/command/updater'		target='_blank'>/command/updater</a><br>
 <br>
 <a href='/bogus'>/bogus</a><br>
 <a href='/home/bogus'>/home/bogus</a><br>
@@ -1305,53 +1309,27 @@ EOF;
 	echo $display;
 	return NULL;
 }
-private function console_cron(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	echo "<h1>Cron</h1>Hello!";
-	return NULL;
-}
-private function console_help(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+private function console_help(mixed &...$unused) : ?bool {
 echo <<<EOF
 <h1>Help</h1>
 EOF;	
 	return NULL;
 }
-private function console_init(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	$result = $this->settings(); // recreate settings
-echo <<<EOF
-<h1>Init</h1>
-Result: {$result}
-EOF;	
-	return NULL;
-}
-private function console_status(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+private function console_status(mixed &...$unused) : ?bool {
 echo <<<EOF
 <h1>Status</h1>
-<br>
-<a href='/'					>/</a><br>
-<a href='/home'				>/home</a><br>
-<br>
-<a href='/console'			>/console</a><br>
-<a href='/console/more'		>/console/more</a><br>
-<a href='/console/status'	>/console/status</a><br>
-<a href='/console/help'		>/console/help</a><br>
-<a href='/console/code'		>/console/code</a><br>
-<a href='/console/phpinfo'	>/console/phpinfo</a><br>
-<a href='/console/init'		>/console/init</a><br>
-<a href='/console/cron'		>/console/cron</a><br>
-<a href='/console/browse'	>/console/browse</a><br>
-<a href='/console/tests'	>/console/tests</a><br>
-<br>
-<a href='/bogus'>/bogus</a><br>
-<a href='/home/bogus'>/home/bogus</a><br>
-<a href='/console/bogus'>/console/bogus</a><br>
 EOF;	
 	return NULL;
 }
-private function console_tests(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+private function console_tests(mixed &...$unused) : ?bool {
 echo <<<EOF
 <h1>Tests</h1>
-Hello World. I am alive.<br>
-Thank you!<br>
+EOF;
+return NULL;
+}
+private function console_webservant(mixed &...$unused) : ?bool {
+echo <<<EOF
+<h1>Webservant</h1>
 EOF;
 return NULL;
 }
@@ -1363,55 +1341,45 @@ return NULL;
 
 
 /*************************************************************************************************
-SECTION SYSTEM: Execute system commands without HTML theming.
+SECTION COMMAND: Display /command/* application.
 */
-private function system_router(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+private function command_router(mixed &...$unused) : ?bool {
 switch ($this->boots['urlpathall']) {
-case '/system/code':		$this->system_code();		return NULL;
-case '/system/phpinfo':		$this->system_phpinfo();	return NULL;
-default:					$this->home_theme();		return NULL;
+case '/command/code':		$this->command_code();		return NULL;
+case '/command/cron':		$this->command_cron();		return NULL;
+case '/command/help':		$this->command_help();		return NULL;
+case '/command/phpinfo':	$this->command_phpinfo();	return NULL;
+case '/command/settings':	$this->command_settings();	return NULL;
+case '/command/updater':	$this->command_updater();	return NULL;
+default:					echo "Invalid command";		return NULL;
 }
 return NULL;
 }
-private function system_code(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+private function command_code(mixed &...$unused) : ?bool {
 	highlight_file(__FILE__);
 	return NULL;
 }
-private function system_phpinfo(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+private function command_cron(mixed &...$unused) : ?bool {
+	echo "ABCMS cron\n";
+	return NULL;
+}
+private function command_help(mixed &...$unused) : ?bool {
+	echo "ABCMS help\n";
+	return NULL;
+}
+private function command_phpinfo(mixed &...$unused) : ?bool {
 	phpinfo();
 	return NULL;
 }
-
-
-
-
-
-
-
-/*************************************************************************************************
-SECTION CRON: Execute core and extension maintenance functions.
-*/
-// replace PHP session garbage collection with CRON job to purge stale and excess sessions
-
-
-
-
-
-
-
-/*************************************************************************************************
-SECTION WEBSERVANT: Display /console/webservant/ application.
-*/
-
-
-
-
-
-
-
-/*************************************************************************************************
-SECTION UPDATER: Display /console/updater/ application.
-*/
+private function command_settings(mixed &...$unused) : ?bool {
+	$result = $this->settings(); // recreate settings
+	echo "ABCMS settings: {$result}\n";
+	return NULL;
+}
+private function command_updater(mixed &...$unused) : ?bool {
+	echo "ABCMS updater\n";
+	return NULL;
+}
 
 
 
@@ -1858,7 +1826,7 @@ div.debug { margin-top: 7rem; background-color: #EEEEEE; text-align: left; paddi
 @media screen and (max-width: 1065px) { main { margin: 0; } }
 <?php echo $css; ?>
 </style>
-<script nonce='<?php echo $this->input['nonce']; ?>'>
+<script type='module' nonce='<?php echo $this->input['nonce']; ?>'>
 <?php echo $js; ?>
 </script>
 </head>
