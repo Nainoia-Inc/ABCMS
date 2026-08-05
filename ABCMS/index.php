@@ -156,7 +156,7 @@ private		bool	$formhuman	= FALSE;	// form tested human
 function __construct() {
 	if (!ini_set('error_log', __DIR__ . "/../private/nainoiainc/abcms/ABCMS.errorlog")) { $this->error_wsod("Error file location not customized."); } // error location
 	while(ob_get_level() > 0) { if(ob_get_clean()) { $this->error_wsod("That is wrong, I got stuff in my buffers."); } } // dump unknown buffers
-	if (FALSE === $this->set_settings(TRUE)){ $this->error_wsod("Application settings not found."); } // read settings
+	if (FALSE === $this->settings(TRUE)){ $this->error_wsod("Application settings not found."); } // read settings
 	$this->boots = array( // bootstrap settings for session_start(), then session user validates inputs
 		'cli' => ($cli = ('cli' === PHP_SAPI ? TRUE : FALSE)), // CLI execution
 		'argc' => $_SERVER['argc'], // CLI argument count
@@ -216,54 +216,6 @@ function __construct() {
 // Disallowed methods
 public function __set(string $name, mixed $value) : void { $this->error_wsod("Dynamic properties disallowed."); }
 public function __clone() { $this->error_wsod("Cloning object disallowed."); }
-// Define path variable
-public function input_varpath(
-	string	$var,			// Allowed path variable
-	string	$type,			// Allowed type
-	int		$role,			// Minimum role
-	?array	$reg = NULL,	// Regex validation
-) : void {
-	$this->input_variable('v', $var, $type, $role, $reg);
-	return;
-}
-// Define _GET variable
-public function input_varget(
-	string	$var,			// Allowed query variable
-	string	$type,			// Allowed type
-	int		$role,			// Minimum role
-	?array	$reg = NULL,	// Regex validation
-) : void {
-	$this->input_variable('q', $var, $type, $role, $reg);	
-	return;
-}
-// Define _POST variable
-public function input_varput(
-	string	$var,			// Allowed post variable
-	string	$type,			// Allowed type
-	int		$role,			// Minimum role
-	?array	$reg = NULL,	// Regex validation
-) : void {
-	$this->input_variable('p', $var, $type, $role, $reg);	
-	return;
-}
-// Register variable
-private function input_variable(
-	string	$cat,			// Category
-	string	$var,			// Variable name
-	string	$type,			// Allowed type
-	int		$role,			// Minimum role
-	?array	$reg = NULL,	// Regex validation
-) : void {
-	if (!preg_match("/^[A-Za-z0-9\-_.~]+$/u", $var) ||
-		!empty($this->compiles[$cat][$var]) ||
-		!in_array($type, array('mixed','string','array','integer','float','bool','boolean','email','domain','uri','url','ip','mac','uuid','path')) ||
-		!in_array($role, ABCMS_ROLE_SET)) {
-		$this->error_log("Invalid or duplicate variable.");
-		return;
-	}
-	$this->compiles[$cat][$var] = array('type'=>$type, 'role'=>$role, 'reg'=>$reg);
-	return;
-}
 // Validate path/get/post variable
 private function input_valid(
 	string	$cat,	// Category
@@ -299,7 +251,7 @@ private function input_valid(
 			case 'uri'		:	if (!mb_check_encoding($val, 'ASCII') || FALSE === filter_var('http://localhost'.$val, FILTER_VALIDATE_URL)) {	break; }			continue 2;
 			case 'url'		:	if (!mb_check_encoding($val, 'ASCII') || FALSE === filter_var($val, FILTER_VALIDATE_URL)) {						break; }			continue 2;
 			case 'uuid'		:	if (!preg_match("/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i", $val)) {			break; }			continue 2;			
-			// Variable found, but undefined type registered by input_variable()
+			// Variable found, but undefined type registered by settings_variable()
 			default:			$this->error_wsod("Undefined URL variable type, '{$this->settings[$cat][$var]['type']}'");
 		}
 		// Variable name and type found, but value is invalid
@@ -478,64 +430,6 @@ private function output_call(
 	}
 	return $result;
 }
-// Register hook extension
-public function output_extend(
-	string	$hok,						// /vendor/package/hook
-	string	$ext,						// Extension name or '' for all
-	string	$met,						// HTTP methods, '' = all = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE"
-	string	$str,						// Control string
-										// 'I' = Input -OR- 'O' = Output filter, default Input
-										// 'E' = Exclusive to my extension or omit me, default anyone
-										// 'U' = Uno/single extension, default multiple extensions cooperate 
-										// 'D' = Default included, default excluded if extended by $ord < 0
-	string	$fun,						// Includefile?function
-	int		$rol = ABCMS_ROLE_PUBLIC,	// Minimum role permission
-	int		$ord = 0,					// Order considered, PHP_INT_MIN >= $ord <= PHP_INT_MAX 
-	mixed	...$arg,					// Argument alternatives
-) : bool {
-	// Control string to array indices
-	$ctl = array_flip(($key=str_split(strtoupper($str))));
-	$key = array_diff_key($key, array('I','O','E','U','D'));
-	// Error checks
-	if (!preg_match(ABCMS_REGEX_HOOK, $hok) || // Hook valid
-		(!empty($met) && !preg_match("/(CLI|GET|POST|PUT|HEAD|DELETE|PATCH|OPTIONS|CONNECT|TRACE)/u", $met)) || // Method valid
-		(isset($ctl['I']) && isset($ctl['O'])) || // Input Output exclusive
-		!empty($key) || // Control flags valid
-		(!empty($fun) && !preg_match(ABCMS_REGEX_FUNC, $fun))) { // Function valid
-		$this->error_log("Invalid extension.");
-		return FALSE;
-	}
-	// Extension assigned
-	unset($ctl['I']);
-	$this->compiles['route'][$hok]['ex'][$ext][(isset($ctl['O']) ? 'O' : 'I')][] = array(
-		'met'	=> $met,
-		'fun'	=> $fun,
-		'rol'	=> $rol,
-		'ord'	=> $ord,
-		'ctl'	=> $ctl,
-		'who'	=> $this->extension(),
-		'arg'	=> $arg,
-	);
-	return TRUE;
-}
-// Equate path to hook extension name
-public function output_equate(
-	string	$hook,	// Hook name
-	string	$ext,	// Extension name or '' for all
-	string	$path,	// Unique URL path, trailing '/' for 1st segment only, otherwise no trailing slash
-) : bool {
-	// Error checks
-	if (!preg_match(ABCMS_REGEX_HOOK, $hook) || // Valid hook
-		(substr_count($path, '/')>2 && '/' == $path[-1]) || // Trailing slash matches 1st path segment only
-		('' !== $path && ('/' !== $path[0] || FALSE === filter_var('http://localhost'.$path, FILTER_VALIDATE_URL))) || // Valid path
-		isset($this->compiles['route'][$hook]['eq'][$path])) { // Not duplicate
-		$this->error_log("Invalid or duplicate hook extension path.");
-		return FALSE;
-	}
-	// Equate path assigned
-	$this->compiles['route'][$hook]['eq'][$path] = $ext;
-	return TRUE;
-}
 private function output_security(string &$html) : void {	// html form security injection
 	if (!($num=preg_match_all(ABCMS_REGEX_FORM, $html))) { return; } // no forms to secure
 	// DOM is better than preg_replace() for HTML injection, but why slow down for one occasion?
@@ -635,7 +529,7 @@ private function output_debug(string &$html = NULL) : void {	// inject debug inf
 SECTION SETTINGS: Compile core and extension boot settings.
 */
 // Read or create the core settings JSON file. 
-private function set_settings(
+private function settings(
 	bool	$boot = FALSE,	// Bootstrap load existing
 ) : bool {
 	// overwrite?
@@ -675,9 +569,9 @@ private function set_settings(
 	$this->compiles['core']['smtp_pass']		= NULL; // SMTP password
 	$this->compiles['core']['smtp_ehlo']		= NULL; // SMTP EHLO
 	// register URL PATH variables
-	$this->input_varpath('debug',	'bool',		ABCMS_ROLE_ADMINS);
+	$this->settings_varpath('debug',	'bool',		ABCMS_ROLE_ADMINS);
 	// register $_GET variables
-	$this->input_varget('debug',	'bool',		ABCMS_ROLE_ADMINS);
+	$this->settings_varget('debug',	'bool',		ABCMS_ROLE_ADMINS);
 	// register _POST variables
 	// extension controls
 	// 'I' = Input -OR- 'O' = Output filter, default Input
@@ -685,20 +579,20 @@ private function set_settings(
 	// 'U' = Uno/single extension, default multiple extensions cooperate 
 	// 'D' = Default included, default excluded if extended by $ord < 0
 	// bootstrap extensions
-	$this->output_extend(ABCMS_EXT_INITX,	'',			'CLI-GET-POST',	'IEU',	'abcms()->home_theme',		ABCMS_ROLE_PUBLIC,	-10);
-	$this->output_extend(ABCMS_EXT_INITX,	'console',	'CLI-GET-POST',	'IEU',	'abcms()->console_theme',	ABCMS_ROLE_ADMINS,	-20);
-	$this->output_equate(ABCMS_EXT_INITX,	'console',	'/console/');
-	$this->output_extend(ABCMS_EXT_INITX,	'system',	'CLI-GET-POST',	'IEU',	'abcms()->system_router',	ABCMS_ROLE_ADMINS,	-999);
-	$this->output_equate(ABCMS_EXT_INITX,	'system',	'/system/');
+	$this->settings_extend(ABCMS_EXT_INITX,	'',			'CLI-GET-POST',	'IEU',	'abcms()->home_theme',		ABCMS_ROLE_PUBLIC,	-10);
+	$this->settings_extend(ABCMS_EXT_INITX,	'console',	'CLI-GET-POST',	'IEU',	'abcms()->console_theme',	ABCMS_ROLE_ADMINS,	-20);
+	$this->settings_equate(ABCMS_EXT_INITX,	'console',	'/console/');
+	$this->settings_extend(ABCMS_EXT_INITX,	'system',	'CLI-GET-POST',	'IEU',	'abcms()->system_router',	ABCMS_ROLE_ADMINS,	-999);
+	$this->settings_equate(ABCMS_EXT_INITX,	'system',	'/system/');
 	// frontend extensions
-	$this->output_extend(ABCMS_EXT_MAINX,	'home',		'CLI-GET-POST',	'IE',	'abcms()->home_router',		ABCMS_ROLE_PUBLIC,	-10);
-	$this->output_equate(ABCMS_EXT_MAINX,	'home',		'/');
-	$this->output_equate(ABCMS_EXT_MAINX,	'home',		'/home');
-	$this->output_equate(ABCMS_EXT_MAINX,	'home',		'/home/');
+	$this->settings_extend(ABCMS_EXT_MAINX,	'home',		'CLI-GET-POST',	'IE',	'abcms()->home_router',		ABCMS_ROLE_PUBLIC,	-10);
+	$this->settings_equate(ABCMS_EXT_MAINX,	'home',		'/');
+	$this->settings_equate(ABCMS_EXT_MAINX,	'home',		'/home');
+	$this->settings_equate(ABCMS_EXT_MAINX,	'home',		'/home/');
 	// admin extensions
-	$this->output_extend(ABCMS_EXT_MAINX,	'console',	'CLI-GET-POST',	'IE',	'abcms()->console_router',	ABCMS_ROLE_ADMINS,	-10);
-	$this->output_equate(ABCMS_EXT_MAINX,	'console',	'/console');
-	$this->output_equate(ABCMS_EXT_MAINX,	'console',	'/console/');
+	$this->settings_extend(ABCMS_EXT_MAINX,	'console',	'CLI-GET-POST',	'IE',	'abcms()->console_router',	ABCMS_ROLE_ADMINS,	-10);
+	$this->settings_equate(ABCMS_EXT_MAINX,	'console',	'/console');
+	$this->settings_equate(ABCMS_EXT_MAINX,	'console',	'/console/');
 	// INIT.php run by composer or at will if ABCMS or plugin changes to rebuild the settings extension array
 	// while() { include init.php; }
 	// clean up - remove mixed non-exclusive or exclusive routes.
@@ -709,7 +603,112 @@ private function set_settings(
 	unset($this->compiles);
 	return TRUE;
 }
-
+// Register hook extension
+public function settings_extend(
+	string	$hok,						// /vendor/package/hook
+	string	$ext,						// Extension name or '' for all
+	string	$met,						// HTTP methods, '' = all = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE"
+	string	$str,						// Control string
+										// 'I' = Input -OR- 'O' = Output filter, default Input
+										// 'E' = Exclusive to my extension or omit me, default anyone
+										// 'U' = Uno/single extension, default multiple extensions cooperate 
+										// 'D' = Default included, default excluded if extended by $ord < 0
+	string	$fun,						// Includefile?function
+	int		$rol = ABCMS_ROLE_PUBLIC,	// Minimum role permission
+	int		$ord = 0,					// Order considered, PHP_INT_MIN >= $ord <= PHP_INT_MAX 
+	mixed	...$arg,					// Argument alternatives
+) : bool {
+	// Control string to array indices
+	$ctl = array_flip(($key=str_split(strtoupper($str))));
+	$key = array_diff_key($key, array('I','O','E','U','D'));
+	// Error checks
+	if (!preg_match(ABCMS_REGEX_HOOK, $hok) || // Hook valid
+		(!empty($met) && !preg_match("/(CLI|GET|POST|PUT|HEAD|DELETE|PATCH|OPTIONS|CONNECT|TRACE)/u", $met)) || // Method valid
+		(isset($ctl['I']) && isset($ctl['O'])) || // Input Output exclusive
+		!empty($key) || // Control flags valid
+		(!empty($fun) && !preg_match(ABCMS_REGEX_FUNC, $fun))) { // Function valid
+		$this->error_log("Invalid extension.");
+		return FALSE;
+	}
+	// Extension assigned
+	unset($ctl['I']);
+	$this->compiles['route'][$hok]['ex'][$ext][(isset($ctl['O']) ? 'O' : 'I')][] = array(
+		'met'	=> $met,
+		'fun'	=> $fun,
+		'rol'	=> $rol,
+		'ord'	=> $ord,
+		'ctl'	=> $ctl,
+		'who'	=> $this->extension(),
+		'arg'	=> $arg,
+	);
+	return TRUE;
+}
+// Equate path to hook extension name
+public function settings_equate(
+	string	$hook,	// Hook name
+	string	$ext,	// Extension name or '' for all
+	string	$path,	// Unique URL path, trailing '/' for 1st segment only, otherwise no trailing slash
+) : bool {
+	// Error checks
+	if (!preg_match(ABCMS_REGEX_HOOK, $hook) || // Valid hook
+		(substr_count($path, '/')>2 && '/' == $path[-1]) || // Trailing slash matches 1st path segment only
+		('' !== $path && ('/' !== $path[0] || FALSE === filter_var('http://localhost'.$path, FILTER_VALIDATE_URL))) || // Valid path
+		isset($this->compiles['route'][$hook]['eq'][$path])) { // Not duplicate
+		$this->error_log("Invalid or duplicate hook extension path.");
+		return FALSE;
+	}
+	// Equate path assigned
+	$this->compiles['route'][$hook]['eq'][$path] = $ext;
+	return TRUE;
+}
+// Define path variable
+public function settings_varpath(
+	string	$var,			// Allowed path variable
+	string	$type,			// Allowed type
+	int		$role,			// Minimum role
+	?array	$reg = NULL,	// Regex validation
+) : void {
+	$this->settings_variable('v', $var, $type, $role, $reg);
+	return;
+}
+// Define _GET variable
+public function settings_varget(
+	string	$var,			// Allowed query variable
+	string	$type,			// Allowed type
+	int		$role,			// Minimum role
+	?array	$reg = NULL,	// Regex validation
+) : void {
+	$this->settings_variable('q', $var, $type, $role, $reg);	
+	return;
+}
+// Define _POST variable
+public function settings_varput(
+	string	$var,			// Allowed post variable
+	string	$type,			// Allowed type
+	int		$role,			// Minimum role
+	?array	$reg = NULL,	// Regex validation
+) : void {
+	$this->settings_variable('p', $var, $type, $role, $reg);	
+	return;
+}
+// Register variable
+private function settings_variable(
+	string	$cat,			// Category
+	string	$var,			// Variable name
+	string	$type,			// Allowed type
+	int		$role,			// Minimum role
+	?array	$reg = NULL,	// Regex validation
+) : void {
+	if (!preg_match("/^[A-Za-z0-9\-_.~]+$/u", $var) ||
+		!empty($this->compiles[$cat][$var]) ||
+		!in_array($type, array('mixed','string','array','integer','float','bool','boolean','email','domain','uri','url','ip','mac','uuid','path')) ||
+		!in_array($role, ABCMS_ROLE_SET)) {
+		$this->error_log("Invalid or duplicate variable.");
+		return;
+	}
+	$this->compiles[$cat][$var] = array('type'=>$type, 'role'=>$role, 'reg'=>$reg);
+	return;
+}
 
 
 
@@ -1317,7 +1316,7 @@ EOF;
 	return NULL;
 }
 private function console_init(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	$result = $this->set_settings(); // recreate settings
+	$result = $this->settings(); // recreate settings
 echo <<<EOF
 <h1>Init</h1>
 Result: {$result}
