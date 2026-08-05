@@ -4,7 +4,7 @@ SECTION INTRODUCTION: A Basic Content Management System and PHP toolkit.
 */
 
 /*************************************************************************************************
-SECTION CONSTANTS: Immutable constants to share.
+SECTION CONSTANTS: Immutable constants.
 */
 // extensions
 const ABCMS_EXT_SELF	= "/nainoiainc/abcms";					// even abcms is an extension
@@ -28,7 +28,7 @@ const ABCMS_REGEX_FUNC	= "/^((\/[^?]+)\?)?((([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x
 const ABCMS_REGEX_HOOK	= "/^\/[^\/]+\/[^\/]+\/[^\/]+$/u";					// hook name, path-like, but not a filepath
 const ABCMS_REGEX_URLV	= "/\/([A-Za-z0-9\-_.~]+)=([A-Za-z0-9\-_.~]+)/u";	// URL variable
 const ABCMS_REGEX_FORM	= "/(<form[^>]*>)(.+?)(<\/form>)/uis";				// form security injection
-// session
+// session - move these to overridable $settings
 const ABCMS_SES			= ABCMS_EXT_SELF;	// unique session key for ABCMS
 const ABCMS_SES_ROTA	= 60*15;			// rotate session after 15 minutes
 const ABCMS_SES_IDLE	= 60*60*24*1;		// destroy session after 1 day idle
@@ -40,18 +40,18 @@ const ABCMS_SES_OPEN	= 21;				// max number form security token sets open total
 const ABCMS_SES_HITS	= 20;				// number of session hit times to track
 const ABCMS_SES_TIME	= 20;				// max session hit time before suspect, 20 in 20 seconds
 const ABCMS_SES_LOGI	= 7;				// max login attempts
-// cookies allowed
-const ABCMS_COOK_LIFE	= 60*60*24*365;		// user allows permission for 1 year
-const ABCMS_COOK_NONE	= 0;				// user allows no cookies
-const ABCMS_COOK_FORM	= 1;				// user allows security cookies
-const ABCMS_COOK_NAVS	= 2;				// user allows navigation cookies
-const ABCMS_COOK_TRAK	= 3;				// user allows tracking cookies
+// cookies
+const ABCMS_COOK_LIFE	= 60*60*24*365;		// choice for 1 year
+const ABCMS_COOK_NONE	= 0;				// none
+const ABCMS_COOK_FORM	= 1;				// security
+const ABCMS_COOK_NAVS	= 2;				// navigation
+const ABCMS_COOK_TRAK	= 3;				// tracking
 
 
 
 
 /*************************************************************************************************
-SECTION TRY/CATCH: Run in an anonymous function for a zero global footprint.
+SECTION TRY/CATCH: Anonymous function for zero global footprint.
 */
 (function() {				// anonymous wrapper
 $code = 0;					// assume success
@@ -98,7 +98,9 @@ body {	margin:0; padding:0; display:grid; height:100vh; place-items:center; text
 h1 { color: #336699; }
 </style>
 </head>
-<body><div><h1>Status</h1><p>
+<body><div>
+<h1>Status</h1>
+<p>
 My sincere apologies.<br>
 I tripped on an expected error.<br>
 Try again, wait, or contact webmaster.<br>
@@ -1055,7 +1057,7 @@ public function get_database(string $filename, mixed $data) : mixed {
 
 
 /*************************************************************************************************
-SECTION HOME: Display /home/* application.
+SECTION HOME: Core extension /home/*
 */
 private function home_theme(
 	mixed &...$unused,
@@ -1108,15 +1110,15 @@ EOF;
 	return NULL;
 }
 private function home_contact(mixed &...$unused) : ?bool {
-?><h1>Contact</h1>
-This is where to contact us.
-<?php
-	echo "<br><a href='/'>Home</a><br>";
+echo <<<EOF
+<h1>Contact</h1>
+EOF;
 	return NULL;
 }
 private function home_login(mixed &...$unused) : ?bool {
-
-echo "<h1>Account</h1>";
+echo <<<EOF
+<h1>Login</h1>
+EOF;
 
 if (!$this->session_start(1)) { return NULL; }
 
@@ -1159,10 +1161,12 @@ return NULL;
 private function home_logout(mixed &...$unused) : void {
 $this->session_start(-1); // destroy session and logout
 echo <<<EOF
-<h1>Status</h1>
+<h1>Logout</h1>
+<p class='center'>
 You have been logged out.<br>
 <br>
-Please contact the webmaster for help.
+<a href='/'>Resume again from the homepage</a>.
+</p>
 EOF;
 return;
 }
@@ -1198,9 +1202,12 @@ EOF;
 private function home_notfound(mixed &...$unused) : ?bool {
 echo <<<EOF
 <h1>Status</h1>
-Request not found.<br>
+<p class='center'>
+My sincere apologies.<br>
+I just cannot find the page requested.<br>
 <br>
-<a href='/'>Try again from the homepage.</a>
+<a href='/'>Try again from the homepage</a>.
+</p>
 EOF;
 return NULL;
 }
@@ -1211,7 +1218,7 @@ return NULL;
 
 
 /*************************************************************************************************
-SECTION WEBFILES: Display /home/webfiles/ application.
+SECTION WEBFILES: Core extension /webfiles/*
 */
 
 
@@ -1221,7 +1228,7 @@ SECTION WEBFILES: Display /home/webfiles/ application.
 
 
 /*************************************************************************************************
-SECTION CONSOLE: Display /console/* application.
+SECTION CONSOLE: Core extension /console/*
 */
 // Admin webpage template
 private function console_theme(
@@ -1296,7 +1303,9 @@ EOF;
 	return NULL;
 }
 private function console_browse(mixed &...$unused) : ?bool {
-	echo "<h1>Browser</h1>";
+	echo <<<EOF
+<h1>Browser</h1>
+EOF;
 	$path = $this->settings['core']['projectroot'];
 	$display = <<< EOF
 Filename: {$path}<br>
@@ -1341,7 +1350,7 @@ return NULL;
 
 
 /*************************************************************************************************
-SECTION COMMAND: Display /command/* application.
+SECTION COMMAND: Core extension /command/*
 */
 private function command_router(mixed &...$unused) : ?bool {
 switch ($this->boots['urlpathall']) {
@@ -1388,7 +1397,7 @@ private function command_updater(mixed &...$unused) : ?bool {
 
 
 /*************************************************************************************************
-SECTION UTILITIES: Define essential utility methods.
+SECTION UTILITIES: Essential utility methods.
 */
 // Wrap the echo() construct to use as extension function.
 public function echo(?string &...$args) : void {
@@ -1514,7 +1523,7 @@ public function hsc(?string $string): ?string {
 
 
 /*************************************************************************************************
-SECTION EMAIL: Define SMTP email utility method.
+SECTION EMAIL: SMTP email.
  */
 // Adapted by Claude.AI from https://github.com/arkanis/smtp_send.
 // Licensed as arkanis/smtp_send (c) 2014-2021 Stephan Soller, MIT License.
@@ -1758,7 +1767,7 @@ public function email(
 
 
 /*************************************************************************************************
-SECTION THEME: Define default webpage template.
+SECTION THEME: Core webpage template.
 */
 public function theme(
 	?string	$css	= NULL,	// css override
