@@ -7,11 +7,11 @@ SECTION INTRODUCTION: A Basic Content Management System and PHP toolkit.
 SECTION CONSTANTS: Immutable constants to share.
 */
 // extensions
-const ABCMS_EXT_SELF	= "/nainoiainc/abcms";
-const ABCMS_EXT_INIT	= "/init";
-const ABCMS_EXT_INITX	= "/nainoiainc/abcms".ABCMS_EXT_INIT;
-const ABCMS_EXT_MAIN	= "/theme_main";
-const ABCMS_EXT_MAINX	= "/nainoiainc/abcms".ABCMS_EXT_MAIN;
+const ABCMS_EXT_SELF	= "/nainoiainc/abcms";					// even abcms is an extension
+const ABCMS_EXT_INIT	= "/init";								// initial extension hook
+const ABCMS_EXT_INITX	= "/nainoiainc/abcms".ABCMS_EXT_INIT;	// initial extension fullname
+const ABCMS_EXT_MAIN	= "/theme_main";						// default html <main> extension hook
+const ABCMS_EXT_MAINX	= "/nainoiainc/abcms".ABCMS_EXT_MAIN;	// default html <main> extension fullname
 // roles
 const ABCMS_ROLE_PUBLIC	= 0;
 const ABCMS_ROLE_AUTHEN	= 1;
@@ -25,9 +25,9 @@ const ABCMS_ROLE_SET	= array(0,1,2,3,4,5,6,7);
 // regex
 // includefile?function #^(|/vendor/package/filepath)(|?(|classobject(::|->|()->))funcmeth)#
 const ABCMS_REGEX_FUNC	= "/^((\/[^?]+)\?)?((([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x{7f}-\x{ff}]*))?$/u";
-const ABCMS_REGEX_HOOK	= "/^\/[^\/]+\/[^\/]+\/[^\/]+$/u"; // hook bane, path-like, but not a filepath
-const ABCMS_REGEX_URLV	= "/\/([A-Za-z0-9\-_.~]+)=([A-Za-z0-9\-_.~]+)/u"; // URL variable
-const ABCMS_REGEX_FORM	= "/(<form[^>]*>)(.+?)(<\/form>)/uis"; // form security injection
+const ABCMS_REGEX_HOOK	= "/^\/[^\/]+\/[^\/]+\/[^\/]+$/u";					// hook name, path-like, but not a filepath
+const ABCMS_REGEX_URLV	= "/\/([A-Za-z0-9\-_.~]+)=([A-Za-z0-9\-_.~]+)/u";	// URL variable
+const ABCMS_REGEX_FORM	= "/(<form[^>]*>)(.+?)(<\/form>)/uis";				// form security injection
 // session
 const ABCMS_SES			= ABCMS_EXT_SELF;	// unique session key for ABCMS
 const ABCMS_SES_ROTA	= 60*15;			// rotate session after 15 minutes
@@ -37,13 +37,13 @@ const ABCMS_SES_BADA	= 60*60*24*1;		// bad actor lockout for 1 day
 const ABCMS_SES_FORM	= 60*60;			// remove form security tokens after 1 hour
 const ABCMS_SES_WAIT	= 4;				// javascript form submission delay to stymie robots for 4 seconds
 const ABCMS_SES_OPEN	= 21;				// max number form security token sets open total
-const ABCMS_SES_PAGE	= 7;				// max number forms alowed on one page
 const ABCMS_SES_HITS	= 20;				// number of session hit times to track
 const ABCMS_SES_TIME	= 20;				// max session hit time before suspect, 20 in 20 seconds
+const ABCMS_SES_LOGI	= 7;				// max login attempts
 // cookies allowed
 const ABCMS_COOK_LIFE	= 60*60*24*365;		// user allows permission for 1 year
 const ABCMS_COOK_NONE	= 0;				// user allows no cookies
-const ABCMS_COOK_FORM	= 1;				// user allows form security cookies
+const ABCMS_COOK_FORM	= 1;				// user allows security cookies
 const ABCMS_COOK_NAVS	= 2;				// user allows navigation cookies
 const ABCMS_COOK_TRAK	= 3;				// user allows tracking cookies
 
@@ -53,36 +53,22 @@ const ABCMS_COOK_TRAK	= 3;				// user allows tracking cookies
 /*************************************************************************************************
 SECTION TRY/CATCH: Run in an anonymous function for a zero global footprint.
 */
-(function() { // anonymous
-$code = 0; // assume success
-try { // try output
-	abcms()->output( // extension router
-		ABCMS_EXT_INIT, // entry point
-		'CLI-GET-POST', // methods extended
-		'abcms()->theme', // default function
-		ABCMS_ROLE_PUBLIC, // minimum role
-		1, // exclusive allowed
-		FALSE, // default required
-		...$args = array( // theme() arguments
-			NULL, // css
-			NULL, // js
-			NULL, // header
-			<<<EOF
-<h1>Status</h1>
-So sorry. Fatal error.<br>
-Core extension failed.<br>
-<br>
-Please contact the webmaster for help.
-EOF
-			, // main
-			NULL, // footer
-			1, // exclusive allowed
-		),
+(function() {				// anonymous wrapper
+$code = 0;					// assume success
+try {						// try output
+	abcms()->output(		// extension router
+		ABCMS_EXT_INIT,		// initial extension
+		'CLI-GET-POST',		// methods extended
+		'abcms()->theme',	// default function
+		ABCMS_ROLE_PUBLIC,	// minimum role
+		1,					// exclusive allowed
+		FALSE,				// default required
+		...$args = array(NULL,NULL,NULL,NULL,NULL,1), // css, js, header, main, footer, exclusive allowed
 	);
 }
 catch (\Throwable $e) { // catch exceptions
 	$exception = (htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8') ?: 'Unknown exception.'); // thrown error
-	$system = (error_get_last() ?? array('message' => 'NA')); // system error
+	$system = (error_get_last() ?? array('message' => 'No system error reported.')); // system error
 	$composer = array(); // composer extensions
 	if (class_exists(\Composer\InstalledVersions::class)) {
 		foreach (Composer\InstalledVersions::getInstalledPackagesByType('abcms-extension') as $name) {
@@ -91,37 +77,39 @@ catch (\Throwable $e) { // catch exceptions
 	}
 	$buffer = NULL; while(ob_get_level()) { $buffer .= ob_get_clean(); } // examine buffer
 	$title = mb_strtolower(htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://').$_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI'])); // website title
-	echo <<< EOF
+	$nonce = chr(random_int(97,122)).chr(random_int(97,122)).bin2hex(random_bytes(31)); // security nonce
+	echo <<<EOF
 <!DOCTYPE html>
 <html lang='en'>
 <head>
 <meta charset='utf-8'>
-<meta name='description' content='{$title}'>
+<meta name='description' content='<?php echo $title; ?> ERROR'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <meta name='mobile-web-app-capable' content='yes'>
-<link rel="manifest" href="/manifest.json">
 <meta name='theme-color' content='#336699'>
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;">
 <meta name='color-scheme' content='light dark'>
-<title>{$title}</title>
-<link rel="icon" href="favicon.ico">
-<style>
-body { display: flex; align-items: center; justify-content: center; max-width: 100%; max-height: 100%; width: 100vw; height: 100vh; margin: 0; padding: 0; border: 0; background-color: #336699; }
-#outer { display: flex; align-items: center; justify-content: center; width: 90%; height: 90%; margin: 0; padding: 0; border: 0; background-color: #FFFFFF; }
-#inner { margin: auto; text-align: center; font-size: 30px; line-height: 1.5; font-family: Arial, sans-serif; color: #333333; }
+<meta http-equiv='Content-Security-Policy' content="default-src 'none'; style-src 'nonce-{$nonce}'; img-src 'self';">
+<title><?php echo $title; ?> ERROR</title>
+<link rel='icon' href='favicon.ico'>
+<style nonce={$nonce}>
+*, *::before, *::after { box-sizing: border-box; }
+body {	margin:0; padding:0; display:grid; height:100vh; place-items:center; text-align: center; border: 2rem solid #336699;
+		color:#333333; background-color:#FFFFFF; font-size:1.125rem; line-height:1.3; font-family:Arial,sans-serif; }
+h1 { color: #336699; }
 </style>
 </head>
-<body><div id='outer'><div id='inner'>
-My sincere apologies.
-I lost my balance, brains, or both.<br>
-Please try again, wait, or contact the webmaster.<br>
+<body><div><h1>Status</h1><p>
+My sincere apologies.<br>
+I tripped on an expected error.<br>
+Try again, wait, or contact webmaster.<br>
 <br>
-LINK: "{$title}"<br>
-ERROR: "{$exception}"<br>
+URL: "{$title}"<br>
+ERR: "{$exception}"<br>
+SYS: "{$system['message']}"<br>
 <br>
-<a href='/'>Please try again from the homepage</a>.
-</div></div></body></html>
-EOF; // echo HTML
+<a href='/'>Try again from the homepage</a>.
+</p></div></body></html>
+EOF;
 	error_log("ABCMS->COREDUMP()\n" . print_r(array('COREDUMP_EXCEPTION' => $exception, 'COREDUMP_SYSTEM' => $system), TRUE)); // log error
 	file_put_contents( // dump corefile
 		__DIR__ . "/../private/nainoiainc/abcms/ABCMS.coredump",
@@ -218,6 +206,8 @@ function __construct() {
 		'urlquery' => ($this->input_valid('q', ((!empty($urlparsed['query']) && mb_parse_str($urlparsed['query'], $result)) ? $result : array()), $role)),
 		// POST variables 'p'
 		'postvars' => array(), // ($this->input_valid('p', $_POST, $role)),
+
+		'nonce' => $this->get_uniq(), // style and script security nonce
 	);
 	if ($this->boots['auto']) { require_once($this->boots['auto']); } // require composer
 	if (0 !== stripos($urlparsed['path'], $this->boots['urlstripped'])) { $this->set_errors("URL questioned, variables within path"); }	// variables within path
@@ -547,98 +537,90 @@ public function output_equate(
 	return TRUE;
 }
 private function output_security(string &$html) : void {	// html form security injection
-
-	if (!($num = preg_match_all(ABCMS_REGEX_FORM, $html))) { return; } // no forms to secure
-
+	if (!($num=preg_match_all(ABCMS_REGEX_FORM, $html))) { return; } // no forms to secure
 	// DOM is better than preg_replace() for HTML injection, but why slow down for one occasion?
-	if ($num > ABCMS_SES_PAGE || // too many forms
-		!$this->session_start(1)) { // session failed
-		$this->set_errors("All forms disabled because to many forms or session security failed.");
-		// disable forms actually with <fieldset> and cosmetically with CSS with missing CSRF as safety net
-		if (!($html = preg_replace(ABCMS_REGEX_FORM, '$1<fieldset disabled style="border: none; margin: 0; padding: 0; min-width: 0; display: contents;">$2</fieldset>$3', $html)) ||
-			!($html = preg_replace("/<\/head>/ui", "<style>form { pointer-events: none; opacity: 0.5; }</style></head>", $html))) {
+	// disable forms actually with <fieldset> and cosmetically with CSS with missing CSRF as safety net
+	if (!$this->session_start(1)) { // session failed
+		$this->set_errors("All forms disabled because session security failed.");
+		if (!($html = preg_replace(ABCMS_REGEX_FORM, '$1<fieldset disabled class="disable">$2</fieldset>$3', $html, -1, $count)) || $num !== $count ||
+			!($html = preg_replace("/<\/style>/ui", "\r\nform { pointer-events: none; opacity: 0.5; }</style>", $html, 1, $count)) || 1 !== $count) {
 			$this->error_wsod("Form security efforts failed so must bomb.");
 		}
 		return;
 	}
-	// compile injections
+	$sess = &$_SESSION[ABCMS_SES]; // abcms session stuff
+	// click to submit only, no enter
 	$delay = ABCMS_SES_WAIT * 1000;
-	$inject_tokens = $inject_onclick = [];
-	for($x = 0; $x < $num; ++$x) {
-		// security tokens per form
-		$csrf = $this->get_uniq();
-		$_SESSION[ABCMS_SES]['form'][$csrf]['mark_time'] = $this->boots['time'];
-		$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_name'] = $this->get_uniq();
-		$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu'] = $csrf;
-		$_SESSION[ABCMS_SES]['form'][$csrf]['void_name'] = $this->get_uniq();
-		$_SESSION[ABCMS_SES]['form'][$csrf]['full_name'] = $this->get_uniq();
-		$_SESSION[ABCMS_SES]['form'][$csrf]['full_valu'] = $this->get_uniq();
-		$_SESSION[ABCMS_SES]['form'][$csrf]['test_name'] = $this->get_uniq();
-		$_SESSION[ABCMS_SES]['form'][$csrf]['test_valu'] = 'abc';
-		// form security token injection
-		$inject_tokens[] = <<<EOF
-<input type='hidden' name='button'												value=''>
-<input type='hidden' name='csrf'												value='{$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu']}'>
-<input type='hidden' name='{$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_name']}'	value='{$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu']}'>
-<input type='hidden' name='{$_SESSION[ABCMS_SES]['form'][$csrf]['void_name']}'	value='{$_SESSION[ABCMS_SES]['form'][$csrf]['full_valu']}'>
-<input type='hidden' name='{$_SESSION[ABCMS_SES]['form'][$csrf]['full_name']}'	value=''>
+	$inject_script = <<<EOF
+
+document.addEventListener('keydown', function(event) {
+	if (event.key === 'Enter' && event.target.form) {
+		event.preventDefault();
+	}
+});
+
+document.addEventListener('click', function (event) {
+	var button = event.target;
+	var clicked = (button.tagName === 'BUTTON') || (button.tagName === 'INPUT' && button.type === 'submit');
+	if (!clicked) { return; }
+	button.disabled = true;
+	event.preventDefault();
+	var submit = button.value;
+	button.value = 'Sending...';
+	var buttontext = this.innerText;
+	button.innerText = 'Sending...';
+	setTimeout(() => {
+		button.form['{$sess['void_name']}'].value = '';
+		button.form['{$sess['full_name']}'].value = '{$sess['full_valu']}';
+		button.form['button'].value = submit;
+		button.value = submit;
+		button.innerText = buttontext;
+		HTMLFormElement.prototype.submit.call(button.form);
+	}, {$delay});
+});
+
+</script>
 EOF;
-		$captcha = (!empty($_SESSION[ABCMS_SES]['user']) ? NULL : "Enter CAPTCHA <input name='{$_SESSION[ABCMS_SES]['form'][$csrf]['test_name']}' value='{$_SESSION[ABCMS_SES]['form'][$csrf]['test_valu']}'>\n");
-		// button security onclick injection
-		// javascript submission means button name/value not in $_POST
-		$inject_onclick[] = <<<EOF
+	if (!($html = preg_replace("/<\/script>/ui", $inject_script, $html, 1, $count)) || 1 !== $count) {
+		$this->error_wsod("Form security injection failed so must bomb.");
+	}
+	// form security token injection
+	$inject_tokens = <<<EOF
+<input type='hidden' name='button'					value=''>
+<input type='hidden' name='csrf'					value='{$sess['csrf_valu']}'>
+<input type='hidden' name='{$sess['csrf_name']}'	value='{$sess['csrf_valu']}'>
+<input type='hidden' name='{$sess['void_name']}'	value='{$sess['full_valu']}'>
+<input type='hidden' name='{$sess['full_name']}'	value=''>
+EOF;
+	$captcha = (!empty($sess['user']) ? NULL : "Enter CAPTCHA <input name='{$sess['test_name']}' value=''>\r\n");
+	// button security onclick injection, also javascript submission means button name/value not in $_POST
+	$inject_onclick = <<<EOF
 <div>
 {$captcha}
-\$1 onclick="
-this.disabled=true;
-event.preventDefault();
-var submit = this.value;		this.value = 'Sending...';
-var button = this.innerText;	this.innerText = 'Sending...';
-setTimeout(() => {
-	this.form['{$_SESSION[ABCMS_SES]['form'][$csrf]['void_name']}'].value = '';
-	this.form['{$_SESSION[ABCMS_SES]['form'][$csrf]['full_name']}'].value = '{$_SESSION[ABCMS_SES]['form'][$csrf]['full_valu']}';
-	this.form['button'].value = submit;
-	this.value = submit;
-	this.innerText = button;
-	HTMLFormElement.prototype.submit.call(this.form);
- }, {$delay});
-"
-\$2
+\$1 \$2
 </div>
 EOF;
-	}
 	// perform injection, nested for <form>s and <button>s
-	$num = 0;
+	// IS THIS COMPLICATION NEEDED IF ALL FORMS GET THE SAME STUFF ????????????????
 	if (!($html = preg_replace_callback(
 		ABCMS_REGEX_FORM,
-		// replace <form> matches corresponding to injection arrays so each form gets their own tokens
-		function($matches) use (&$num, $inject_tokens, $inject_onclick) {
-			// require button click submital, ignore "enter"
-			if (!($replace = preg_replace("/^<form/ui", "<form onkeydown='if(event.key === \"Enter\") event.preventDefault();' ", $matches[1]))) { $this->error_wsod("Form security injection failed."); }
-			$replace .= $matches[2];
-			// onclick event for all buttons
-			if (!($replace = preg_replace(array("/(<input\s+[^>]*?type\s*=\s*['\"]submit['\"])(>|\s+[^>]*?>)/ui", "/(<button)([^<]+<\/button>)/ui"), $inject_onclick[$num], $replace))) {
+		function($matches) use ($inject_tokens, $inject_onclick) {
+			// captcha for all forms!
+			if (!($replace = preg_replace(array("/(<input\s+[^>]*?type\s*=\s*['\"]submit['\"])(>|\s+[^>]*?>)/ui", "/(<button)([^<]+<\/button>)/ui"), $inject_onclick, $matches[1].$matches[2]))) {
 				$this->error_wsod("Form security injection failed.");
 			}
 			// security tokens
-			$replace .= $inject_tokens[$num].'</form>';
-			++$num;
+			$replace .= $inject_tokens.'</form>';
 			return $replace;
 		},
-		$html))) {
+		$html, -1, $count)) || $count !== $num) {
 		$this->error_wsod("Form security injection failed.");
 	}
 	return;
 }
 private function output_debug(string &$html = NULL) : void {	// inject debug information for administrators
 	if ($this->input['role'] < ABCMS_ROLE_ADMINS) { return; }
-	$injection =
-		'<div style="margin-top: 7rem; background-color: #EEEEEE; text-align: left; padding: 20px;">'.
-		'<br>THIS:<br><pre>'.print_r($this,TRUE).'</pre>'.
-		'<br>_COOKIE:<br><pre>'.print_r($_COOKIE,TRUE).'</pre>'.
-		'<br>_SESSION:<br><pre>'.print_r($_SESSION,TRUE).'</pre>'.
-		'</div>'.
-		'</body>';
+	$injection = '<div class="debug"><br>ABCMS_OBJECT:<br><pre>'.print_r($this,TRUE).'</pre><br>ABCMS_GLOBALS:<br><pre>'.print_r($GLOBALS,TRUE).'</pre></div></body>';
 	if (!($html = preg_replace("/<\/body>/ui", $injection, $html))) { $this->error_wsod("Form debug injection failed."); }
 	return;
 }
@@ -706,8 +688,8 @@ private function set_settings(
 	$this->output_extend(ABCMS_EXT_INITX,	'',			'CLI-GET-POST',	'IEU',	'abcms()->home_theme',		ABCMS_ROLE_PUBLIC,	-10);
 	$this->output_extend(ABCMS_EXT_INITX,	'console',	'CLI-GET-POST',	'IEU',	'abcms()->console_theme',	ABCMS_ROLE_ADMINS,	-20);
 	$this->output_equate(ABCMS_EXT_INITX,	'console',	'/console/');
-	$this->output_extend(ABCMS_EXT_INITX,	'code',		'CLI-GET-POST',	'IEU',	'abcms()->console_code',	ABCMS_ROLE_ADMINS,	-999);
-	$this->output_equate(ABCMS_EXT_INITX,	'code',		'/console/code');
+	$this->output_extend(ABCMS_EXT_INITX,	'system',	'CLI-GET-POST',	'IEU',	'abcms()->system_router',	ABCMS_ROLE_ADMINS,	-999);
+	$this->output_equate(ABCMS_EXT_INITX,	'system',	'/system/');
 	// frontend extensions
 	$this->output_extend(ABCMS_EXT_MAINX,	'home',		'CLI-GET-POST',	'IE',	'abcms()->home_router',		ABCMS_ROLE_PUBLIC,	-10);
 	$this->output_equate(ABCMS_EXT_MAINX,	'home',		'/');
@@ -811,7 +793,7 @@ public function session_start(
 ) : bool {		// TRUE=started, FALSE=destroyed
 	// initialize options
 	$session_active = (session_status() === PHP_SESSION_ACTIVE ? TRUE : FALSE);
-	$valid = NULL;
+	$sess = NULL;
 	$slap = 0;
 	static $now = NULL;
 	static $posthandled = FALSE;
@@ -848,69 +830,59 @@ public function session_start(
 	if (!isset($_COOKIE[$this->settings['core']['session_allows']])) { // TEMP CODE TO ALLOW COOKIES
 		$this->set_cookie($this->settings['core']['session_allows'], ABCMS_COOK_NAVS, $now + ABCMS_COOK_LIFE, FALSE);
 	}
-	if (empty($_COOKIE[$this->settings['core']['session_allows']]) ||	// user hasn't allowed cookies
-		isset($_COOKIE[$this->settings['core']['session_badact']]) ||	// bad actor penalty
-		(0 === $cmd &&													// conditional
-		!isset($_COOKIE[$this->settings['core']['session_logins']]) &&	// no login cookie
-		!$post)) {														// no $_POST
-		return FALSE;
-	}
-	// start session
+	// shall I start the session?
+	if (empty($_COOKIE[$this->settings['core']['session_allows']])) {	$this->set_errors('I cannot start this session without your cookie approval.'); return FALSE; }
+	if (isset($_COOKIE[$this->settings['core']['session_badact']])) {	$this->set_errors('I cannot start this session because you are a suspect bad actor.'); return FALSE; }
+	if (0 === $cmd && !isset($_COOKIE[$this->settings['core']['session_logins']]) && !$post) { return FALSE; }
+	// okay start the session
 	if (!session_start($options)) { $this->error_wsod("Session start failed.");	}
 	// initialize flags
+	$posthandled = TRUE;
 	$session_active = TRUE;
 	$_COOKIE[$options['name']] = session_id(); 
 	$error = $formhuman = NULL;
 	$csrf = ($post && !empty($_POST['csrf']) ? $_POST['csrf'] : '');
-	if (!empty($_SESSION[ABCMS_SES]['valid'])) { $valid = &$_SESSION[ABCMS_SES]['valid']; }
+	if (!empty($_SESSION[ABCMS_SES]['create'])) { $sess = &$_SESSION[ABCMS_SES]; }
 	// validate session
-	if (!$valid) {
+	if (!$sess) {
 		// POST requires CSRF session
-		if ($post) {																											$error = 'Session ended, POST requires session.';	$slap = 400; }
+		if ($post) {																									$error = 'Session ended, POST requires session.';	$slap = 400; }
 	}
 	else {
 		// rapid hit counter
-		$got20 = FALSE; $valid['counts'][] = $now; if (count($valid['counts']) > ABCMS_SES_HITS) { array_shift($valid['counts']); $got20 = TRUE; }
+		$gothits = FALSE; $sess['counts'][] = $now; if (count($sess['counts']) > ABCMS_SES_HITS) { array_shift($sess['counts']); $gothits = TRUE; }
 		// uagent inconsistent
-		if ($valid['uagent'] !== $this->boots['uagent']) {																		$error = 'Session ended, IP/Agent or Core reset.';	$slap = 400; }
+		if ($sess['uagent'] !== $this->boots['uagent']) {																$error = 'Session ended, IP/Agent or Core reset.';	$slap = 400; }
 		// secrets differ
-		else if (!hash_equals($valid['secret'], ($_COOKIE[$valid['cookie']]??'x'))) {											$error = 'Session ended, secrets differ.';			$slap = 400; }
+		else if (!hash_equals($sess['secret'], ($_COOKIE[$sess['cookie']]??'x'))) {										$error = 'Session ended, secrets differ.';			$slap = 400; }
 		// rapid hits
-		else if ($got20 && $valid['counts'][ABCMS_SES_HITS-1] - $valid['counts'][0] < ABCMS_SES_TIME) {							$error = 'Session ended, rapid hits.';				$slap = 429; }
-		// POST CSRF1 missing
-		else if ($post && !$csrf) {																								$error = 'Session ended, CSRF1 missing.';			$slap = 400; }
-		// POST CSRF1 not equal, end session, but don't slap, could be 2nd submit of multi-form page
-		else if ($post && !hash_equals(($_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu']??''), $csrf)) {						$this->set_errors('Session ended, form timedout.'); }
-		// POST CSRF2 not equal
-		else if ($csrf && !hash_equals(($_SESSION[ABCMS_SES]['form'][$csrf]['csrf_valu']??''),
-			(($_POST[$_SESSION[ABCMS_SES]['form'][$csrf]['csrf_name']]??'x')?:'x'))) {											$error = 'Session ended, CSRF2 wrong.';				$slap = 400; }
+		else if ($gothits && $sess['counts'][ABCMS_SES_HITS-1] - $sess['counts'][0] < ABCMS_SES_TIME) {					$error = 'Session ended, rapid hits.';				$slap = 429; }
+		// POST CSRF1
+		else if ($post && (!$csrf || !hash_equals($sess['csrf_valu'], $csrf))) {										$error = 'Session ended, CSRF1 error.';				$slap = 400; }
+		// POST CSRF2
+		else if ($csrf && !hash_equals($sess['csrf_valu'], (($_POST[$sess['csrf_name']]??'x')?:'x'))) {					$error = 'Session ended, CSRF2 error.';				$slap = 400; }
 		// POST VOID populated
-		else if ($csrf && !empty($_POST[$_SESSION[ABCMS_SES]['form'][$csrf]['void_name']])) {									$error = "Session ended, CAPTCHA1 wrong.";			$slap = 400; }
+		else if ($csrf && !empty($_POST[$sess['void_name']])) {															$error = "Session ended, CAPTCHA1 error.";			$slap = 400; }
 		// POST FULL differs
-		else if ($csrf && !hash_equals(($_SESSION[ABCMS_SES]['form'][$csrf]['full_valu']??''),
-			(($_POST[$_SESSION[ABCMS_SES]['form'][$csrf]['full_name']]??'x')?:'x'))) {											$error = 'Session ended, CAPTCHA2 wrong.';			$slap = 400; }
+		else if ($csrf && !hash_equals($sess['full_valu'], (($_POST[$sess['full_name']]??'x')?:'x'))) {					$error = 'Session ended, CAPTCHA2 error.';			$slap = 400; }
 		// POST too rapid
-		else if ($csrf && ($now - ($_SESSION[ABCMS_SES]['form'][$csrf]['mark_time']??$now)) < ABCMS_SES_WAIT) {					$error = "Session ended, rapid submission.";		$slap = 400; }
+		else if ($csrf && ($now - $sess['mark_time']) < ABCMS_SES_WAIT) {												$error = "Session ended, rapid submission.";		$slap = 400; }
 		// login failed, end session, but don't slap
 		else if (isset($_COOKIE[$this->settings['core']['session_logins']]) &&
-			(($_COOKIE[$this->settings['core']['session_logins']]?:'x') !== ($_SESSION[ABCMS_SES]['session_logins']??'') ||
-			empty($_SESSION[ABCMS_SES]['user']) ||
+			(($_COOKIE[$this->settings['core']['session_logins']]?:'x') !== $sess['logins'] || empty($sess['user']) ||
 			// reload user for every page load to confirm permissions
-			!($_SESSION[ABCMS_SES]['user'] = $this->get_database('user', $_SESSION[ABCMS_SES]['user']['userid'])))) {			$error = 'Session ended, login failed.'; }
+			!($sess['user'] = $this->get_database('user', $sess['user']['userid'])))) {									$error = 'Session ended, resume login failed.'; }
 		// login expired
-		else if (!isset($_COOKIE[$this->settings['core']['session_logins']]) && !empty($_SESSION[ABCMS_SES]['user'])) {			$error = 'Session ended, login expired.'; }
+		else if (!isset($_COOKIE[$this->settings['core']['session_logins']]) && !empty($sess['user'])) {				$error = 'Session ended, login expired.'; }
 		// max idle time exceeded
-		else if ($now > ($valid['active'] + ABCMS_SES_IDLE)) {																	$error = 'Session ended, inactivity threshold.'; }
+		else if ($now > ($sess['active'] + ABCMS_SES_IDLE)) {															$error = 'Session ended, inactivity threshold.'; }
 		// max time exceeded
-		else if ($now > ($valid['create'] + ABCMS_SES_LIFE)) {																	$error = 'Session ended, maxtime threshold.'; }
+		else if ($now > ($sess['create'] + ABCMS_SES_LIFE)) {															$error = 'Session ended, maxtime threshold.'; }
 		// POST image mismatch
-		else if ($csrf && empty($_SESSION[ABCMS_SES]['user']) &&
-			(($_SESSION[ABCMS_SES]['form'][$csrf]['test_valu']??'') !==
-			(($_POST[$_SESSION[ABCMS_SES]['form'][$csrf]['test_name']]??'x')?:'x'))) {											$this->set_errors('Session ended, CAPTCHA3 wrong.'); }
+		else if ($csrf && empty($sess['user']) && ($sess['test_valu'] !== (($_POST[$sess['test_name']]??'x')?:'x'))) {	$this->set_errors('Session ended, CAPTCHA3 wrong.'); }
 		// Passed the gauntlet must be human
-		else {																													$formhuman = TRUE; }
+		else {																											$formhuman = TRUE; }
 	}
-	$posthandled = TRUE;
 	// destroy session by request or for corruption
 	if ($error) {
 KILL:	// set errors
@@ -919,7 +891,7 @@ KILL:	// set errors
 		if (!$session_active) { $session_active = session_start($options); }
 		// remove cookies
 		$this->set_cookie($options['name'], '', 1); // kill session cookie
-		if (isset($_SESSION[ABCMS_SES]['valid']['cookie'])) { $this->set_cookie($_SESSION[ABCMS_SES]['valid']['cookie'], '', 1); } // kill secret cookie
+		if (isset($_SESSION[ABCMS_SES]['cookie'])) { $this->set_cookie($_SESSION[ABCMS_SES]['cookie'], '', 1); } // kill secret cookie
 		$this->set_cookie($this->settings['core']['session_logins'], '', 1); // kill login cookie
 		// PHP says mark sessions for garbage collection to prevent races, but don't want garbage around
 		$_SESSION = [];
@@ -935,76 +907,91 @@ KILL:	// set errors
 		return FALSE;
 	}
 	// update valid session
-	if ($valid) {
-		// purge timedout forms
-		foreach($_SESSION[ABCMS_SES]['form']??[] as $key => $form) {
-			if (($now - ($form['mark_time']??0)) > ABCMS_SES_FORM) {
-				unset($_SESSION[ABCMS_SES]['form'][$key]);
-			}
-		}
+	if ($sess) {
 		// reward valid POST / form
 		if ($post) {
-			if (isset($_SESSION[ABCMS_SES]['form'][$csrf])) {
-				unset($_SESSION[ABCMS_SES]['form'][$csrf]);
-				$this->formvalid = TRUE;
-				$this->formhuman = ($formhuman ? TRUE :FALSE);
-				// process login immediately on page load
-				if ('/home/login' === $this->boots['urlstripped'] && $this->formhuman) {
-					if (empty(($_POST['Account_Email']??NULL).($_POST['Account_Email2']??NULL)) ||
-						empty($_POST['Account_Password']) ||
-						!password_verify($_POST['Account_Password'], $this->settings['core']['password'])) {
-						$error = 'Login failed, session ended.';
-						goto KILL; // failed login kills session
-					}
-					$_SESSION[ABCMS_SES]['user'] = $this->get_database('user', $_POST);
-					$_SESSION[ABCMS_SES]['session_logins'] = $this->get_uniq();
-					$this->set_cookie($this->settings['core']['session_logins'], $_SESSION[ABCMS_SES]['session_logins'], $_SESSION[ABCMS_SES]['valid']['create'] + ABCMS_SES_LIFE);
+			$this->formvalid = TRUE;
+			$this->formhuman = ($formhuman ? TRUE :FALSE);
+			// process login immediately on page load
+			if ('/home/login' === $this->boots['urlstripped']) {
+
+				// punish maximum login failures
+				if (++$sess['trys'] > ABCMS_SES_LOGI) {
+					$error = 'Too many login failures, attack suspected.';
+					$slap = 400;
+					goto KILL; // failed login kills session
+				}
+
+				// login sucessful
+				if ($this->formhuman &&
+					!empty(($_POST['Account_Email']??NULL).($_POST['Account_Email2']??NULL)) &&
+					!empty($_POST['Account_Password']) &&
+					password_verify($_POST['Account_Password'], $this->settings['core']['password'])) {
+					$sess['trys'] = 0;
+					$sess['user'] = $this->get_database('user', $_POST);
+					$sess['logins'] = $this->get_uniq();
+					$this->set_cookie($this->settings['core']['session_logins'], $sess['logins'], $sess['create'] + ABCMS_SES_LIFE);
+				}
+
+				// explicit logout if login failure
+				else {
+					$this->set_errors('Attempted login failure.');
+					$sess['user'] = NULL;
+					$sess['logins'] = NULL;
+					$this->set_cookie($this->settings['core']['session_logins'], '', 1);
 				}
 			}
 			else {
 				$this->set_errors("Form timedout");
 			}
 		}
-		// purge excessive forms, remove beginning, oldest elements
-		if (($num = (count($_SESSION[ABCMS_SES]['form']??[]) - ABCMS_SES_OPEN)) > 0) {
-			array_splice($_SESSION[ABCMS_SES]['form'], 0, $num);
+		else { // mark time of forms tokens
+			$sess['mark_time'] = $now;
 		}
-		if ($now > ($valid['rotate'] + ABCMS_SES_ROTA)) { // rotate if exceed rotate time or $user role updated
+		if ($now > ($sess['rotate'] + ABCMS_SES_ROTA) || $sess['role'] !== ($sess['user']['role']??NULL)) { // rotate if exceed rotate time or $user role changed
 			// session cookie
 			if (!session_regenerate_id(TRUE)) { $this->error_wsod("Session regeneration failed."); }
 			$_COOKIE[$options['name']] = session_id();
 			// secret cookie
-			$valid['cookie'] = $this->get_uniq();
-			$valid['secret'] = $this->get_uniq();
-			$this->set_cookie($valid['cookie'], $valid['secret'], $valid['create'] + ABCMS_SES_LIFE);
+			$sess['cookie'] = $this->get_uniq();
+			$sess['secret'] = $this->get_uniq();
+			$this->set_cookie($sess['cookie'], $sess['secret'], $sess['create'] + ABCMS_SES_LIFE);
 			// login cookie
-			if (!empty($_SESSION[ABCMS_SES]['session_logins'])) {
-				$_SESSION[ABCMS_SES]['session_logins'] = $this->get_uniq();
-				$this->set_cookie($this->settings['core']['session_logins'], $_SESSION[ABCMS_SES]['session_logins'], $valid['create'] + ABCMS_SES_LIFE);
+			if (!empty($sess['logins'])) {
+				$sess['logins'] = $this->get_uniq();
+				$this->set_cookie($this->settings['core']['session_logins'], $sess['logins'], $sess['create'] + ABCMS_SES_LIFE);
 			}
 			// rotated time
-			$valid['rotate'] = $now;
+			$sess['rotate'] = $now;
 		}
 		// active time
-		$valid['active'] = $now;
+		$sess['active'] = $now;
+		$sess['role'] = $sess['user']['role']??NULL;
 	}
 	// validate new session
 	else {
 		$_SESSION[ABCMS_SES] = [
-			'valid' => [
-				'create'	=> $now,
-				'active'	=> $now,
-				'rotate'	=> $now,
-				'uagent'	=> $this->boots['uagent'],
-				'cookie'	=> $this->get_uniq(),
-				'secret'	=> $this->get_uniq(),
-				'counts'	=> array(),
-			],
-			'form'			=> [],
-			'session_logins'=> NULL,
-			'user'			=> [],
+			'create'	=> $now,
+			'active'	=> $now,
+			'rotate'	=> $now,
+			'uagent'	=> $this->boots['uagent'],
+			'cookie'	=> $this->get_uniq(),
+			'secret'	=> $this->get_uniq(),
+			'counts'	=> array(),
+			'logins'	=> NULL,
+			'user'		=> [],
+			'role'		=> NULL,
+			'trys'		=> 0,
+			'mark_time'	=> $now,
+			'csrf_name'	=> $this->get_uniq(),
+			'csrf_valu' => $this->get_uniq(),
+			'void_name' => $this->get_uniq(),
+			'full_name' => $this->get_uniq(),
+			'full_valu' => $this->get_uniq(),
+			'test_name' => $this->get_uniq(),
+			'test_valu' => 'abc',
 		];
-		$this->set_cookie($_SESSION[ABCMS_SES]['valid']['cookie'], $_SESSION[ABCMS_SES]['valid']['secret'], $now + ABCMS_SES_LIFE);
+		$this->set_cookie($_SESSION[ABCMS_SES]['cookie'], $_SESSION[ABCMS_SES]['secret'], $now + ABCMS_SES_LIFE);
 	}
 	return TRUE;
 }
@@ -1071,7 +1058,7 @@ public function get_database(string $filename, mixed $data) : mixed {
 /*************************************************************************************************
 SECTION HOME: Display /home/* application.
 */
-public function home_theme(
+private function home_theme(
 	mixed &...$unused,
 ) : ?bool {
 $footer =
@@ -1086,8 +1073,8 @@ return $this->theme( // theme
 	NULL,	// css
 	NULL,	// js
 	<<<EOF
-<div style='width:100%; display: flex; justify-content: center; padding: 10px 0; '>
-<div><a href='/' title='A Basic Content Management System' style='font-size: 4rem; font-weight: bold;'>abcms()</a></div>
+<div class='home'>
+<div><a href='/' title='A Basic Content Management System' class='title'>abcms()</a></div>
 </div>
 EOF
 	,		// header
@@ -1112,14 +1099,12 @@ return NULL;
 private function home(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 echo <<<EOF
 <h1>A Basic Content Management System&trade;</h1>
-<div style='text-align: center;'>
-<p style='line-height: 2rem;'>
+<p class='homepage'>
 AKA "<a href='https://www.AionianBible.org' target='_blank'>Aionian Bible</a> Content Management System"<br>
 Nice, a PHP toolkit and CMS in one file.<br>
 Really, everything is a routed extension.<br>
 Composer or hey, just run index.php.<br>
 </p>
-</div>
 EOF;
 	return NULL;
 }
@@ -1131,12 +1116,12 @@ This is where to contact us.
 	return NULL;
 }
 private function home_login(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+
 echo "<h1>Account</h1>";
-if (!$this->session_start(1)) {
-	echo "Session failed or blocked. Try again later.";
-	return NULL;
-}
-else if ($this->formvalid && $this->formhuman && $_SESSION[ABCMS_SES]['user']) {
+
+if (!$this->session_start(1)) { return NULL; }
+
+else if ($this->formhuman && $_SESSION[ABCMS_SES]['user']) {
 	$email = $this->email(
 		'jeff@dgjc.org',										// From
 		'Jeff Martin',											// Name
@@ -1158,16 +1143,6 @@ else if ($this->formvalid && $this->formhuman && $_SESSION[ABCMS_SES]['user']) {
 
 	echo "Submittal success! ({$email})";
 }
-else if ($this->formhuman) {
-	$this->set_cookie($this->settings['core']['session_logins'], '', 1);
-	unset($_SESSION[ABCMS_SES]['user']);
-	unset($_SESSION[ABCMS_SES]['session_logins']);
-	echo "Invalid submittal, logged out";
-}
-else if ($this->formvalid) {
-	echo "CAPTCHA snafu, try again!";
-}
-else { ; }
 ?>
 <form action='' method='post' accept-charset='UTF-8' class='form-grid'>
 <label for='Account_Email'		>Email:</label>			<input type='email'		id='Account_Email'		name='Account_Email'	value='<?php echo $this->hsc(($_POST['Account_Email']??''));	?>'>
@@ -1264,7 +1239,7 @@ EOF
 		,				// css
 		NULL,			// js
 		<<<EOF
-<div style='width:100%; display: flex; justify-content: space-between; padding: 10px 0; background-color: #999999; color: #333333; font-weight: bold;'>
+<div class='console'>
 <div><a href='/console'>Console</a></div>
 <div><a href='/' title='Close Console'>X</a></div>
 </div>
@@ -1303,12 +1278,13 @@ echo <<<EOF
 <a href='/console/more'		>/console/more</a><br>
 <a href='/console/status'	>/console/status</a><br>
 <a href='/console/help'		>/console/help</a><br>
-<a href='/console/code' target='_blank'>/console/code</a><br>
-<a href='/console/phpinfo'	>/console/phpinfo</a><br>
 <a href='/console/init'		>/console/init</a><br>
 <a href='/console/cron'		>/console/cron</a><br>
 <a href='/console/browse'	>/console/browse</a><br>
 <a href='/console/tests'	>/console/tests</a><br>
+<br>
+<a href='/system/code'		target='_blank'>/system/code</a><br>
+<a href='/system/phpinfo'	target='_blank'>/system/phpinfo</a><br>
 <br>
 <a href='/bogus'>/bogus</a><br>
 <a href='/home/bogus'>/home/bogus</a><br>
@@ -1330,10 +1306,6 @@ EOF;
 	echo $display;
 	return NULL;
 }
-private function console_code(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	highlight_file($this->settings['core']['filename']);
-	return NULL;
-}
 private function console_cron(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
 	echo "<h1>Cron</h1>Hello!";
 	return NULL;
@@ -1350,11 +1322,6 @@ echo <<<EOF
 <h1>Init</h1>
 Result: {$result}
 EOF;	
-	return NULL;
-}
-private function console_phpinfo(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
-	echo "<h1>PHP Info</h1>";
-	phpinfo();
 	return NULL;
 }
 private function console_status(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
@@ -1388,6 +1355,32 @@ Hello World. I am alive.<br>
 Thank you!<br>
 EOF;
 return NULL;
+}
+
+
+
+
+
+
+
+/*************************************************************************************************
+SECTION SYSTEM: Execute system commands without HTML theming.
+*/
+private function system_router(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+switch ($this->boots['urlpathall']) {
+case '/system/code':		$this->system_code();		return NULL;
+case '/system/phpinfo':		$this->system_phpinfo();	return NULL;
+default:					$this->home_theme();		return NULL;
+}
+return NULL;
+}
+private function system_code(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+	highlight_file(__FILE__);
+	return NULL;
+}
+private function system_phpinfo(mixed &...$unused) : ?bool { // Non-function wrapper so extendable
+	phpinfo();
+	return NULL;
 }
 
 
@@ -1824,10 +1817,10 @@ $favicon = (is_readable('./favicon.ico') ? '/favicon.ico' : (is_readable('./publ
 <link rel="manifest" href="/manifest.json">
 <meta name='theme-color' content='#336699'>
 <meta name='color-scheme' content='light dark'>
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'nonce-<?php echo $this->input['nonce']; ?>'; img-src 'self' data:;">
 <title><?php echo $title; ?></title>
 <link rel="icon" href="<?php echo $favicon; ?>">
-<style>
+<style nonce='<?php echo $this->input['nonce']; ?>'>
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #page, header, main, footer { margin: 0; padding: 0; width: 100%; text-align: center; }
 html { font-size: 100%; overflow-wrap: break-word; word-wrap: break-word; }
@@ -1836,12 +1829,17 @@ body { color: #333333; background-color: #FFFFFF; font-size: 1.125rem; line-heig
 header a:link, header a:visited { color: #999999; }
 header a:hover, header a:focus { color: #99ccff; }
 header a:active { color: #993366; }
+header .home { width:100%; display: flex; justify-content: center; padding: 10px 0; }
+header .title { font-size: 4rem; font-weight: bold; }
+header .console { width:100%; display: flex; justify-content: space-between; padding: 10px 0; background-color: #999999; color: #333333; font-size: 2rem; font-weight: bold; }
 main { flex: 1;	max-width: 1024px; min-width: min(360px, 100%); margin: 1rem auto; padding: 0rem 3rem 1rem 3rem; text-align: justify; }
+main .homepage { line-height: 2rem; text-align: center; }
 footer { margin-bottom: 1rem; }
 h1, h2, h3, h4 { color: #336699; }
 h1 { text-align: center; }
 .bold { font-weight: 700; }
 .italic { font-style: italic; }
+.center { text-align: center; }
 a { text-decoration: none; }
 a:link { color: #6cc9ff; }
 a:visited { color: #996633; }
@@ -1856,21 +1854,32 @@ form.form-grid {
 }
 label { text-align: right; }
 input:required { border: 1px solid blue; }
+fieldset.disable { border: none; margin: 0; padding: 0; min-width: 0; display: contents; }
+div.debug { margin-top: 7rem; background-color: #EEEEEE; text-align: left; padding: 20px; }
 @media screen and (max-width: 1065px) { main { margin: 0; } }
 <?php echo $css; ?>
 </style>
-<script>
+<script nonce='<?php echo $this->input['nonce']; ?>'>
 <?php echo $js; ?>
 </script>
 </head>
 <body>
 <div id='page'>
 <header>
-<?php echo ($head ?: "<div style='width:100%; display: flex; justify-content: center; padding: 10px 0; '><div><a href='/' style='font-size: 4rem; font-weight: bold;'>{$title}</a></div></div>"); ?>
+<?php echo ($head ?: "<div class='home'><div><a href='/' class='title'>{$title}</a></div></div>"); ?>
 </header>
 <main>
 <?php
-if (!$main) { $main = "<h1>Status</h1>Request not found.<br><br><a href='/'>Try again from the homepage.</a>"; }
+if (!$main) { $main = <<<EOF
+<h1>Status</h1>
+<p class='center'>
+My sincere apologies.<br>
+I just cannot find the page requested.<br>
+<br>
+<a href='/'>Try again from the homepage</a>.
+</p>
+EOF;
+}
 $this->output(ABCMS_EXT_MAIN, 'CLI-GET-POST', 'abcms()->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($main));
 echo $this->see_errors();
 ?>
