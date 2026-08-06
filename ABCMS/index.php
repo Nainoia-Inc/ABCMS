@@ -25,9 +25,9 @@ const ABCMS_ROLE_SET	= array(0,1,2,3,4,5,6,7);
 // regex
 // includefile?function #^(|/vendor/package/filepath)(|?(|classobject(::|->|()->))funcmeth)#
 const ABCMS_REGEX_FUNC	= "/^((\/[^?]+)\?)?((([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x{7f}-\x{ff}]*))?$/u";
-const ABCMS_REGEX_HOOK	= "/^\/[^\/]+\/[^\/]+\/[^\/]+$/u";					// hook name, path-like, but not a filepath
-const ABCMS_REGEX_URLV	= "/\/([A-Za-z0-9\-_.~]+)=([A-Za-z0-9\-_.~]+)/u";	// URL variable
-const ABCMS_REGEX_FORM	= "/(<form[^>]*>)(.+?)(<\/form>)/uis";				// form security injection
+const ABCMS_REGEX_HOOK	= "/^\/[^\/]+\/[^\/]+\/[^\/]+$/u";				// hook name, path-like, but not a filepath
+const ABCMS_REGEX_URLV	= "/\/([a-z0-9\-_.~]+)=([a-z0-9\-_.~]+)/ui";	// URL variable
+const ABCMS_REGEX_FORM	= "/(<form[^>]*>)(.+?)(<\/form>)/uis";			// form security injection
 // session - move these to overridable $settings
 const ABCMS_SES			= ABCMS_EXT_SELF;	// unique session key for ABCMS
 const ABCMS_SES_ROTA	= 60*15;			// rotate session after 15 minutes
@@ -185,14 +185,12 @@ function __construct() {
 		// URL request method
 		'urlmethod' => ($cli ? 'CLI' : ((empty($_SERVER['REQUEST_METHOD']) ||
 			!in_array($_SERVER['REQUEST_METHOD'], array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE'))) ? 'GET' : $_SERVER['REQUEST_METHOD'])),
-		// URL stripped of variables, no trailing slash
-		'urlstripped' => ($urlstripped = '/'.(trim(preg_replace(ABCMS_REGEX_URLV, '/', $urlparsed['path']), '/'))),
-		// URL urldecoded
-		'urlpathall' => (urldecode($urlstripped)),
+		// URL stripped of variables, no trailing slash, and urldecoded
+		'urlpathall' => ($urlpathall = ('/'.(trim(preg_replace(ABCMS_REGEX_URLV, '/', ($urldecoded = urldecode($urlparsed['path']))), '/')))),
 		// URL first segment for primary router
-		'urlpathone' => (urldecode((!($ret = preg_match("/^(\/[^\/]*)(\/.+)?$/u", $urlstripped, $matches)) ? '/' : $matches[1]))),
+		'urlpathone' => (!($ret = preg_match("/^(\/[^\/]*)(\/.+)?$/u", $urlpathall, $matches)) ? '/' : $matches[1]),
 		// URL second plus segments for secondary router
-		'urlpathext' => (urldecode((!$ret || empty($matches[2]) ? '/' : $matches[2]))),
+		'urlpathext' => (!$ret || empty($matches[2]) ? '/' : $matches[2]),
 	);
 	$session = $this->session_start(0); // lazy session start
 	$this->input = array( // sanitize inputs with session user
@@ -202,8 +200,9 @@ function __construct() {
 		'user' => $_SESSION[ABCMS_SES]['user']??NULL,
 		// my role
 		'role' => ($role = ($cli ? ABCMS_ROLE_CLI : $_SESSION[ABCMS_SES]['user']['role']??ABCMS_ROLE_PUBLIC)),
-		'urlvars' => (!preg_match_all(ABCMS_REGEX_URLV, $urlparsed['path'], $matches, PREG_PATTERN_ORDER) ? array() : // URL path variables 'v', none
-			$this->input_valid('v', array_combine(array_map('urldecode', $matches[1]), array_map('urldecode', $matches[2])), $role)), // validate path variables
+		// URL path variables 'v', none or validate
+		'urlvars' => (!preg_match_all(ABCMS_REGEX_URLV, $urldecoded, $matches, PREG_PATTERN_ORDER) ? array() :
+			$this->input_valid('v', array_combine($matches[1], $matches[2]), $role)),
 		// URL query variables 'q' from parse_str() because CLI has no $_GET
 		'urlquery' => ($this->input_valid('q', ((!empty($urlparsed['query']) && mb_parse_str($urlparsed['query'], $result)) ? $result : array()), $role)),
 		// POST variables 'p'
@@ -212,7 +211,7 @@ function __construct() {
 		'nonce' => $this->get_uniq(), // style and script security nonce
 	);
 	if ($this->boots['auto']) { require_once($this->boots['auto']); } // require composer
-	if (0 !== stripos($urlparsed['path'], $this->boots['urlstripped'])) { $this->set_errors("URL questioned, variables within path"); }	// variables within path
+	if (0 !== stripos($urldecoded, $urlpathall)) { $this->set_errors("URL questioned, variables within path"); }	// variables within path
 	return; // Done
 }
 // Disallowed methods
@@ -933,7 +932,7 @@ KILL:	// set errors
 			$this->formvalid = TRUE;
 			$this->formhuman = ($formhuman ? TRUE :FALSE);
 			// process login on page load
-			if ('/home/login' === $this->boots['urlstripped']) {
+			if ('/home/login' === $this->boots['urlpathall']) {
 				// punish max login failures
 				if (++$sess['trys'] > ABCMS_SES_LOGI) {
 					$error = 'Too many login failures, attack suspected.'; $slap = 400;
@@ -958,7 +957,7 @@ KILL:	// set errors
 		}
 
 		// process logout on page load 
-		if ($logout || '/home/logout' === $this->boots['urlstripped']) {
+		if ($logout || '/home/logout' === $this->boots['urlpathall']) {
 			$sess['user'] = NULL;
 			$sess['logins'] = NULL;
 			$this->set_cookie($this->settings['core']['session_logins'], '', 1);
