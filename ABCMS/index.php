@@ -432,21 +432,29 @@ private function output_call(
 	}
 	return $result;
 }
-private function output_security(string &$html) : void {	// html form security injection
-	if (!($num=preg_match_all(ABCMS_REGEX_FORM, $html))) { return; } // no forms to secure
-	// DOM is better than preg_replace() for HTML injection, but why slow down for one occasion?
-	// disable forms actually with <fieldset> and cosmetically with CSS with missing CSRF as safety net
-	if (!$this->session_start(1)) { // session failed
-		$this->set_errors("All forms disabled because session security failed.");
-		if (!($html = preg_replace(ABCMS_REGEX_FORM, '$1<fieldset disabled class="disable">$2</fieldset>$3', $html, -1, $count)) || $num !== $count ||
-			!($html = preg_replace("/<\/style>/ui", "\r\nform { pointer-events: none; opacity: 0.5; }</style>", $html, 1, $count)) || 1 !== $count) {
-			$this->error_wsod("Form security efforts failed so must bomb.");
+
+// inject html form security with regex for speed instead of DOM 
+private function output_security(string &$html) : void {
+
+	// no form so skip
+	if (!($num = preg_match_all(ABCMS_REGEX_FORM, $html))) { return; }
+
+	// start session
+	if (!$this->session_start(1)) {
+		// session failed, disable forms with <fieldset> and CSS with missing CSRF as safety net
+		$this->set_errors("Forms disabled, security failed.");
+		if (!($html = preg_replace(ABCMS_REGEX_FORM, '$1<fieldset disabled class="disable">$2</fieldset>$3', $html, -1, $count)) || $count !== $num ||
+			!($html = preg_replace("/<\/style>/ui", "\nform { pointer-events: none; opacity: 0.5; }\n</style>", $html, 1, $count)) || 1 !== $count) {
+			$this->error_wsod("Form security entirely failed.");
 		}
 		return;
 	}
-	$sess = &$_SESSION[ABCMS_SES]; // abcms session stuff
-	// click to submit only, no enter
+
+	// session shortcut and click delay
+	$sess = &$_SESSION[ABCMS_SES];
 	$delay = ABCMS_SES_WAIT * 1000;
+
+	// secure button click instead of enter submission
 	$inject_script = <<<EOF
 
 document.addEventListener('keydown', function(event) {
@@ -454,7 +462,6 @@ document.addEventListener('keydown', function(event) {
 		event.preventDefault();
 	}
 });
-
 document.addEventListener('click', function (event) {
 	var button = event.target;
 	var clicked = (button.tagName === 'BUTTON') || (button.tagName === 'INPUT' && button.type === 'submit');
@@ -468,7 +475,7 @@ document.addEventListener('click', function (event) {
 	setTimeout(() => {
 		button.form['{$sess['void_name']}'].value = '';
 		button.form['{$sess['full_name']}'].value = '{$sess['full_valu']}';
-		button.form['button'].value = submit;
+		button.form['clicked'].value = submit;
 		button.value = submit;
 		button.innerText = buttontext;
 		HTMLFormElement.prototype.submit.call(button.form);
@@ -476,48 +483,56 @@ document.addEventListener('click', function (event) {
 });
 
 </script>
+
 EOF;
-	if (!($html = preg_replace("/<\/script>/ui", $inject_script, $html, 1, $count)) || 1 !== $count) {
-		$this->error_wsod("Form security injection failed so must bomb.");
+
+	// inject javascript
+	if (!($html = preg_replace("/<\/script>/ui", $inject_script, $html, 1, $count)) || 1 !== $count) { // inject
+		$this->error_wsod("Form security javascript injection failed.");
 	}
-	// form security token injection
+
+	// form security tokens
 	$inject_tokens = <<<EOF
-<input type='hidden' name='button'					value=''>
+<input type='hidden' name='clicked'					value=''>
 <input type='hidden' name='csrf'					value='{$sess['csrf_valu']}'>
 <input type='hidden' name='{$sess['csrf_name']}'	value='{$sess['csrf_valu']}'>
 <input type='hidden' name='{$sess['void_name']}'	value='{$sess['full_valu']}'>
 <input type='hidden' name='{$sess['full_name']}'	value=''>
 EOF;
-	$captcha = (!empty($sess['user']) ? NULL : "Enter CAPTCHA <input name='{$sess['test_name']}' value=''>\r\n");
-	// button security onclick injection, also javascript submission means button name/value not in $_POST
-	$inject_onclick = <<<EOF
+	// form CAPTCHA
+	$inject_captcha = (empty($sess['test_name']) ? NULL : <<<EOF
 <div>
-{$captcha}
-\$1 \$2
+Enter CAPTCHA <input name='{$sess['test_name']}' value=''>\$1 \$2
 </div>
-EOF;
-	// perform injection, nested for <form>s and <button>s
-	// IS THIS COMPLICATION NEEDED IF ALL FORMS GET THE SAME STUFF ????????????????
+EOF
+	);
+
+	// further injection in <form>s and <button>s
 	if (!($html = preg_replace_callback(
 		ABCMS_REGEX_FORM,
-		function($matches) use ($inject_tokens, $inject_onclick) {
-			// captcha for all forms!
-			if (!($replace = preg_replace(array("/(<input\s+[^>]*?type\s*=\s*['\"]submit['\"])(>|\s+[^>]*?>)/ui", "/(<button)([^<]+<\/button>)/ui"), $inject_onclick, $matches[1].$matches[2]))) {
-				$this->error_wsod("Form security injection failed.");
+		function($matches) use ($inject_tokens, $inject_captcha) {
+			$replace = $matches[1].$matches[2];
+			// CAPTCHA injection
+			if ($inject_captcha && !($replace = preg_replace(array("/(<input\s+[^>]*?type\s*=\s*['\"]submit['\"])(>|\s+[^>]*?>)/ui", "/(<button)([^<]+<\/button>)/ui"), $inject_captcha, $replace))) {
+				$this->error_wsod("Form security CAPTCHA injection failed.");
 			}
-			// security tokens
+			// security tokens injection
 			$replace .= $inject_tokens.'</form>';
 			return $replace;
 		},
 		$html, -1, $count)) || $count !== $num) {
-		$this->error_wsod("Form security injection failed.");
+		$this->error_wsod("Form security tokens injection failed.");
 	}
 	return;
 }
-private function output_debug(string &$html = NULL) : void {	// inject debug information for administrators
-	if ($this->input['role'] < ABCMS_ROLE_ADMINS) { return; }
-	$injection = '<div class="debug"><br>ABCMS_OBJECT:<br><pre>'.print_r($this,TRUE).'</pre><br>ABCMS_GLOBALS:<br><pre>'.print_r($GLOBALS,TRUE).'</pre></div></body>';
-	if (!($html = preg_replace("/<\/body>/ui", $injection, $html))) { $this->error_wsod("Form debug injection failed."); }
+
+// inject debug information for administrator only
+private function output_debug(string &$html) : void {
+	// no html or not admin so skip
+	if (!$html || $this->input['role'] !== ABCMS_ROLE_ADMINS) { return; }
+	// debug injection
+	$injection = "<pre class='debug'>".print_r(array('ABCMS_OBJECT'=>$this, 'ABCMS_GLOBALS'=>$GLOBALS),TRUE)."</pre></body>";
+	if (!($html = preg_replace("/<\/body>/ui", $injection, $html, 1))) { $this->error_wsod("Debug injection for admin failed."); }
 	return;
 }
 
@@ -789,15 +804,17 @@ public function get_settings() : array {	// Get private settings for public
 /*************************************************************************************************
 SECTION SESSION: Secure sessions with opt-in/out, validation, CSRF, CAPTCHA, tricks, and login.
 */
+// start the session conditionally
 public function session_start(
-	int $cmd,	// 1=start, -1=destroy, 0=conditional
+	int $cmd,	// 1=unconditional, -1=destroy, 0=conditional
 ) : bool {		// TRUE=started, FALSE=destroyed
-	// initialize options
-	$session_active = (session_status() === PHP_SESSION_ACTIVE ? TRUE : FALSE);
-	$sess = NULL;
+
+	// initialize variables
+	$active = (session_status() === PHP_SESSION_ACTIVE ? TRUE : FALSE);
 	$slap = 0;
 	static $now = NULL;
 	static $posthandled = FALSE;
+	static $alreadydenied = FALSE;
 	static $options = NULL;
 	if (NULL === $options) {
 		$now = $this->boots['time'];
@@ -820,40 +837,35 @@ public function session_start(
 			'use_trans_sid'		=> '0',											// Disable URL rewriting
 			];
 	}
-	// destroy session
-	if ($cmd < 0) { $error = 'You are logged out.'; goto KILL; }
-	// already started
-	if ($session_active) { return TRUE; }
-	// already headers
-	if (headers_sent()) { $this->error_wsod("Session start failed, headers already sent.");	}
-	// conditional start, post validation first time only
-	$post = ('POST' === $this->boots['urlmethod'] && !$posthandled ? TRUE : FALSE);
-	if (!isset($_COOKIE[$this->settings['core']['session_allows']])) { // TEMP CODE TO ALLOW COOKIES
-		$this->set_cookie($this->settings['core']['session_allows'], ABCMS_COOK_NAVS, $now + ABCMS_COOK_LIFE, FALSE);
-	}
-	// shall I start the session?
-	if (empty($_COOKIE[$this->settings['core']['session_allows']])) {	$this->set_errors('I cannot start this session without your cookie approval.'); return FALSE; }
-	if (isset($_COOKIE[$this->settings['core']['session_badact']])) {	$this->set_errors('I cannot start this session because you are a suspect bad actor.'); return FALSE; }
-	if (0 === $cmd && !isset($_COOKIE[$this->settings['core']['session_logins']]) && !$post) { return FALSE; }
-	// okay start the session
-	if (!session_start($options)) { $this->error_wsod("Session start failed.");	}
-	// initialize flags
-	$posthandled = TRUE;
-	$session_active = TRUE;
-	$_COOKIE[$options['name']] = session_id(); 
+
+	// early exits
+	if ($alreadydenied) { return FALSE; } // already denied
+	if ($cmd < 0) { $error = 'You are logged out.'; goto KILL; } // destroy session
+	if ($active) { return TRUE; } // already started
+	if (headers_sent()) { $this->error_wsod("Session start failed, headers already sent.");	} // already headers
+	if (!isset($_COOKIE[$this->settings['core']['session_allows']])) { $this->set_cookie($this->settings['core']['session_allows'], ABCMS_COOK_NAVS, $now + ABCMS_COOK_LIFE, FALSE); }	// TEMP CODE TO ALLOW COOKIES
+	if (empty($_COOKIE[$this->settings['core']['session_allows']])) {	$this->set_errors('Session denied without your cookie approval.'); return FALSE; } // cookies not approved
+	if (isset($_COOKIE[$this->settings['core']['session_badact']])) {	$this->set_errors('Session denied to suspected bad actor.'); $alreadydenied = TRUE; return FALSE; } // bad actor
+	$post = ('POST' === $this->boots['urlmethod'] && !$posthandled ? TRUE : FALSE); // is this a POST?
+	if (0 === $cmd && !isset($_COOKIE[$this->settings['core']['session_logins']]) && !$post) { return FALSE; } // conditional start
+
+	// start the session and assign more variables
+	if (!session_start($options) || !($_COOKIE[$options['name']] = session_id())) { $this->error_wsod("Session start failed, unknown reason.");	}
+	$active = $posthandled = TRUE;
 	$error = $formhuman = NULL;
 	$csrf = ($post && !empty($_POST['csrf']) ? $_POST['csrf'] : '');
-	if (!empty($_SESSION[ABCMS_SES]['create'])) { $sess = &$_SESSION[ABCMS_SES]; }
+	if (empty($_SESSION[ABCMS_SES]['create'])) { $sess = NULL; } else { $sess = &$_SESSION[ABCMS_SES]; }
+
 	// validate session
 	if (!$sess) {
-		// POST requires CSRF session
+		// cannot POST without session
 		if ($post) {																									$error = 'Session ended, POST requires session.';	$slap = 400; }
 	}
 	else {
-		// rapid hit counter
+		// hit counter
 		$gothits = FALSE; $sess['counts'][] = $now; if (count($sess['counts']) > ABCMS_SES_HITS) { array_shift($sess['counts']); $gothits = TRUE; }
 		// uagent inconsistent
-		if ($sess['uagent'] !== $this->boots['uagent']) {																$error = 'Session ended, IP/Agent or Core reset.';	$slap = 400; }
+		if ($sess['uagent'] !== $this->boots['uagent']) {																$error = 'Session ended, IP/Agent or core reset.';	$slap = 400; }
 		// secrets differ
 		else if (!hash_equals($sess['secret'], ($_COOKIE[$sess['cookie']]??'x'))) {										$error = 'Session ended, secrets differ.';			$slap = 400; }
 		// rapid hits
@@ -862,67 +874,71 @@ public function session_start(
 		else if ($post && (!$csrf || !hash_equals($sess['csrf_valu'], $csrf))) {										$error = 'Session ended, CSRF1 error.';				$slap = 400; }
 		// POST CSRF2
 		else if ($csrf && !hash_equals($sess['csrf_valu'], (($_POST[$sess['csrf_name']]??'x')?:'x'))) {					$error = 'Session ended, CSRF2 error.';				$slap = 400; }
-		// POST VOID populated
+		// POST !HONEY populated
 		else if ($csrf && !empty($_POST[$sess['void_name']])) {															$error = "Session ended, CAPTCHA1 error.";			$slap = 400; }
-		// POST FULL differs
+		// POST HONEY differs
 		else if ($csrf && !hash_equals($sess['full_valu'], (($_POST[$sess['full_name']]??'x')?:'x'))) {					$error = 'Session ended, CAPTCHA2 error.';			$slap = 400; }
-		// POST too rapid
-		else if ($csrf && ($now - $sess['mark_time']) < ABCMS_SES_WAIT) {												$error = "Session ended, rapid submission.";		$slap = 400; }
-		// login failed, end session, but don't slap
+		// POST rapid
+		else if ($csrf && ($now - $sess['active']) < ABCMS_SES_WAIT) {													$error = "Session ended, rapid submission.";		$slap = 400; }
+		// login failed session ended
 		else if (isset($_COOKIE[$this->settings['core']['session_logins']]) &&
 			(($_COOKIE[$this->settings['core']['session_logins']]?:'x') !== $sess['logins'] || empty($sess['user']) ||
-			// reload user for every page load to confirm permissions
+			// reload user every page to confirm permissions
 			!($sess['user'] = $this->get_database('user', $sess['user']['userid'])))) {									$error = 'Session ended, resume login failed.'; }
 		// login expired
 		else if (!isset($_COOKIE[$this->settings['core']['session_logins']]) && !empty($sess['user'])) {				$error = 'Session ended, login expired.'; }
-		// max idle time exceeded
+		// idle time exceeded
 		else if ($now > ($sess['active'] + ABCMS_SES_IDLE)) {															$error = 'Session ended, inactivity threshold.'; }
-		// max time exceeded
+		// time exceeded
 		else if ($now > ($sess['create'] + ABCMS_SES_LIFE)) {															$error = 'Session ended, maxtime threshold.'; }
 		// POST image mismatch
-		else if ($csrf && empty($sess['user']) && ($sess['test_valu'] !== (($_POST[$sess['test_name']]??'x')?:'x'))) {	$this->set_errors('Session ended, CAPTCHA3 wrong.'); }
-		// Passed the gauntlet must be human
-		else {																											$formhuman = TRUE; }
+		else if ($csrf && $sess['test_name'] && ($sess['test_valu'] !== (($_POST[$sess['test_name']]??'x')?:'x'))) {	$this->set_errors('CAPTCHA failure, please try again.'); }
+		// Passed gauntlet must be human
+		else {
+			$formhuman = TRUE;
+			// CAPTCHA3 only once per session
+			$sess['test_name'] = NULL;
+		}
 	}
-	// destroy session by request or for corruption
+
+	// destroy by request or for corruption
 	if ($error) {
 KILL:	// set errors
 		$this->set_errors($error);
 		// start session to destroy
-		if (!$session_active) { $session_active = session_start($options); }
+		if (!$active) { $active = session_start($options); }
 		// remove cookies
-		$this->set_cookie($options['name'], '', 1); // kill session cookie
-		if (isset($_SESSION[ABCMS_SES]['cookie'])) { $this->set_cookie($_SESSION[ABCMS_SES]['cookie'], '', 1); } // kill secret cookie
-		$this->set_cookie($this->settings['core']['session_logins'], '', 1); // kill login cookie
-		// PHP says mark sessions for garbage collection to prevent races, but don't want garbage around
+		$this->set_cookie($options['name'], '', 1); // session
+		if (isset($_SESSION[ABCMS_SES]['cookie'])) { $this->set_cookie($_SESSION[ABCMS_SES]['cookie'], '', 1); } // secret
+		$this->set_cookie($this->settings['core']['session_logins'], '', 1); // login
+		// PHP says mark for garbage collection, but don't want garbage around
 		$_SESSION = [];
-		if ($session_active && !session_destroy()) { $this->error_log("Session destroy failed.");	}
-		if ($slap) { // slap the evil and block with bad actor cookie
-			$_SESSION[ABCMS_SES]['session_badact'] = $this->get_uniq();
-			$this->set_cookie($this->settings['core']['session_badact'], $_SESSION[ABCMS_SES]['session_badact'], $now + ABCMS_SES_BADA, FALSE);
+		if ($active && !session_destroy()) { $this->error_log("Session destroy failed.");	}
+		// slap evil and assign bad actor cookie
+		if ($slap) {
+			$this->set_cookie($this->settings['core']['session_badact'], $this->get_uniq(), $now + ABCMS_SES_BADA, FALSE);
 			http_response_code($slap);
-			header('Retry-After: '.ABCMS_SES_BADA);
+			header('Retry-After: ' . ABCMS_SES_BADA);
 			$this->error_wsod($error);
 		}
-		// session destroyed
 		return FALSE;
 	}
+
 	// update valid session
 	if ($sess) {
-		// reward valid POST / form
+		$logout = FALSE;
+
+		// valid POST / form
 		if ($post) {
 			$this->formvalid = TRUE;
 			$this->formhuman = ($formhuman ? TRUE :FALSE);
-			// process login immediately on page load
+			// process login on page load
 			if ('/home/login' === $this->boots['urlstripped']) {
-
-				// punish maximum login failures
+				// punish max login failures
 				if (++$sess['trys'] > ABCMS_SES_LOGI) {
-					$error = 'Too many login failures, attack suspected.';
-					$slap = 400;
+					$error = 'Too many login failures, attack suspected.'; $slap = 400;
 					goto KILL; // failed login kills session
 				}
-
 				// login sucessful
 				if ($this->formhuman &&
 					!empty(($_POST['Account_Email']??NULL).($_POST['Account_Email2']??NULL)) &&
@@ -933,30 +949,31 @@ KILL:	// set errors
 					$sess['logins'] = $this->get_uniq();
 					$this->set_cookie($this->settings['core']['session_logins'], $sess['logins'], $sess['create'] + ABCMS_SES_LIFE);
 				}
-
-				// explicit logout if login failure
+				// explicit logout if login failure, but session remains
 				else {
 					$this->set_errors('Attempted login failure.');
-					$sess['user'] = NULL;
-					$sess['logins'] = NULL;
-					$this->set_cookie($this->settings['core']['session_logins'], '', 1);
+					$logout = TRUE;
 				}
 			}
-			else {
-				$this->set_errors("Form timedout");
-			}
 		}
-		else { // mark time of forms tokens
-			$sess['mark_time'] = $now;
+
+		// process logout on page load 
+		if ($logout || '/home/logout' === $this->boots['urlstripped']) {
+			$sess['user'] = NULL;
+			$sess['logins'] = NULL;
+			$this->set_cookie($this->settings['core']['session_logins'], '', 1);
 		}
-		if ($now > ($sess['rotate'] + ABCMS_SES_ROTA) || $sess['role'] !== ($sess['user']['role']??NULL)) { // rotate if exceed rotate time or $user role changed
+
+		// rotate session and CSRF if exceed rotate time or $user role changed
+		if ($now > ($sess['rotate'] + ABCMS_SES_ROTA) || $sess['role'] !== ($sess['user']['role']??NULL)) {
 			// session cookie
-			if (!session_regenerate_id(TRUE)) { $this->error_wsod("Session regeneration failed."); }
-			$_COOKIE[$options['name']] = session_id();
+			if (!session_regenerate_id(TRUE) || !($_COOKIE[$options['name']] = session_id())) { $this->error_wsod("Session regeneration failed."); }
 			// secret cookie
 			$sess['cookie'] = $this->get_uniq();
 			$sess['secret'] = $this->get_uniq();
 			$this->set_cookie($sess['cookie'], $sess['secret'], $sess['create'] + ABCMS_SES_LIFE);
+			// CSRF token
+			$sess['csrf_valu'] = $this->get_uniq();
 			// login cookie
 			if (!empty($sess['logins'])) {
 				$sess['logins'] = $this->get_uniq();
@@ -969,6 +986,7 @@ KILL:	// set errors
 		$sess['active'] = $now;
 		$sess['role'] = $sess['user']['role']??NULL;
 	}
+
 	// validate new session
 	else {
 		$_SESSION[ABCMS_SES] = [
@@ -983,7 +1001,6 @@ KILL:	// set errors
 			'user'		=> [],
 			'role'		=> NULL,
 			'trys'		=> 0,
-			'mark_time'	=> $now,
 			'csrf_name'	=> $this->get_uniq(),
 			'csrf_valu' => $this->get_uniq(),
 			'void_name' => $this->get_uniq(),
@@ -996,32 +1013,36 @@ KILL:	// set errors
 	}
 	return TRUE;
 }
-// Set cookie
+
+// set cookie
 public function set_cookie(
-	string	$cookie,		// cookie name
-	string	$value,			// cookie value
-	int		$expires,		// expiration date
-	bool	$killit = TRUE,	// heed kill it flag
+	string	$cookie,		// name
+	string	$value,			// value
+	int		$expires,		// expiration
+	bool	$killit = TRUE,	// kill heed
 ): void {
-	if (headers_sent()) { $this->error_wsod("Set cookie headers already sent"); } // headers sent
-	if ($killit && $expires > 1 && $this->settings['core']['session_killit']) { $expires = 0; } // kill cookie on close browser
-	// Set cookie
+	// headers sent error and kill cookie on close browser
+	if (headers_sent()) { $this->error_wsod("Set cookie headers already sent"); }
+	if ($killit && $expires > 1 && $this->settings['core']['session_killit']) { $expires = 0; }
+	// set cookie
 	if (!empty($cookie) && setcookie(
 		$cookie,
 		$value,
 		[
-			'expires'	=> $expires,					// Expiration time
-			'path'		=> '/',							// For entire website
-			'domain'	=> $this->boots['urldomain'],	// For domain only
-			'secure'	=> TRUE,						// Only over HTTPS
-			'httponly'	=> TRUE,						// No javascript prevents XSS
-			'samesite'	=> 'Strict',					// Avoid CSRF attacks
+			'expires'	=> $expires,					// expiration
+			'path'		=> '/',							// entire website
+			'domain'	=> $this->boots['urldomain'],	// domain only
+			'secure'	=> TRUE,						// only HTTPS
+			'httponly'	=> TRUE,						// no js prevents XSS
+			'samesite'	=> 'Strict',					// avoid CSRF attacks
 		])) {
+		// expire unset or set
 		if ($expires && $expires < $this->boots['time']) {	unset($_COOKIE[$cookie]); }
 		else {												$_COOKIE[$cookie] = $value; }
 		return;
 	}
-	unset($_COOKIE[$cookie]); // failed so unset
+	// failed so unset
+	unset($_COOKIE[$cookie]);
 	$this->error_wsod("Set cookie failed");
 	return;
 }
@@ -1831,7 +1852,7 @@ form.form-grid {
 label { text-align: right; }
 input:required { border: 1px solid blue; }
 fieldset.disable { border: none; margin: 0; padding: 0; min-width: 0; display: contents; }
-div.debug { margin-top: 7rem; background-color: #EEEEEE; text-align: left; padding: 20px; }
+pre.debug { margin-top: 7rem; background-color: #EEEEEE; text-align: left; padding: 20px; }
 @media screen and (max-width: 1065px) { main { margin: 0; } }
 <?php echo $css; ?>
 </style>
