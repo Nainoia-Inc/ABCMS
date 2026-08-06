@@ -140,79 +140,98 @@ exit($code);
 /*************************************************************************************************
 SECTION CONSTRUCT: Instantiate object and validate inputs.
 */
-function abcms() : ?object { // return object or NULL
-static $_abcms = FALSE; if (FALSE === $_abcms) { // create once
-$_abcms = NULL;								// constructed or NULL
+function abcms() : ?object {				// abcms() function
+static $_abcms = FALSE;						// construct once
+if (FALSE === $_abcms) {					// fail once
+$_abcms = NULL;								// return FALSE, NULL, or object
 $_abcms = new class {						// object assigned
 readonly	array	$boots;					// bootstrap input before session
 readonly	array	$input;					// sanitized input after session
-readonly	array	$settings;				// read application settings
-private		array	$compiles	= array();	// compile application settings
+readonly	array	$settings;				// application settings
+private		array	$compiles	= array();	// compile settings
 private		array	$database	= array();	// database
-private		array	$errors		= array();	// runtime errors
-private		array	$debugs		= array();	// runtime debugs
-private		array	$stack		= array();	// runtime extension stack
-private		bool	$formvalid	= FALSE;	// form tested valid
-private		bool	$formhuman	= FALSE;	// form tested human
-// Construct object
+private		array	$errors		= array();	// errors
+private		array	$debugs		= array();	// debugs
+private		array	$stack		= array();	// extension stack
+private		bool	$formvalid	= FALSE;	// form valid
+private		bool	$formhuman	= FALSE;	// form human
+// construct object
 function __construct() {
-	if (!ini_set('error_log', __DIR__ . "/../private/nainoiainc/abcms/ABCMS.errorlog")) { $this->error_wsod("Error file location not customized."); } // error location
-	while(ob_get_level() > 0) { if(ob_get_clean()) { $this->error_wsod("That is wrong, I got stuff in my buffers."); } } // dump unknown buffers
-	if (FALSE === $this->settings(TRUE)){ $this->error_wsod("Application settings not found."); } // read settings
-	$this->boots = array( // bootstrap settings for session_start(), then session user validates inputs
-		'cli' => ($cli = ('cli' === PHP_SAPI ? TRUE : FALSE)), // CLI execution
-		'argc' => $_SERVER['argc'], // CLI argument count
-		'argv' => $_SERVER['argv'], // CLI arguments
-		'time' => time(), // current time()
-		'uagent' => (($_SERVER['REMOTE_ADDR']??'')?:'unknown').(($_SERVER['HTTP_USER_AGENT']??'')?:'unknown'), // user identity hash
-		'auto' => $this->settings['core']['auto'], // Auto-Loader
+	// error location, always continue
+	if (FALSE === ini_set('error_log', __DIR__ . "/../private/nainoiainc/abcms/ABCMS.errorlog")) { $this->error_log("Set error_log location failed."); }
+	// dump unknown buffers, always continue
+	while(ob_get_level() > 0) { if (FALSE !== ($buf = ob_get_clean()) && '' !== $buf) { $this->error_log("Wrong, I got stuff in my buffers."); } }
+	// read settings
+	if (FALSE === $this->settings(TRUE)){ $this->error_wsod("Application settings not found."); }
+	// bootstrap inputs for session_start(), then session user validates remaining inputs
+	$this->boots = array(
+		// current time()
+		'time' => time(),
+		// user identity
+		'uagent' => (($_SERVER['REMOTE_ADDR']??'')?:'unknown').(($_SERVER['HTTP_USER_AGENT']??'')?:'unknown'),
+		// auto-loader
+		'auto' => $this->settings['core']['auto'],
+		// CLI execution
+		'cli' => ($cli = ('cli' === PHP_SAPI ? TRUE : FALSE)),
+		// CLI arg count
+		'argc' => ($_SERVER['argc']??0),
+		// CLI args
+		'argv' => ($_SERVER['argv']??[]),
 		// URL full
 		'urlfull' => ($urlfull =
 			// CLI domain
 			($cli ? ('https://localhost' . 
 			// CLI URI validation or default
-			($_SERVER['argc']>1 && '/' === $_SERVER['argv'][1][0] && FALSE !== filter_var('http://localhost' . $_SERVER['argv'][1], FILTER_VALIDATE_URL) ? $_SERVER['argv'][1] : '/console/help')) :
+			($_SERVER['argc']>1 && '/' === ($_SERVER['argv'][1][0]?:'') && FALSE !== filter_var('http://localhost' . $_SERVER['argv'][1], FILTER_VALIDATE_URL) ? $_SERVER['argv'][1] : '/command/help')) :
 			// HTTP secure
-			((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://') .
+			((isset($_SERVER['HTTPS']) && mb_strtolower($_SERVER['HTTPS']) !== 'off' ? 'https://' : 'http://') .
 			// HTTP domain validation including multibyte to punycode
-			(isset($_SERVER['HTTP_HOST']) && FALSE!==filter_var(idn_to_ascii($_SERVER['HTTP_HOST'], IDNA_DEFAULT,INTL_IDNA_VARIANT_UTS46),FILTER_VALIDATE_DOMAIN) ? $_SERVER['HTTP_HOST'] : 'unknown') .
+			(!empty($_SERVER['HTTP_HOST']) && ($host = preg_replace('/:\d*$/u','',$_SERVER['HTTP_HOST'])) &&
+			FALSE !== filter_var(idn_to_ascii($host, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46), FILTER_VALIDATE_DOMAIN) ? $_SERVER['HTTP_HOST'] : 'unknown') .
 			// HTTP URI validation, ascii only
 			(isset($_SERVER['REQUEST_URI']) && mb_check_encoding($_SERVER['REQUEST_URI'],'ASCII') && FALSE!==filter_var('http://localhost'.$_SERVER['REQUEST_URI'],FILTER_VALIDATE_URL) ? $_SERVER['REQUEST_URI'] : '/unknown')))),
 		// URL parse
 		'urlparsed' => ($urlparsed = parse_url($urlfull)),
 		// URL domain
-		'urldomain' => (mb_strtolower($urlparsed['host'], 'UTF-8')),
-		// URL request method
+		'urldomain' => (mb_strtolower(($urlparsed['host']??''), 'UTF-8')),
+		// URL port
+		'urlport' => ($urlparsed['port']??NULL),
+		// URL method
 		'urlmethod' => ($cli ? 'CLI' : ((empty($_SERVER['REQUEST_METHOD']) ||
 			!in_array($_SERVER['REQUEST_METHOD'], array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE'))) ? 'GET' : $_SERVER['REQUEST_METHOD'])),
-		// URL stripped of variables, no trailing slash, and urldecoded
-		'urlpathall' => ($urlpathall = ('/'.(trim(preg_replace(ABCMS_REGEX_URLV, '/', ($urldecoded = urldecode($urlparsed['path']))), '/')))),
+		// URL no variables, no trailing slash, and urldecoded
+		'urlpathall' => ($urlpathall = ('/'.(trim(preg_replace(ABCMS_REGEX_URLV, '/', ($urldecoded = urldecode(($urlparsed['path']??'')))), '/')))),
 		// URL first segment for primary router
 		'urlpathone' => (!($ret = preg_match("/^(\/[^\/]*)(\/.+)?$/u", $urlpathall, $matches)) ? '/' : $matches[1]),
-		// URL second plus segments for secondary router
+		// URL second+ segments for secondary router
 		'urlpathext' => (!$ret || empty($matches[2]) ? '/' : $matches[2]),
 	);
-	$session = $this->session_start(0); // lazy session start
-	$this->input = array( // sanitize inputs with session user
+	// lazy start
+	$session = $this->session_start(0);
+	// sanitize inputs given user role
+	$this->input = array(
 		// session result
 		'session' => $session,
 		// my user
 		'user' => $_SESSION[ABCMS_SES]['user']??NULL,
 		// my role
 		'role' => ($role = ($cli ? ABCMS_ROLE_CLI : $_SESSION[ABCMS_SES]['user']['role']??ABCMS_ROLE_PUBLIC)),
-		// URL path variables 'v', none or validate
+		// URL validate path vars 'v'
 		'urlvars' => (!preg_match_all(ABCMS_REGEX_URLV, $urldecoded, $matches, PREG_PATTERN_ORDER) ? array() :
 			$this->input_valid('v', array_combine($matches[1], $matches[2]), $role)),
-		// URL query variables 'q' from parse_str() because CLI has no $_GET
-		'urlquery' => ($this->input_valid('q', ((!empty($urlparsed['query']) && mb_parse_str($urlparsed['query'], $result)) ? $result : array()), $role)),
+		// URL validate query vars 'q' from parse_str() because CLI has no $_GET
+		'urlquery' => ($this->input_valid('q', (mb_parse_str(($urlparsed['query']??''), $result) ? $result : array()), $role)),
 		// POST variables 'p'
-		'postvars' => array(), // ($this->input_valid('p', $_POST, $role)),
-
-		'nonce' => $this->get_uniq(), // style and script security nonce
+		'postvars' => array(), // TODO ($this->input_valid('p', $_POST, $role)),
+		// style & script security nonce
+		'nonce' => $this->get_uniq(),
 	);
-	if ($this->boots['auto']) { require_once($this->boots['auto']); } // require composer
-	if (0 !== stripos($urldecoded, $urlpathall)) { $this->set_errors("URL questioned, variables within path"); }	// variables within path
-	return; // Done
+	// require composer
+	if ($this->boots['auto']) { require_once($this->boots['auto']); }
+	// vars in path if !str_starts with
+	if (!str_starts_with($urldecoded, $urlpathall)) { $this->set_errors("URL questioned, variables within path"); }
+	// done
+	return;
 }
 // Disallowed methods
 public function __set(string $name, mixed $value) : void { $this->error_wsod("Dynamic properties disallowed."); }
@@ -1669,7 +1688,7 @@ public function email(
 	if (!empty($options_user) && !$encrypted) { return $fail("Email unencrypted authentication refused."); }
 	if (!empty($options_user) && isset($options_pass)) {
 		$authLine = current(preg_grep('/^auth /i', $capabilities)) ?: '';
-		$methods = array_slice(preg_split('/\s+/', strtolower($authLine)), 1);
+		$methods = array_slice(preg_split('/\s+/', mb_strtolower($authLine)), 1);
 		if (in_array('plain', $methods, TRUE)) {
 			[$status] = $command('AUTH PLAIN ' . base64_encode("\0{$options_user}\0{$options_pass}"), FALSE);
 			if ($status != 235) { return $fail('Email AUTH PLAIN rejected.'); }
