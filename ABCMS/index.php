@@ -524,8 +524,8 @@ EOF;
 EOF;
 	// form CAPTCHA
 	$inject_captcha = (empty($sess['test_name']) ? NULL : <<<EOF
-<div>
-Enter CAPTCHA <input name='{$sess['test_name']}' value=''> \$1 \$3
+<div class='captcha'>
+CAPTCHA <input name='{$sess['test_name']}' value=''> \$1 \$3
 </div>
 EOF
 	);
@@ -574,7 +574,7 @@ SECTION SETTINGS: Compile core and extension boot settings.
 private function settings(
 	bool	$boot = FALSE,	// Bootstrap load existing
 ) : bool {
-	// overwrite?
+	// read settings
 	$storage = __DIR__ . "/../private/nainoiainc/abcms/ABCMS.settings";
 	if ($boot && file_exists($storage)) {
 		if (NULL === ($this->settings = json_decode(file_get_contents($storage), TRUE))) {
@@ -583,7 +583,7 @@ private function settings(
 		return TRUE;
 	}
 	$this->compiles = array();
-	// core settings
+	// recreate settings
 	touch(__FILE__);
 	$this->compiles['core']['filename']			= (__FILE__); // My filename
 	$this->compiles['core']['documentroot']		= (__DIR__); // My documentroot
@@ -624,11 +624,12 @@ private function settings(
 	$this->settings_extend(ABCMS_EXT_INITX,	'',			'CLI-GET-POST',	'IEU',	'abcms()->home_theme',		ABCMS_ROLE_PUBLIC,	-10);
 	$this->settings_extend(ABCMS_EXT_INITX,	'console',	'CLI-GET-POST',	'IEU',	'abcms()->console_theme',	ABCMS_ROLE_ADMINS,	-20);
 	$this->settings_equate(ABCMS_EXT_INITX,	'console',	'/console/');
-	$this->settings_extend(ABCMS_EXT_INITX,	'command',	'CLI-GET-POST',	'IEU',	'abcms()->command_router',	ABCMS_ROLE_ADMINS,	-999);
+	$this->settings_extend(ABCMS_EXT_INITX,	'command',	'CLI-GET-POST',	'IEU',	'abcms()->command_router',	ABCMS_ROLE_ADMINS,	-10);
 	$this->settings_equate(ABCMS_EXT_INITX,	'command',	'/command/');
 	// frontend extensions
 	$this->settings_extend(ABCMS_EXT_MAINX,	'home',		'CLI-GET-POST',	'IE',	'abcms()->home_router',		ABCMS_ROLE_PUBLIC,	-10);
 	$this->settings_equate(ABCMS_EXT_MAINX,	'home',		'/');
+	$this->settings_equate(ABCMS_EXT_MAINX,	'home',		'/account');
 	$this->settings_equate(ABCMS_EXT_MAINX,	'home',		'/home');
 	$this->settings_equate(ABCMS_EXT_MAINX,	'home',		'/home/');
 	// admin extensions
@@ -639,8 +640,13 @@ private function settings(
 	// while() { include init.php; }
 	// clean up - remove mixed non-exclusive or exclusive routes.
 	while(0) { ; } // loop through extension SETTINGS.php
-	// write settings to disk
-	if (FALSE===$this->set_json($storage, $this->compiles)) {	$this->error_wsod("Settings write failure."); }
+	// override settings
+	if (($override = json_decode(file_get_contents(__DIR__ . "/../private/nainoiainc/abcms/ABCMS.override"), TRUE))) {
+		$this->array_walk_merge($this->compiles, $override);
+	}
+	// save settings atomically with rename()
+	$temp = "{$storage}.".getmypid();
+	if (FALSE === $this->set_json($temp, $this->compiles) || !rename($temp, $storage)) {	$this->error_wsod("Settings write failure."); }
 	if ($boot) { $this->settings = $this->compiles; }
 	unset($this->compiles);
 	return TRUE;
@@ -918,7 +924,7 @@ public function session_start(
 		// time exceeded
 		else if ($now > ($sess['create'] + ABCMS_SES_LIFE)) {															$error = 'Session ended, maxtime threshold.'; }
 		// POST image mismatch
-		else if ($csrf && $sess['test_name'] && ($sess['test_valu'] !== (($_POST[$sess['test_name']]??'x')?:'x'))) {	$this->set_errors('CAPTCHA failure, please try again.'); }
+		else if ($csrf && empty($sess['user']) && ($sess['test_valu'] !== (($_POST[$sess['test_name']]??'x')?:'x'))) {	$this->set_errors('CAPTCHA failure, please try again.'); }
 		// Passed gauntlet must be human
 		else {																											$formhuman = TRUE; }
 	}
@@ -954,7 +960,6 @@ KILL:	// set errors
 		if ($post) {
 			$this->formvalid = TRUE;
 			$this->formhuman = ($formhuman ? TRUE :FALSE);
-			$sess['test_name'] = NULL; // CAPTCHA3 only one POST per session
 			// process login on page load
 			if ('/home/login' === $this->boots['urlpathall']) {
 				// punish max login failures
@@ -963,6 +968,14 @@ KILL:	// set errors
 					goto KILL; // failed login kills session
 				}
 				// login sucessful
+				/*
+					return array(
+						'email'	=> 'jeff@dgjc.org',
+						'email2'=> 'nainoia-inc@signedon.net',
+						'pass'	=> '',
+						'role'	=>	ABCMS_ROLE_ADMINS,
+					);
+				*/
 				if ($this->formhuman &&
 					!empty(($_POST['Account_Email']??NULL).($_POST['Account_Email2']??NULL)) &&
 					!empty($_POST['Account_Password']) &&
@@ -1070,6 +1083,78 @@ public function set_cookie(
 	return;
 }
 
+// account register, login, logout, update, delete
+private function session_account(mixed &...$unused) : ?bool {
+	// start session
+	echo "<h1>Account</h1>";
+	if (!$this->session_start(1)) {				echo "Session failed."; return NULL; } // early exit
+	$sess = $_SESSION[ABCMS_SES];
+
+	// possibilities switch
+	if ('POST' !== $this->boots['urlmethod']) {	$mess = "Login or register below"; }// not POST
+	else if (!$this->formvalid) {				$mess = "Suspect submital."; }		// suspect
+	else if (!$this->formhuman) {				$mess = "CAPTCHA failed."; }		// CAPTCHA
+	else if (empty($sess['user'])) {			$mess = "Login or Register."; }		// not logged in
+	else if ('register' === $_POST['clicked']){	$mess = "Registered."; }			// registered
+	else if ('login' === $_POST['clicked']) {	$mess = "Logged in.";				// logged in
+		$email = $this->email(
+		'jeff@dgjc.org',										// From
+		'Jeff Martin',											// Name
+		['jeff@dgjc.org'],										// Recipients
+		['jmartin@prwa.com'],									// CCs
+		['nainoia-inc@signedon.net'],							// BCCs
+		'ABCMS test login email',								// Subject
+		'<h2>Success!</h2><p>One</p><p>Two</p><p>Three</p>',	// HTML body
+		"Success!\r\n\r\none\r\ntwo\r\nthree\r\n",				// Plain text
+		[__FILE__],												// Attachments
+		[	'smtp'	=> $this->settings['core']['smtp_host'],	// SMTP host
+			'port'	=> $this->settings['core']['smtp_port'],	// SMTP port
+			'user'	=> $this->settings['core']['smtp_user'],	// SMTP user
+			'pass'	=> $this->settings['core']['smtp_pass'],	// SMTP pass
+			'ehlo'	=> $this->boots['urldomain'],				// SMTP EHLO
+		],
+		);
+	}
+	else if ('reset' === $_POST['clicked']) {	$mess = "Account reset."; }			// reset
+	else if ('logout' === $_POST['clicked']) {	$mess = "Logged out."; }			// logged out
+	else if ('update' === $_POST['clicked']) {	$mess = "Account updated."; }		// updated
+	else if ('delete' === $_POST['clicked']) {	$mess = "Account deleted."; }		// deleted
+
+	// initalize display
+	$status	= (!empty($sess['user'])			? 'Logged in' : (isset($_COOKIE[$this->settings['core']['session_logins']]) ? 'Validated, one credential login' : 'Unknown, two credential login'));
+	$email	= (!empty($sess['user']['email'])	? $this->hsc($sess['user']['email']) : '');
+	$email2	= (!empty($sess['user']['email2'])	? $this->hsc($sess['user']['email']) : '');
+
+	// display account
+	echo <<<EOF
+<form action='' method='post' accept-charset='UTF-8' class='form-grid'>
+<label							>Result:</label>		<span>{$mess}</span>
+<label							>Status:</label>		<span>{$status}</span>
+<label for='Account_Email'		>Email:</label>			<input type='email'		id='Account_Email'		name='Account_Email'	value='{$email}'>
+<label for='Account_Email2'		>Email2:</label>		<input type='email'		id='Account_Email2'		name='Account_Email2'	value='{$email2}'>
+<label for='Account_Password'	>Password:</label>		<input type='password'	id='Account_Password'	name='Account_Password'	value=''>
+<label></label>
+<div>
+EOF;
+if (empty($sess['user'])) {
+echo <<<EOF
+<button type='submit' name='register'	value='register'>Register</button>
+<button type='submit' name='login'		value='login'	>Login</button>
+<button type='submit' name='reset'		value='reset'	>Reset</button>
+EOF;
+}
+else {
+echo <<<EOF
+<button type='submit' name='logout'		value='logout'	>Logout</button>
+<button type='submit' name='update'		value='update'	>Update</button>														
+<button type='submit' name='delete'		value='delete'	>Delete</button>
+EOF;
+}
+echo "</div></form>";
+
+return NULL;
+}
+
 
 
 
@@ -1079,19 +1164,92 @@ public function set_cookie(
 /*************************************************************************************************
 SECTION DATABASE: Store data in JSON, CSV, SQLite, or MySQL.
 */
-// Set Database
-public function set_database(string $filename, mixed $data) : mixed {
+// database set
+public function set_database(
+	string $filename,	// location
+	array $keys,		// element keys, [] replaces database with $data if array or [$data]
+	mixed $data,		// element
+) : bool {
+	// database file
+	if ((!file_exists(__DIR__ . $filename) && !touch(__DIR__ . $filename)) ||
+		!($datafile = realpath(__DIR__ . $filename))) {
+		$this->error_wsod("Database not found: $filename");
+	}
+	// update element
+	$update = [];
+	$current = &$update;
+	foreach($keys as $key) {
+		$current[$key] = [];
+		$current = &$current[$key];
+	}
+	$current = $data;
+	// exclusive lock
+	if (!($lockfd = fopen($datafile.".lock", 'c')) || !flock($lockfd, LOCK_EX)) {
+		if ($lockfd) { fclose($lockfd); }
+		$this->error_wsod("Database exclusive lock failure");
+	}
+	// read database
+	if (FALSE === ($raw = file_get_contents($datafile))) {
+		flock($lockfd, LOCK_UN); fclose($lockfd);
+		$this->error_wsod("Database read failure: {$datafile}");
+	}
+	else if ('' === $raw) {
+		$this->database[$datafile] = [];
+	}
+	else if (!is_array($this->database[$datafile] = json_decode($raw, TRUE))) {
+		flock($lockfd, LOCK_UN); fclose($lockfd);
+		$this->error_wsod("Database corrupted: {$datafile}");
+	}
+	// merge update
+	if (empty($keys)) { $this->database[$datafile] = (is_array($data) ? $data : array($data)); }
+	else {				$this->array_walk_merge($this->database[$datafile], $update); }
+	// write database
+	if (FALSE===$this->set_json($datafile, $this->database[$datafile])) {
+		flock($lockfd, LOCK_UN); fclose($lockfd);
+		$this->error_wsod("Database write failure.");
+	}
+	flock($lockfd, LOCK_UN); fclose($lockfd);
 	return TRUE;
 }
-// Get Database
-public function get_database(string $filename, mixed $data) : mixed {
-	touch(__DIR__ . "/../private/nainoiainc/abcms/ABCMS.database");
-	return array(
-		'userid'=> 1,
-		'first'	=> 'Jeff',
-		'last'	=> 'Martin',
-		'role'	=>	ABCMS_ROLE_ADMINS,
-	);
+// database get
+public function get_database(
+	string $filename,	// location
+	array $keys,		// element keys, [] returns whole database
+) : mixed {
+	// database file
+	if ((!file_exists(__DIR__ . $filename) && !touch(__DIR__ . $filename)) ||
+		!($datafile = realpath(__DIR__ . $filename))) {
+		$this->error_wsod("Database not found: {$filename}");
+	}
+	// cached or not cached
+	if (!isset($this->database[$datafile])) {
+		// shared lock
+		if (!($lockfd = fopen($datafile.".lock", 'c')) || !flock($lockfd, LOCK_SH)) {
+			if ($lockfd) { fclose($lockfd); }
+			$this->error_wsod("Database shared lock failure: {$datafile}");
+		}
+		// read database
+		if (FALSE === ($raw = file_get_contents($datafile))) {
+			flock($lockfd, LOCK_UN); fclose($lockfd);
+			$this->error_wsod("Database read failure: {$datafile}");
+		}
+		else if ('' === $raw) {
+			$this->database[$datafile] = [];
+		}
+		else if (!is_array($this->database[$datafile] = json_decode($raw, TRUE))) {
+			flock($lockfd, LOCK_UN); fclose($lockfd);
+			$this->error_wsod("Database corrupted: {$datafile}");
+		}
+		// release lock
+		flock($lockfd, LOCK_UN); fclose($lockfd);
+	}
+	// return data
+	$element = $this->database[$datafile];
+	foreach ($keys as $key) {
+		if (!isset($element[$key])) { return NULL; }
+		$element = $element[$key];
+	}
+	return $element;
 }
 
 
@@ -1106,13 +1264,14 @@ SECTION HOME: Core extension /home/*
 private function home_theme(
 	mixed &...$unused,
 ) : ?bool {
-$footer =
-"<a href='/'>Home</a>".
-" / <a href='/home/more'>More</a>".
-" / <a href='/home/contact'>Contact</a>" .
-(empty($this->input['user']) ? " / <a href='/home/login'>Login</a>" : NULL) .
-(!empty($this->input['user']) ? " / <a href='/home/logout'>Logout</a>" : NULL) .
-($this->input['role'] < ABCMS_ROLE_ADMINS ? NULL : " / <a href='/console'>Console</a>"); // footer
+$footer = <<<EOF
+<a href='/'>Home</a>
+ / <a href='/home/more'>More</a>
+ / <a href='/home/contact'>Contact</a>
+ / <a href='/account'>Account</a>
+EOF
+. ($this->input['role'] < ABCMS_ROLE_ADMINS ? NULL : " / <a href='/console'>Console</a>");
+
 return $this->theme( // theme
 	...$args = array( // spreader
 	NULL,	// css
@@ -1129,15 +1288,15 @@ EOF
 	),
 );
 }
+// inject error display here?
 private function home_router(mixed &...$unused) : ?bool {
 switch ($this->boots['urlpathall']) {
 case '/':
-case '/home':			$this->home();			return NULL;
-case '/home/contact':	$this->home_contact();	return NULL;
-case '/home/login':		$this->home_login();	return NULL;
-case '/home/logout':	$this->home_logout();	return NULL;
-case '/home/more':		$this->home_more();		return NULL;
-default:				$this->home_notfound();	return NULL;
+case '/home':			$this->home();				return NULL;
+case '/home/contact':	$this->home_contact();		return NULL;
+case '/home/more':		$this->home_more();			return NULL;
+case '/account':		$this->session_account();	return NULL;
+default:				$this->home_notfound();		return NULL;
 }
 return NULL;
 }
@@ -1158,61 +1317,6 @@ echo <<<EOF
 <h1>Contact</h1>
 EOF;
 	return NULL;
-}
-private function home_login(mixed &...$unused) : ?bool {
-echo <<<EOF
-<h1>Login</h1>
-EOF;
-
-if (!$this->session_start(1)) { return NULL; }
-
-else if ($this->formhuman && $_SESSION[ABCMS_SES]['user']) {
-	$email = $this->email(
-		'jeff@dgjc.org',										// From
-		'Jeff Martin',											// Name
-		['jeff@dgjc.org'],										// Recipients
-		['jmartin@prwa.com'],									// CCs
-		['nainoia-inc@signedon.net'],							// BCCs
-		'ABCMS test login email',								// Subject
-		'<h2>Success!</h2><p>One</p><p>Two</p><p>Three</p>',	// HTML body
-		"Success!\r\n\r\none\r\ntwo\r\nthree\r\n",				// Plain text
-		[__FILE__],												// Attachments
-		[	'smtp'	=> $this->hsc(($_POST['Account_One']??'')),	// SMTP host
-			'port'	=> 465,										// SMTP port
-			'user'	=> $this->hsc(($_POST['Account_Two']??'')),	// SMTP user
-			'pass'	=> $this->hsc(($_POST['Account_Tre']??'')),	// SMTP pass
-			'ehlo'	=> $this->boots['urldomain'],				// SMTP EHLO
-			'debug'	=> TRUE,									// Debug
-		],
-	);
-
-	echo "Submittal success! ({$email})";
-}
-?>
-<form action='' method='post' accept-charset='UTF-8' class='form-grid'>
-<label for='Account_Email'		>Email:</label>			<input type='email'		id='Account_Email'		name='Account_Email'	value='<?php echo $this->hsc(($_POST['Account_Email']??''));	?>'>
-<label for='Account_Email2'		>Email2:</label>		<input type='email'		id='Account_Email2'		name='Account_Email2'	value='<?php echo $this->hsc(($_POST['Account_Email2']??''));	?>'>
-<label for='Account_One'		>One:</label>			<input type='text'		id='Account_One'		name='Account_One'		value=''>
-<label for='Account_Two'		>Two:</label>			<input type='text'		id='Account_Two'		name='Account_Two'		value=''>
-<label for='Account_Tre'		>Tre:</label>			<input type='text'		id='Account_Tre'		name='Account_Tre'		value=''>
-<label for='Account_Password'	>Password:</label>		<input type='password'	id='Account_Password'	name='Account_Password'	value=''>
-<label></label>											<input type='submit'	id='submit'				name='submit'			value='submit'>
-</form>
-
-<?php
-return NULL;
-}
-private function home_logout(mixed &...$unused) : void {
-$this->session_start(-1); // destroy session and logout
-echo <<<EOF
-<h1>Logout</h1>
-<p class='center'>
-You have been logged out.<br>
-<br>
-<a href='/'>Resume again from the homepage</a>.
-</p>
-EOF;
-return;
 }
 private function home_more(mixed &...$unused) : ?bool {
 echo <<<EOF
@@ -1874,6 +1978,7 @@ form.form-grid {
 }
 label { text-align: right; }
 input:required { border: 1px solid blue; }
+div.captcha, button { display: inline-block; }
 fieldset.disable { border: none; margin: 0; padding: 0; min-width: 0; display: contents; }
 pre.debug { margin-top: 7rem; background-color: #EEEEEE; text-align: left; padding: 20px; }
 @media screen and (max-width: 1065px) { main { margin: 0; } }
