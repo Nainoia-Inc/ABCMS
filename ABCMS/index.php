@@ -24,9 +24,9 @@ const ABCMS_ROLE_CLI	= 7;
 const ABCMS_ROLE_SET	= array(0,1,2,3,4,5,6,7);
 // regex
 // includefile?function #^(|/vendor/package/filepath)(|?(|classobject(::|->|()->))funcmeth)#
-const ABCMS_REGEX_FUNC	= "/^((\/[^?]+)\?)?((([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-zA-Z_\x{7f}-\x{ff}][a-zA-Z0-9_\x{7f}-\x{ff}]*))?$/u";
+const ABCMS_REGEX_FUNC	= "/^((\/[^?]+)\?)?((([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*))?$/ui";
 const ABCMS_REGEX_HOOK	= "/^\/[^\/]+\/[^\/]+\/[^\/]+$/u";				// hook name, path-like, but not a filepath
-const ABCMS_REGEX_URLV	= "/\/([a-z0-9\-_.~]+)=([a-z0-9\-_.~]+)/ui";	// URL variable
+const ABCMS_REGEX_URLV	= "/\/([a-z0-9\-_.~]+)=([a-z0-9\-_.~=]+)/ui";	// URL variable
 const ABCMS_REGEX_FORM	= "/(<form[^>]*>)(.+?)(<\/form>)/uis";			// form security injection
 // session - move these to overridable $settings
 const ABCMS_SES			= ABCMS_EXT_SELF;	// unique session key for ABCMS
@@ -270,7 +270,7 @@ private function input_valid(
 			case 'path'		:	if ('/' !== $val[0] || FALSE === filter_var('http://localhost'.$val, FILTER_VALIDATE_URL)) {					break; }			continue 2;
 			case 'uri'		:	if (!mb_check_encoding($val, 'ASCII') || FALSE === filter_var('http://localhost'.$val, FILTER_VALIDATE_URL)) {	break; }			continue 2;
 			case 'url'		:	if (!mb_check_encoding($val, 'ASCII') || FALSE === filter_var($val, FILTER_VALIDATE_URL)) {						break; }			continue 2;
-			case 'uuid'		:	if (!preg_match("/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i", $val)) {			break; }			continue 2;			
+			case 'uuid'		:	if (!preg_match("/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i", $val)) {		break; }			continue 2;			
 			// Variable found, but undefined type registered by settings_variable()
 			default:			$this->error_wsod("Undefined URL variable type, '{$this->settings[$cat][$var]['type']}'");
 		}
@@ -363,17 +363,17 @@ public function output(
 	//return $arguments;
 	return $args;
 }
-// Which extension called function that called me?
+// which extension called the function that called me?
 private function extension() : string {
-	// Omit object and args, 2 levels
+	// omit object and args, 2 levels back
 	$trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2);
-	// No trace
+	// no trace
 	if (empty($trace[1]['file'])) { $this->error_wsod("Backtrace result unavailable."); }
-	// Called myself
+	// called myself
 	else if ($trace[1]['file'] === (__FILE__)) { return ABCMS_EXT_SELF; }
-	// Valid extension
+	// valid extension
 	else if (preg_match("|^".preg_quote(dirname(__DIR__),'|')."/private(/[^/]+/[^/]+)|u", $trace[1]['file'], $match) && !empty($match[1])) { return $match[1]; }
-	// Invalid extension
+	// invalid extension
 	$this->error_wsod("Extension not found.");
 }
 // Execute hook extension?
@@ -407,15 +407,15 @@ private function output_call(
 ) : ?bool {
 	// Parse includefile?function
 	if (!preg_match(ABCMS_REGEX_FUNC, $filefunc, $match)) { $this->error_wsod("Calling invalid function name."); }
-	$filepath	= $match[2]; // Dynamic extension file inclusion
-	$classobject= $match[5]; // Class or object
-	$operator	= $match[6]; // Operator to function
-	$funcmeth	= $match[7]; // Function/method
-	// Include file
+	$filepath	= $match[2]; // extension include file
+	$classobject= $match[5]; // class or object
+	$operator	= $match[6]; // operator to function
+	$funcmeth	= $match[7]; // function / method
+	// include the file
 	$result = FALSE; // Default failure
 	if ($filepath) {
-		if ($funcmeth) {	$result = (bool)$this->include_once($filepath, ...$args); } // Include for function definition
-		else {				$result = (bool)$this->include($filepath, ...$args); } // No function so multiple executions allowed
+		if ($funcmeth) {	$result = (bool)$this->include_once($filepath, ...$args); } // failsafe include once for definition
+		else {				$result = (bool)$this->include($filepath, ...$args); } // or multiple executions allowed
 	}
 	// Call function
 	if ($funcmeth) { // Function attempt
@@ -454,16 +454,19 @@ private function output_call(
 // inject html form security with regex for speed instead of DOM 
 private function output_security(string &$html) : void {
 
-	// no form so skip
-	if (!($num = preg_match_all(ABCMS_REGEX_FORM, $html))) { return; }
+	// failure or no form so skip
+	if (FALSE === ($num = preg_match_all(ABCMS_REGEX_FORM, $html))) { $this->error_wsod("Form security failed initialization."); }
+	if (!$num) { return; }
 
 	// start session
-	if (!$this->session_start(1)) {
+	if (!$this->session_start(1) || empty($_SESSION[ABCMS_SES]['csrf_valu'])) {
 		// session failed, disable forms with <fieldset> and CSS with missing CSRF as safety net
 		$this->set_errors("Forms disabled, security failed.");
-		if (!($html = preg_replace(ABCMS_REGEX_FORM, '$1<fieldset disabled class="disable">$2</fieldset>$3', $html, -1, $count)) || $count !== $num ||
-			!($html = preg_replace("/<\/style>/ui", "\nform { pointer-events: none; opacity: 0.5; }\n</style>", $html, 1, $count)) || 1 !== $count) {
+		if (!($html = preg_replace(ABCMS_REGEX_FORM, '$1<fieldset disabled class="disable">$2</fieldset>$3', $html, -1, $count)) || $count !== $num) {
 			$this->error_wsod("Form security entirely failed.");
+		}
+		if (!($html = preg_replace("/<\/head>/ui", "\n<style nonce='{$this->input['nonce']}'>form { pointer-events: none; opacity: 0.5; }\n</style>\n</head>", $html, 1, $count)) || 1 !== $count) {
+			$this->error_log("Form security css failed.");
 		}
 		return;
 	}
@@ -475,6 +478,7 @@ private function output_security(string &$html) : void {
 	// secure button click instead of enter submission
 	$inject_script = <<<EOF
 
+<script type='module' nonce='{$this->input['nonce']}'>
 document.addEventListener('keydown', function(event) {
 	if (event.key === 'Enter' && event.target.form) {
 		event.preventDefault();
@@ -501,11 +505,12 @@ document.addEventListener('click', function (event) {
 });
 
 </script>
+</head>
 
 EOF;
 
 	// inject javascript
-	if (!($html = preg_replace("/<\/script>/ui", $inject_script, $html, 1, $count)) || 1 !== $count) { // inject
+	if (!($html = preg_replace("/<\/head>/ui", $inject_script, $html, 1, $count)) || 1 !== $count) { // inject
 		$this->error_wsod("Form security javascript injection failed.");
 	}
 
@@ -520,7 +525,7 @@ EOF;
 	// form CAPTCHA
 	$inject_captcha = (empty($sess['test_name']) ? NULL : <<<EOF
 <div>
-Enter CAPTCHA <input name='{$sess['test_name']}' value=''>\$1 \$2
+Enter CAPTCHA <input name='{$sess['test_name']}' value=''> \$1 \$3
 </div>
 EOF
 	);
@@ -531,11 +536,13 @@ EOF
 		function($matches) use ($inject_tokens, $inject_captcha) {
 			$replace = $matches[1].$matches[2];
 			// CAPTCHA injection
-			if ($inject_captcha && !($replace = preg_replace(array("/(<input\s+[^>]*?type\s*=\s*['\"]submit['\"])(>|\s+[^>]*?>)/ui", "/(<button)([^<]+<\/button>)/ui"), $inject_captcha, $replace))) {
+			if ($inject_captcha &&
+				(!($replace = preg_replace("/(<input\s+[^>]*?type\s*=(\s*submit|\s*'submit'|\s*\"submit\"))(>|\s+[^>]*?>)/uis", $inject_captcha, $replace, 1, $one)) ||
+				(1 !== $one && (!($replace = preg_replace("/(<butto(n))(.+?<\/button>)/uis", $inject_captcha, $replace, 1, $one)) || 1 !== $one)))) {
 				$this->error_wsod("Form security CAPTCHA injection failed.");
 			}
 			// security tokens injection
-			$replace .= $inject_tokens.'</form>';
+			$replace .= $inject_tokens.$matches[3];
 			return $replace;
 		},
 		$html, -1, $count)) || $count !== $num) {
@@ -656,9 +663,10 @@ public function settings_extend(
 	// Control string to array indices
 	$ctl = array_flip(($key=str_split(strtoupper($str))));
 	$key = array_diff_key($key, array('I','O','E','U','D'));
+
 	// Error checks
 	if (!preg_match(ABCMS_REGEX_HOOK, $hok) || // Hook valid
-		(!empty($met) && !preg_match("/(CLI|GET|POST|PUT|HEAD|DELETE|PATCH|OPTIONS|CONNECT|TRACE)/u", $met)) || // Method valid
+		(!empty($met) && array_diff(explode('-', $met), array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE'))) || // method validation
 		(isset($ctl['I']) && isset($ctl['O'])) || // Input Output exclusive
 		!empty($key) || // Control flags valid
 		(!empty($fun) && !preg_match(ABCMS_REGEX_FUNC, $fun))) { // Function valid
@@ -734,7 +742,7 @@ private function settings_variable(
 	int		$role,			// Minimum role
 	?array	$reg = NULL,	// Regex validation
 ) : void {
-	if (!preg_match("/^[A-Za-z0-9\-_.~]+$/u", $var) ||
+	if (!preg_match("/^[a-z0-9\-_.~]+$/ui", $var) ||
 		!empty($this->compiles[$cat][$var]) ||
 		!in_array($type, array('mixed','string','array','integer','float','bool','boolean','email','domain','uri','url','ip','mac','uuid','path')) ||
 		!in_array($role, ABCMS_ROLE_SET)) {
@@ -912,11 +920,7 @@ public function session_start(
 		// POST image mismatch
 		else if ($csrf && $sess['test_name'] && ($sess['test_valu'] !== (($_POST[$sess['test_name']]??'x')?:'x'))) {	$this->set_errors('CAPTCHA failure, please try again.'); }
 		// Passed gauntlet must be human
-		else {
-			$formhuman = TRUE;
-			// CAPTCHA3 only once per session
-			$sess['test_name'] = NULL;
-		}
+		else {																											$formhuman = TRUE; }
 	}
 
 	// destroy by request or for corruption
@@ -950,6 +954,7 @@ KILL:	// set errors
 		if ($post) {
 			$this->formvalid = TRUE;
 			$this->formhuman = ($formhuman ? TRUE :FALSE);
+			$sess['test_name'] = NULL; // CAPTCHA3 only one POST per session
 			// process login on page load
 			if ('/home/login' === $this->boots['urlpathall']) {
 				// punish max login failures
@@ -967,7 +972,7 @@ KILL:	// set errors
 					$sess['logins'] = $this->get_uniq();
 					$this->set_cookie($this->settings['core']['session_logins'], $sess['logins'], $sess['create'] + ABCMS_SES_LIFE);
 				}
-				// explicit logout if login failure, but session remains
+				// logout if login failure, but session remains
 				else {
 					$this->set_errors('Attempted login failure.');
 					$logout = TRUE;
@@ -1624,8 +1629,8 @@ public function email(
 
 	// configuration abuse
 	if (empty($options_user)) {
-		if (!preg_match("/^(tcp://|tls://|ssl://|)(127\.0\.0\.1|localhost|::1|\[::1\])$/i", $options['smtp']))  { return $fail("Unauthenticated email can only SMTP from same server."); }
-		if (!preg_match("/^[^@]+@([a-z0-9-]+\.)*".preg_quote($this->boots['urldomain'], '/')."$/i", $from))  { return $fail("Unauthenticated email 'From' domain only from same domain."); }
+		if (!preg_match("/^(tcp://|tls://|ssl://|)(127\.0\.0\.1|localhost|::1|\[::1\])$/ui", $options['smtp']))  { return $fail("Unauthenticated email can only SMTP from same server."); }
+		if (!preg_match("/^[^@]+@([a-z0-9-]+\.)*".preg_quote($this->boots['urldomain'], '/')."$/uiD", $from))  { return $fail("Unauthenticated email 'From' domain only from same domain."); }
 	}
 
 	// Sanitize header-bound fields (defense in depth)
@@ -1687,8 +1692,8 @@ public function email(
 	// AUTH (PLAIN preferred, LOGIN fallback), only if credentials given
 	if (!empty($options_user) && !$encrypted) { return $fail("Email unencrypted authentication refused."); }
 	if (!empty($options_user) && isset($options_pass)) {
-		$authLine = current(preg_grep('/^auth /i', $capabilities)) ?: '';
-		$methods = array_slice(preg_split('/\s+/', mb_strtolower($authLine)), 1);
+		$authLine = current(preg_grep('/^auth[\s=]+/i', $capabilities)) ?: '';
+		$methods = array_slice(preg_split('/[\s=]+/', mb_strtolower($authLine)), 1);
 		if (in_array('plain', $methods, TRUE)) {
 			[$status] = $command('AUTH PLAIN ' . base64_encode("\0{$options_user}\0{$options_pass}"), FALSE);
 			if ($status != 235) { return $fail('Email AUTH PLAIN rejected.'); }
@@ -1730,7 +1735,7 @@ public function email(
 	}
 	// Bcc intentionally omitted from headers; recipients already got RCPT TO above.
 	$headers .= "Subject: =?UTF-8?B?" . base64_encode($subject) . "?=\r\n";
-	$headers .= "Message-ID: <" . bin2hex(random_bytes(16)) . '@' . preg_replace('#^(tls|ssl)://#i', '', $options['smtp']) . ">\r\n";
+	$headers .= "Message-ID: <" . bin2hex(random_bytes(16)) . '@' . preg_replace('#^(tcp|tls|ssl)://#i', '', $options['smtp']) . ">\r\n";
 	$headers .= "MIME-Version: 1.0\r\n";
 	$headers .= "Content-Type: multipart/mixed; boundary=\"{$mixedBoundary}\"\r\n";
 	// text/html (with optional text/plain alternative)
