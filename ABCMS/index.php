@@ -538,11 +538,11 @@ EOF
 		ABCMS_REGEX_FORM,
 		function($matches) use ($inject_tokens, $inject_captcha) {
 			$replace = $matches[1].$matches[2];
-			// only one CAPTCHA injection in front of <button> preferred or <input type=submit>
+			// only one CAPTCHA injection in front of <button type=submit> preferred or <input type=submit>
 			if ($inject_captcha &&
-				(!($replace = preg_replace("/(<butto(n))(.+?<\/button>)/uis", $inject_captcha, $replace, 1, $one)) ||
+				(!($replace = preg_replace("/(<button\s+[^>]*?type\s*=(\s*submit|\s*'submit'|\s*\"submit\"))(.+?<\/button>)/uis", $inject_captcha, $replace, 1, $one)) ||
 				(1 !== $one && (!($replace = preg_replace("/(<input\s+[^>]*?type\s*=(\s*submit|\s*'submit'|\s*\"submit\"))(>|\s+[^>]*?>)/uis", $inject_captcha, $replace, 1, $one)) || 1 !== $one)))) {
-				$this->error_wsod("Form security CAPTCHA injection failed.");
+				$this->error_wsod("Form security CAPTCHA injection failed, button or input type=submit required.");
 			}
 			// security tokens injection
 			$replace .= $inject_tokens.$matches[3];
