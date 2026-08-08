@@ -27,7 +27,7 @@ const ABCMS_ROLE_SET	= array(0,1,2,3,4,5,6,7);
 const ABCMS_REGEX_FUNC	= "/^((\/[^?]+)\?)?((([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*))?$/ui";
 const ABCMS_REGEX_HOOK	= "/^\/[^\/]+\/[^\/]+\/[^\/]+$/u";				// hook name, path-like, but not a filepath
 const ABCMS_REGEX_URLV	= "/\/([a-z0-9\-_.~]+)=([a-z0-9\-_.~=]+)/ui";	// URL variable
-const ABCMS_REGEX_FORM	= "/(<form[^>]*>)(.+?)(<\/form>)/uis";			// form security injection
+const ABCMS_REGEX_FORM	= "/(<form(?=[\s>])[^>]*>)(.+?)(<\/form>)/uis";			// form security injection
 // session - move these to overridable $settings
 const ABCMS_SES			= ABCMS_EXT_SELF;	// unique session key for ABCMS
 const ABCMS_SES_ROTA	= 60*15;			// rotate session after 15 minutes
@@ -540,8 +540,8 @@ EOF
 			$replace = $matches[1].$matches[2];
 			// only one CAPTCHA injection in front of <button type=submit> preferred or <input type=submit>
 			if ($inject_captcha &&
-				(!($replace = preg_replace("/(<button\s+[^>]*?type\s*=(\s*submit|\s*'submit'|\s*\"submit\"))(.+?<\/button>)/uis", $inject_captcha, $replace, 1, $one)) ||
-				(1 !== $one && (!($replace = preg_replace("/(<input\s+[^>]*?type\s*=(\s*submit|\s*'submit'|\s*\"submit\"))(>|\s+[^>]*?>)/uis", $inject_captcha, $replace, 1, $one)) || 1 !== $one)))) {
+				(!($replace = preg_replace("/(<button(?=[\s])[^>]*?\stype\s*=(\s*submit|\s*'submit'|\s*\"submit\"))(.+?<\/button>)/uis", $inject_captcha, $replace, 1, $one)) ||
+				(1 !== $one && (!($replace = preg_replace("/(<input(?=[\s])[^>]*?\stype\s*=(\s*submit|\s*'submit'|\s*\"submit\"))(>|\s+[^>]*?>)/uis", $inject_captcha, $replace, 1, $one)) || 1 !== $one)))) {
 				$this->error_wsod("Form security CAPTCHA injection failed, button or input type=submit required.");
 			}
 			// security tokens injection
