@@ -557,7 +557,7 @@ EOF
 // inject debug information for administrator only
 private function output_debug(string &$html) : void {
 	if (!$html || $this->input['role'] !== ABCMS_ROLE_ADMINS) { return; }
-	$injection = "<pre class='debug'>".print_r(array('ABCMS_OBJECT'=>$this, 'ABCMS_GLOBALS'=>$GLOBALS),TRUE)."</pre></body>";
+	$injection = "<pre class='debug'><h2>Debug Stuff</h2>".print_r(array('ABCMS_OBJECT'=>$this, 'ABCMS_GLOBALS'=>$GLOBALS),TRUE)."</pre></body>";
 	if (!($html = preg_replace("/<\/body>/ui", $injection, $html, 1))) { $this->error_wsod("Debug injection for admin failed."); }
 	return;
 }
