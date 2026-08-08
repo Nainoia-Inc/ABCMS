@@ -490,15 +490,15 @@ document.addEventListener('click', function (event) {
 	if (!clicked) { return; }
 	button.disabled = true;
 	event.preventDefault();
-	var submit = button.value;
+	var buttonvalue = button.value;
 	button.value = 'Sending...';
-	var buttontext = this.innerText;
+	var buttontext = button.innerText;
 	button.innerText = 'Sending...';
 	setTimeout(() => {
 		button.form['{$sess['void_name']}'].value = '';
 		button.form['{$sess['full_name']}'].value = '{$sess['full_valu']}';
-		button.form['clicked'].value = submit;
-		button.value = submit;
+		button.form['clicked'].value = buttonvalue;
+		button.value = buttonvalue;
 		button.innerText = buttontext;
 		HTMLFormElement.prototype.submit.call(button.form);
 	}, {$delay});
@@ -523,7 +523,7 @@ EOF;
 <input type='hidden' name='{$sess['full_name']}'	value=''>
 EOF;
 	// form CAPTCHA
-	$inject_captcha = (empty($sess['test_name']) ? NULL : <<<EOF
+	$inject_captcha = (!empty($sess['user']) ? NULL : <<<EOF
 <div class='captcha'>
 CAPTCHA <input name='{$sess['test_name']}' value=''> \$1 \$3
 </div>
@@ -1144,6 +1144,7 @@ echo <<<EOF
 <button type='submit' name='register'	value='register'>Register</button>
 <button type='submit' name='login'		value='login'	>Login</button>
 <button type='submit' name='reset'		value='reset'	>Reset</button>
+<input type='submit' name='testy' id='testy'		value='testy'	>
 EOF;
 }
 else {
@@ -1151,6 +1152,7 @@ echo <<<EOF
 <button type='submit' name='logout'		value='logout'	>Logout</button>
 <button type='submit' name='update'		value='update'	>Update</button>														
 <button type='submit' name='delete'		value='delete'	>Delete</button>
+<input type='submit' name='testy' id='testy'		value='testy'	>
 EOF;
 }
 echo "</div></form>";
