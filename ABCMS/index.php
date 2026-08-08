@@ -291,284 +291,6 @@ private function input_valid(
 
 
 /*************************************************************************************************
-SECTION OUTPUT: Everything is a routed extension.
-*/
-// Hooked function output path router extension manager
-public function output(
-	string	$hook,		// /vendor/extension/$hook name, only create hooks for your own extension
-	string	$meth,		// HTTP methods, '' = ALL = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE"
-	string	$default,	// Default function, '' = no default
-	int		$role,		// Minimum role permissions
-	int		$flag,		// <0 = extender exclusive, 0 = anyone, 1 = extender exclusive allowed
-	bool	$must,		// Must do default, TRUE = required -OR- FALSE = optional
-	mixed	&...$args,	// Default arguments
-) : array {
-	// Initialize
-	$whoami = $this->extension(); // Which extension am I?
-	$hook = $whoami . $hook; // Full hook name
-	$ext = array( // Default
-		'I' => (empty($default) ? array() : array( array( // Empty default allowed
-				'met'	=> $meth, // HTTP methods
-				'fun'	=> $default, // Function
-				'rol'	=> $role, // Role
-				'ord'	=> 0, // Order
-				'ctl'	=> NULL, // Control
-				'who'	=> $whoami, // Default for each caller
-				'arg'	=> NULL, // None
-		))),
-		'O' => array(), // No default output filter
-	);
-	// Prioritize
-	if (isset($this->settings['route'][$hook])) { // Build hook extensions
-		$hooky = $this->settings['route'][$hook]; // Shortened reference
-		$ext = array_merge_recursive( // Merge extensions with matches
-			$ext, // Default
-			(!empty($hooky['eq'][$this->boots['urlpathall']]) &&
-			 !empty($hooky['ex'][$hooky['eq'][$this->boots['urlpathall']]]) ?
-			 $hooky['ex'][$hooky['eq'][$this->boots['urlpathall']]] : // Full path
-			('/' !== $this->boots['urlpathone'] &&
-			 !empty($hooky['eq'][$this->boots['urlpathone'].'/']) &&
-			 !empty($hooky['ex'][$hooky['eq'][$this->boots['urlpathone'].'/']]) ?
-			 $hooky['ex'][$hooky['eq'][$this->boots['urlpathone'].'/']] : // OR path segment.'/'
-			 array())), // OR nothing
-			(!empty($hooky['eq']['']) && !empty($hooky['ex'][$hooky['eq']['']])	? $hooky['ex'][$hooky['eq']['']] : array()), // AND empty path
-			(!empty($hooky['ex'][''])											? $hooky['ex'][''] : array())); // AND empty name
-		if (isset($ext['I'])) {	usort($ext['I'], function($a, $b) { return (($ret=(isset($a['ctl']['U'])===isset($b['ctl']['U']) ? 0 : (isset($a['ctl']['U']) ? -1 : 1))) ? $ret : $a['ord'] <=> $b['ord']); } ); }
-		if (isset($ext['O'])) {	usort($ext['O'], function($a, $b) { return (($ret=(isset($a['ctl']['U'])===isset($b['ctl']['U']) ? 0 : (isset($a['ctl']['U']) ? -1 : 1))) ? $ret : $a['ord'] <=> $b['ord']); } ); }
-	}
-	// Execute
-	$exin = $exout = NULL; // Exclusive winner or non-exclusive
-	$dopt = TRUE; // default optional
-	foreach($ext['I'] as $extin) { // Input extensions by priority
-		if (!$this->output_doit($extin, $whoami, $flag, ($must || $dopt), $exin)) { continue; } // Skip for reasons
-		if (!$must && $extin['ord'] < 0 && !isset($extin['ctl']['D'])) { $dopt = FALSE; } // Omit default if hook and one extension says not required
-		if ($this->input['role'] >= ABCMS_ROLE_ADMINS) { $this->stack[] = func_get_args(); } // log the exension stack when I am administrator TEMP???
-		if (isset($extin['arg'])) { $this->array_walk_merge($args, $extin['arg']); } // Extend arguments
-		if (empty($extin['fun'])) { continue; } // Extension only grabs exclusivity or set args
-		do { // Repeat hook extension until FALSE -OR- NULL
-			if (FALSE === ob_start()) { $this->error_wsod("Buffer start failure."); } // Buffer output
-			$more = $this->output_call($whoami, $extin['fun'], ...$args); // Execute hook extension
-			if (FALSE === ($out = ob_get_clean())) { $this->error_wsod("Buffer clean failure."); } // Retrieve buffer
-			// Output filter extensions by priority
-			foreach($ext['O'] as $extout) {
-				if (!$this->output_doit($extout, $whoami, $flag, TRUE, $exout)) { continue; } // Skip for reasons
-				$this->output_call($whoami, $extout['fun'], $out, ...$args); // Execute output filter
-			}
-			// ABCMS security output filter and injection, <FORM> security, and XSS checks, etc.
-			if (ABCMS_EXT_INITX == $hook) {
-				$this->output_security($out);	// inject security
-				$this->output_debug($out);	// TEMP CODE
-			}
-			echo $out; // Echo compiled output
-		} while ($more); // Repeat hook extension until FALSE
-		if (isset($extin['ctl']['U'])) { break; } // Uno extension allowed
-	}
-	//return $arguments;
-	return $args;
-}
-// which extension called the function that called me?
-private function extension() : string {
-	// omit object and args, 2 levels back
-	$trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2);
-	// no trace
-	if (empty($trace[1]['file'])) { $this->error_wsod("Backtrace result unavailable."); }
-	// called myself
-	else if ($trace[1]['file'] === (__FILE__)) { return ABCMS_EXT_SELF; }
-	// valid extension
-	else if (preg_match("|^".preg_quote(dirname(__DIR__),'|')."/private(/[^/]+/[^/]+)|u", $trace[1]['file'], $match) && !empty($match[1])) { return $match[1]; }
-	// invalid extension
-	$this->error_wsod("Extension not found.");
-}
-// Execute hook extension?
-private function output_doit(
-	array	$ext,	// Extension definition
-	string	$whoami,// Is this extender allowed
-	int		$flag,	// <0 = extender exclusive, 0 = anyone, 1 = extender exclusive allowed
-	bool	$must,	// Must do default
-	?string	&$excl,	// Exclusive extension winner
-) : bool {
-	// Exit before exclusive selection
-	if (!$must && !$ext['ord']) {																	return FALSE; }	// No default extension
-	if (!empty($ext['met']) && FALSE === stripos($ext['met'], $this->boots['urlmethod'])) { 		return FALSE; }	// HTTP method
-	if ($flag < 0 && $whoami !== $ext['who']) { $this->error_log("Extender not self.");				return FALSE; }	// Extender match
-	if (!$flag && isset($ext['ctl']['E'])) {														return FALSE; }	// Non-exclusive, cancel request
-	// Exclusive winner or non-exclusive
-	if ($flag > 0) {
-		if (NULL === $excl) { $excl = (isset($ext['ctl']['E']) ? $ext['who'] : FALSE); }							// Determine exclusive winner or non-exclusive
-		if (!$excl && isset($ext['ctl']['E'])) {													return FALSE; }	// Non-exclusive, cancel request
-		if ($excl && $ext['who'] !== $excl) {														return FALSE; }	// Exclusive, but not winner
-	}
-	if ($this->input['role'] < $ext['rol']) { $this->set_errors("No permission to resource, {$ext['fun']}.");		return FALSE; }	// No permision
-	// Do it
-	return TRUE;
-}
-// Call extension function
-private function output_call(
-	string	$whoami,	// Am I ABCMS?
-	string	$filefunc,	// Includefile?function
-	mixed	&...$args,	// Arguments passed
-) : ?bool {
-	// Parse includefile?function
-	if (!preg_match(ABCMS_REGEX_FUNC, $filefunc, $match)) { $this->error_wsod("Calling invalid function name."); }
-	$filepath	= $match[2]; // extension include file
-	$classobject= $match[5]; // class or object
-	$operator	= $match[6]; // operator to function
-	$funcmeth	= $match[7]; // function / method
-	// include the file
-	$result = FALSE; // Default failure
-	if ($filepath) {
-		if ($funcmeth) {	$result = (bool)$this->include_once($filepath, ...$args); } // failsafe include once for definition
-		else {				$result = (bool)$this->include($filepath, ...$args); } // or multiple executions allowed
-	}
-	// Call function
-	if ($funcmeth) { // Function attempt
-		if ($classobject) { // Class or object method
-			if ("::" === $operator) { // Class operator
-				if (!class_exists($classobject) || !method_exists($classobject, $funcmeth)) { $this->error_wsod("Calling invalid class method."); }
-				$result = (bool)$classobject::$funcmeth(...$args); // Execute
-			}
-			else { // Non-class methods
-				if ("->" === $operator) { // Instance or object operator
-					if (!isset($GLOBALS[$classobject]) || !is_object($GLOBALS[$classobject])) { $this->error_wsod("Calling invalid object."); }
-					$newobject = $GLOBALS[$classobject];
-				}
-				else if ("()->" === $operator) { // Function returned object operator
-					if (!function_exists($classobject)) { $this->error_wsod("Calling invalid function to object."); }
-					if (!is_object(($newobject = $classobject()))) { $this->error_wsod("Calling invalid function object."); }
-				}
-				else { $this->error_wsod("Calling invalid operator."); }
-				// Execute function/method
-				if (!method_exists($newobject, $funcmeth)) { $this->error_wsod("Calling invalid object method: {$funcmeth}"); }
-				if (ABCMS_EXT_SELF != $whoami && $newobject === $this) { // Disallow abcms() privates unless extension is ABCMS
-					$reflection = new ReflectionClass($this);
-					if (!$reflection->getMethod($funcmeth)->isPublic()) { $this->error_wsod("Calling private/protected method disallowed."); }
-				}
-				$result = (bool)$newobject->$funcmeth(...$args); // Execute
-			}
-		}
-		else {
-			if (!function_exists($funcmeth)) { $this->error_wsod("Calling invalid function."); }
-			$result = (bool)$funcmeth(...$args); // Execute
-		}
-	}
-	return $result;
-}
-
-// inject html form security with regex for speed instead of DOM 
-private function output_security(string &$html) : void {
-
-	// failure or no form so skip
-	if (FALSE === ($num = preg_match_all(ABCMS_REGEX_FORM, $html))) { $this->error_wsod("Form security failed initialization."); }
-	if (!$num) { return; }
-
-	// start session
-	if (!$this->session_start(1) || empty($_SESSION[ABCMS_SES]['csrf_valu'])) {
-		// session failed, disable forms with <fieldset> and CSS with missing CSRF as safety net
-		$this->set_errors("Forms disabled, security failed.");
-		if (!($html = preg_replace(ABCMS_REGEX_FORM, '$1<fieldset disabled class="disable">$2</fieldset>$3', $html, -1, $count)) || $count !== $num) {
-			$this->error_wsod("Form security entirely failed.");
-		}
-		if (!($html = preg_replace("/<\/head>/ui", "\n<style nonce='{$this->input['nonce']}'>form { pointer-events: none; opacity: 0.5; }\n</style>\n</head>", $html, 1, $count)) || 1 !== $count) {
-			$this->error_log("Form security css failed.");
-		}
-		return;
-	}
-
-	// session shortcut and click delay
-	$sess = &$_SESSION[ABCMS_SES];
-	$delay = ABCMS_SES_WAIT * 1000;
-
-	// secure button click instead of enter submission
-	$inject_script = <<<EOF
-
-<script type='module' nonce='{$this->input['nonce']}'>
-document.addEventListener('keydown', function(event) {
-	if (event.key === 'Enter' && event.target.form) {
-		event.preventDefault();
-	}
-});
-document.addEventListener('click', function (event) {
-	var button = event.target;
-	var clicked = (button.tagName === 'BUTTON') || (button.tagName === 'INPUT' && button.type === 'submit');
-	if (!clicked) { return; }
-	button.disabled = true;
-	event.preventDefault();
-	var buttonvalue = button.value;
-	button.value = 'Sending...';
-	var buttontext = button.innerText;
-	button.innerText = 'Sending...';
-	setTimeout(() => {
-		button.form['{$sess['void_name']}'].value = '';
-		button.form['{$sess['full_name']}'].value = '{$sess['full_valu']}';
-		button.form['clicked'].value = buttonvalue;
-		button.value = buttonvalue;
-		button.innerText = buttontext;
-		HTMLFormElement.prototype.submit.call(button.form);
-	}, {$delay});
-});
-
-</script>
-</head>
-
-EOF;
-
-	// inject javascript
-	if (!($html = preg_replace("/<\/head>/ui", $inject_script, $html, 1, $count)) || 1 !== $count) { // inject
-		$this->error_wsod("Form security javascript injection failed.");
-	}
-
-	// form security tokens
-	$inject_tokens = <<<EOF
-<input type='hidden' name='clicked'					value=''>
-<input type='hidden' name='csrf'					value='{$sess['csrf_valu']}'>
-<input type='hidden' name='{$sess['csrf_name']}'	value='{$sess['csrf_valu']}'>
-<input type='hidden' name='{$sess['void_name']}'	value='{$sess['full_valu']}'>
-<input type='hidden' name='{$sess['full_name']}'	value=''>
-EOF;
-	// form CAPTCHA
-	$inject_captcha = (!empty($sess['user']) ? NULL : <<<EOF
-<div class='captcha'>
-CAPTCHA <input name='{$sess['test_name']}' value=''> \$1 \$3
-</div>
-EOF
-	);
-
-	// further injection in <form>s and <button>s
-	if (!($html = preg_replace_callback(
-		ABCMS_REGEX_FORM,
-		function($matches) use ($inject_tokens, $inject_captcha) {
-			$replace = $matches[1].$matches[2];
-			// only one CAPTCHA injection in front of <button type=submit> preferred or <input type=submit>
-			if ($inject_captcha &&
-				(!($replace = preg_replace("/(<button(?=[\s])[^>]*?\stype\s*=(\s*submit|\s*'submit'|\s*\"submit\"))(.+?<\/button>)/uis", $inject_captcha, $replace, 1, $one)) ||
-				(1 !== $one && (!($replace = preg_replace("/(<input(?=[\s])[^>]*?\stype\s*=(\s*submit|\s*'submit'|\s*\"submit\"))(>|\s+[^>]*?>)/uis", $inject_captcha, $replace, 1, $one)) || 1 !== $one)))) {
-				$this->error_wsod("Form security CAPTCHA injection failed, button or input type=submit required.");
-			}
-			// security tokens injection
-			$replace .= $inject_tokens.$matches[3];
-			return $replace;
-		},
-		$html, -1, $count)) || $count !== $num) {
-		$this->error_wsod("Form security tokens injection failed.");
-	}
-	return;
-}
-
-// inject debug information for administrator only
-private function output_debug(string &$html) : void {
-	if (!$html || $this->input['role'] !== ABCMS_ROLE_ADMINS) { return; }
-	$injection = "<pre class='debug'><h2>Debug Stuff</h2>".print_r(array('ABCMS_OBJECT'=>$this, 'ABCMS_GLOBALS'=>$GLOBALS),TRUE)."</pre></body>";
-	if (!($html = preg_replace("/<\/body>/ui", $injection, $html, 1))) { $this->error_wsod("Debug injection for admin failed."); }
-	return;
-}
-
-
-
-
-
-
-
-/*************************************************************************************************
 SECTION SETTINGS: Compile core and extension boot settings.
 */
 // Read or create the core settings JSON file. 
@@ -763,74 +485,6 @@ private function settings_variable(
 	}
 	$this->compiles[$cat][$var] = array('type'=>$type, 'role'=>$role, 'reg'=>$reg);
 	return;
-}
-
-
-
-
-
-
-/*************************************************************************************************
-SECTION RESPONSES: Return request responses.
-*/
-// Backtrace simplified
-private function error_trace() : array {
-	// Omit object, include args, 3 levels back
-	$back = debug_backtrace(0, 3);
-	$function = (empty($back[1]['function']) ? 'unknown' : $back[1]['function']);
-	$args = (empty($back[2]['args']) ? array('unknown') : $back[2]['args']);
-	// Truncate long strings
-	array_walk_recursive($args, function (&$value) {
-		if (is_string($value) && mb_strlen($value) > 256) {
-			$value = mb_substr($value, 0, 256) . '...';
-		}
-	});
-	return [$function, $args];
-}
-// Throw exception
-public function error_wsod(
-	string $mess,
-) : void {
-	[$function, $args] = $this->error_trace();
-	error_log("{$function}->error_wsod() {$mess}\n".print_r($args,TRUE));
-	throw new Exception($mess);
-	return;
-}
-// Log error
-public function error_log(
-	string	$mess,
-	bool	$debug = FALSE,
-) : void {
-	if ($debug && empty($this->input['urlquery']['debug'])) { return; }
-	[$function, $args] = $this->error_trace();
-	error_log(($mess = "{$function}->error_log() {$mess}\n".print_r($args,TRUE)));
-	if (!empty($this->input['urlquery']['debug'])) { $this->debugs[] = $mess; }
-	return;
-}
-public function set_errors(					// Set errors
-	string ...$errors,						// Error strings
-) : void {
-	array_push($this->errors, ...$errors);
-	return;
-}
-public function get_debugs() : array {		// Get private debugs for public
-	return $this->debugs;
-}
-public function get_errors() : array {		// Get private errors for public
-	return $this->errors;
-}
-public function error_get_last() : ?string {// Get last error message
-	$error = error_get_last();
-	return ($error ? "{$error['message']} [type={$error['type']}] in {$error['file']} on line {$error['line']}" : NULL);
-}
-
-public function see_errors() : ?string {	// Format private errors for public
-	if (!empty($this->errors)) { return '<br><br>Errors:<br>'.implode('<br>',$this->errors); }
-	return NULL;
-}	
-	
-public function get_settings() : array {	// Get private settings for public
-	return $this->settings;
 }
 
 
@@ -1178,6 +832,353 @@ public function get_database(
 		$element = $element[$key];
 	}
 	return $element;
+}
+
+
+
+
+
+
+
+/*************************************************************************************************
+SECTION OUTPUT: Everything is a routed extension.
+*/
+// Hooked function output path router extension manager
+public function output(
+	string	$hook,		// /vendor/extension/$hook name, only create hooks for your own extension
+	string	$meth,		// HTTP methods, '' = ALL = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE"
+	string	$default,	// Default function, '' = no default
+	int		$role,		// Minimum role permissions
+	int		$flag,		// <0 = extender exclusive, 0 = anyone, 1 = extender exclusive allowed
+	bool	$must,		// Must do default, TRUE = required -OR- FALSE = optional
+	mixed	&...$args,	// Default arguments
+) : array {
+	// Initialize
+	$whoami = $this->extension(); // Which extension am I?
+	$hook = $whoami . $hook; // Full hook name
+	$ext = array( // Default
+		'I' => (empty($default) ? array() : array( array( // Empty default allowed
+				'met'	=> $meth, // HTTP methods
+				'fun'	=> $default, // Function
+				'rol'	=> $role, // Role
+				'ord'	=> 0, // Order
+				'ctl'	=> NULL, // Control
+				'who'	=> $whoami, // Default for each caller
+				'arg'	=> NULL, // None
+		))),
+		'O' => array(), // No default output filter
+	);
+	// Prioritize
+	if (isset($this->settings['route'][$hook])) { // Build hook extensions
+		$hooky = $this->settings['route'][$hook]; // Shortened reference
+		$ext = array_merge_recursive( // Merge extensions with matches
+			$ext, // Default
+			(!empty($hooky['eq'][$this->boots['urlpathall']]) &&
+			 !empty($hooky['ex'][$hooky['eq'][$this->boots['urlpathall']]]) ?
+			 $hooky['ex'][$hooky['eq'][$this->boots['urlpathall']]] : // Full path
+			('/' !== $this->boots['urlpathone'] &&
+			 !empty($hooky['eq'][$this->boots['urlpathone'].'/']) &&
+			 !empty($hooky['ex'][$hooky['eq'][$this->boots['urlpathone'].'/']]) ?
+			 $hooky['ex'][$hooky['eq'][$this->boots['urlpathone'].'/']] : // OR path segment.'/'
+			 array())), // OR nothing
+			(!empty($hooky['eq']['']) && !empty($hooky['ex'][$hooky['eq']['']])	? $hooky['ex'][$hooky['eq']['']] : array()), // AND empty path
+			(!empty($hooky['ex'][''])											? $hooky['ex'][''] : array())); // AND empty name
+		if (isset($ext['I'])) {	usort($ext['I'], function($a, $b) { return (($ret=(isset($a['ctl']['U'])===isset($b['ctl']['U']) ? 0 : (isset($a['ctl']['U']) ? -1 : 1))) ? $ret : $a['ord'] <=> $b['ord']); } ); }
+		if (isset($ext['O'])) {	usort($ext['O'], function($a, $b) { return (($ret=(isset($a['ctl']['U'])===isset($b['ctl']['U']) ? 0 : (isset($a['ctl']['U']) ? -1 : 1))) ? $ret : $a['ord'] <=> $b['ord']); } ); }
+	}
+	// Execute
+	$exin = $exout = NULL; // Exclusive winner or non-exclusive
+	$dopt = TRUE; // default optional
+	foreach($ext['I'] as $extin) { // Input extensions by priority
+		if (!$this->output_doit($extin, $whoami, $flag, ($must || $dopt), $exin)) { continue; } // Skip for reasons
+		if (!$must && $extin['ord'] < 0 && !isset($extin['ctl']['D'])) { $dopt = FALSE; } // Omit default if hook and one extension says not required
+		if ($this->input['role'] >= ABCMS_ROLE_ADMINS) { $this->stack[] = func_get_args(); } // log the exension stack when I am administrator TEMP???
+		if (isset($extin['arg'])) { $this->array_walk_merge($args, $extin['arg']); } // Extend arguments
+		if (empty($extin['fun'])) { continue; } // Extension only grabs exclusivity or set args
+		do { // Repeat hook extension until FALSE -OR- NULL
+			if (FALSE === ob_start()) { $this->error_wsod("Buffer start failure."); } // Buffer output
+			$more = $this->output_call($whoami, $extin['fun'], ...$args); // Execute hook extension
+			if (FALSE === ($out = ob_get_clean())) { $this->error_wsod("Buffer clean failure."); } // Retrieve buffer
+			// Output filter extensions by priority
+			foreach($ext['O'] as $extout) {
+				if (!$this->output_doit($extout, $whoami, $flag, TRUE, $exout)) { continue; } // Skip for reasons
+				$this->output_call($whoami, $extout['fun'], $out, ...$args); // Execute output filter
+			}
+			// ABCMS security output filter and injection, <FORM> security, and XSS checks, etc.
+			if (ABCMS_EXT_INITX == $hook) {
+				$this->output_security($out);	// inject security
+				$this->output_debug($out);	// TEMP CODE
+			}
+			echo $out; // Echo compiled output
+		} while ($more); // Repeat hook extension until FALSE
+		if (isset($extin['ctl']['U'])) { break; } // Uno extension allowed
+	}
+	//return $arguments;
+	return $args;
+}
+// which extension called the function that called me?
+private function extension() : string {
+	// omit object and args, 2 levels back
+	$trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2);
+	// no trace
+	if (empty($trace[1]['file'])) { $this->error_wsod("Backtrace result unavailable."); }
+	// called myself
+	else if ($trace[1]['file'] === (__FILE__)) { return ABCMS_EXT_SELF; }
+	// valid extension
+	else if (preg_match("|^".preg_quote(dirname(__DIR__),'|')."/private(/[^/]+/[^/]+)|u", $trace[1]['file'], $match) && !empty($match[1])) { return $match[1]; }
+	// invalid extension
+	$this->error_wsod("Extension not found.");
+}
+// Execute hook extension?
+private function output_doit(
+	array	$ext,	// Extension definition
+	string	$whoami,// Is this extender allowed
+	int		$flag,	// <0 = extender exclusive, 0 = anyone, 1 = extender exclusive allowed
+	bool	$must,	// Must do default
+	?string	&$excl,	// Exclusive extension winner
+) : bool {
+	// Exit before exclusive selection
+	if (!$must && !$ext['ord']) {																	return FALSE; }	// No default extension
+	if (!empty($ext['met']) && FALSE === stripos($ext['met'], $this->boots['urlmethod'])) { 		return FALSE; }	// HTTP method
+	if ($flag < 0 && $whoami !== $ext['who']) { $this->error_log("Extender not self.");				return FALSE; }	// Extender match
+	if (!$flag && isset($ext['ctl']['E'])) {														return FALSE; }	// Non-exclusive, cancel request
+	// Exclusive winner or non-exclusive
+	if ($flag > 0) {
+		if (NULL === $excl) { $excl = (isset($ext['ctl']['E']) ? $ext['who'] : FALSE); }							// Determine exclusive winner or non-exclusive
+		if (!$excl && isset($ext['ctl']['E'])) {													return FALSE; }	// Non-exclusive, cancel request
+		if ($excl && $ext['who'] !== $excl) {														return FALSE; }	// Exclusive, but not winner
+	}
+	if ($this->input['role'] < $ext['rol']) { $this->set_errors("No permission to resource, {$ext['fun']}.");		return FALSE; }	// No permision
+	// Do it
+	return TRUE;
+}
+// Call extension function
+private function output_call(
+	string	$whoami,	// Am I ABCMS?
+	string	$filefunc,	// Includefile?function
+	mixed	&...$args,	// Arguments passed
+) : ?bool {
+	// Parse includefile?function
+	if (!preg_match(ABCMS_REGEX_FUNC, $filefunc, $match)) { $this->error_wsod("Calling invalid function name."); }
+	$filepath	= $match[2]; // extension include file
+	$classobject= $match[5]; // class or object
+	$operator	= $match[6]; // operator to function
+	$funcmeth	= $match[7]; // function / method
+	// include the file
+	$result = FALSE; // Default failure
+	if ($filepath) {
+		if ($funcmeth) {	$result = (bool)$this->include_once($filepath, ...$args); } // failsafe include once for definition
+		else {				$result = (bool)$this->include($filepath, ...$args); } // or multiple executions allowed
+	}
+	// Call function
+	if ($funcmeth) { // Function attempt
+		if ($classobject) { // Class or object method
+			if ("::" === $operator) { // Class operator
+				if (!class_exists($classobject) || !method_exists($classobject, $funcmeth)) { $this->error_wsod("Calling invalid class method."); }
+				$result = (bool)$classobject::$funcmeth(...$args); // Execute
+			}
+			else { // Non-class methods
+				if ("->" === $operator) { // Instance or object operator
+					if (!isset($GLOBALS[$classobject]) || !is_object($GLOBALS[$classobject])) { $this->error_wsod("Calling invalid object."); }
+					$newobject = $GLOBALS[$classobject];
+				}
+				else if ("()->" === $operator) { // Function returned object operator
+					if (!function_exists($classobject)) { $this->error_wsod("Calling invalid function to object."); }
+					if (!is_object(($newobject = $classobject()))) { $this->error_wsod("Calling invalid function object."); }
+				}
+				else { $this->error_wsod("Calling invalid operator."); }
+				// Execute function/method
+				if (!method_exists($newobject, $funcmeth)) { $this->error_wsod("Calling invalid object method: {$funcmeth}"); }
+				if (ABCMS_EXT_SELF != $whoami && $newobject === $this) { // Disallow abcms() privates unless extension is ABCMS
+					$reflection = new ReflectionClass($this);
+					if (!$reflection->getMethod($funcmeth)->isPublic()) { $this->error_wsod("Calling private/protected method disallowed."); }
+				}
+				$result = (bool)$newobject->$funcmeth(...$args); // Execute
+			}
+		}
+		else {
+			if (!function_exists($funcmeth)) { $this->error_wsod("Calling invalid function."); }
+			$result = (bool)$funcmeth(...$args); // Execute
+		}
+	}
+	return $result;
+}
+
+// inject html form security with regex for speed instead of DOM 
+private function output_security(string &$html) : void {
+
+	// failure or no form so skip
+	if (FALSE === ($num = preg_match_all(ABCMS_REGEX_FORM, $html))) { $this->error_wsod("Form security failed initialization."); }
+	if (!$num) { return; }
+
+	// start session
+	if (!$this->session_start(1) || empty($_SESSION[ABCMS_SES]['csrf_valu'])) {
+		// session failed, disable forms with <fieldset> and CSS with missing CSRF as safety net
+		$this->set_errors("Forms disabled, security failed.");
+		if (!($html = preg_replace(ABCMS_REGEX_FORM, '$1<fieldset disabled class="disable">$2</fieldset>$3', $html, -1, $count)) || $count !== $num) {
+			$this->error_wsod("Form security entirely failed.");
+		}
+		if (!($html = preg_replace("/<\/head>/ui", "\n<style nonce='{$this->input['nonce']}'>form { pointer-events: none; opacity: 0.5; }\n</style>\n</head>", $html, 1, $count)) || 1 !== $count) {
+			$this->error_log("Form security css failed.");
+		}
+		return;
+	}
+
+	// session shortcut and click delay
+	$sess = &$_SESSION[ABCMS_SES];
+	$delay = ABCMS_SES_WAIT * 1000;
+
+	// secure button click instead of enter submission
+	$inject_script = <<<EOF
+
+<script type='module' nonce='{$this->input['nonce']}'>
+document.addEventListener('keydown', function(event) {
+	if (event.key === 'Enter' && event.target.form) {
+		event.preventDefault();
+	}
+});
+document.addEventListener('click', function (event) {
+	var button = event.target;
+	var clicked = (button.tagName === 'BUTTON') || (button.tagName === 'INPUT' && button.type === 'submit');
+	if (!clicked) { return; }
+	button.disabled = true;
+	event.preventDefault();
+	var buttonvalue = button.value;
+	button.value = 'Sending...';
+	var buttontext = button.innerText;
+	button.innerText = 'Sending...';
+	setTimeout(() => {
+		button.form['{$sess['void_name']}'].value = '';
+		button.form['{$sess['full_name']}'].value = '{$sess['full_valu']}';
+		button.form['clicked'].value = buttonvalue;
+		button.value = buttonvalue;
+		button.innerText = buttontext;
+		HTMLFormElement.prototype.submit.call(button.form);
+	}, {$delay});
+});
+
+</script>
+</head>
+
+EOF;
+
+	// inject javascript
+	if (!($html = preg_replace("/<\/head>/ui", $inject_script, $html, 1, $count)) || 1 !== $count) { // inject
+		$this->error_wsod("Form security javascript injection failed.");
+	}
+
+	// form security tokens
+	$inject_tokens = <<<EOF
+<input type='hidden' name='clicked'					value=''>
+<input type='hidden' name='csrf'					value='{$sess['csrf_valu']}'>
+<input type='hidden' name='{$sess['csrf_name']}'	value='{$sess['csrf_valu']}'>
+<input type='hidden' name='{$sess['void_name']}'	value='{$sess['full_valu']}'>
+<input type='hidden' name='{$sess['full_name']}'	value=''>
+EOF;
+	// form CAPTCHA
+	$inject_captcha = (!empty($sess['user']) ? NULL : <<<EOF
+<div class='captcha'>
+CAPTCHA <input name='{$sess['test_name']}' value=''> \$1 \$3
+</div>
+EOF
+	);
+
+	// further injection in <form>s and <button>s
+	if (!($html = preg_replace_callback(
+		ABCMS_REGEX_FORM,
+		function($matches) use ($inject_tokens, $inject_captcha) {
+			$replace = $matches[1].$matches[2];
+			// only one CAPTCHA injection in front of <button type=submit> preferred or <input type=submit>
+			if ($inject_captcha &&
+				(!($replace = preg_replace("/(<button(?=[\s])[^>]*?\stype\s*=(\s*submit|\s*'submit'|\s*\"submit\"))(.+?<\/button>)/uis", $inject_captcha, $replace, 1, $one)) ||
+				(1 !== $one && (!($replace = preg_replace("/(<input(?=[\s])[^>]*?\stype\s*=(\s*submit|\s*'submit'|\s*\"submit\"))(>|\s+[^>]*?>)/uis", $inject_captcha, $replace, 1, $one)) || 1 !== $one)))) {
+				$this->error_wsod("Form security CAPTCHA injection failed, button or input type=submit required.");
+			}
+			// security tokens injection
+			$replace .= $inject_tokens.$matches[3];
+			return $replace;
+		},
+		$html, -1, $count)) || $count !== $num) {
+		$this->error_wsod("Form security tokens injection failed.");
+	}
+	return;
+}
+
+// inject debug information for administrator only
+private function output_debug(string &$html) : void {
+	if (!$html || $this->input['role'] !== ABCMS_ROLE_ADMINS) { return; }
+	$injection = "<pre class='debug'><h2>Debug Stuff</h2>".print_r(array('ABCMS_OBJECT'=>$this, 'ABCMS_GLOBALS'=>$GLOBALS),TRUE)."</pre></body>";
+	if (!($html = preg_replace("/<\/body>/ui", $injection, $html, 1))) { $this->error_wsod("Debug injection for admin failed."); }
+	return;
+}
+
+
+
+
+
+
+
+/*************************************************************************************************
+SECTION RESPONSES: Return request responses.
+*/
+// Backtrace simplified
+private function error_trace() : array {
+	// Omit object, include args, 3 levels back
+	$back = debug_backtrace(0, 3);
+	$function = (empty($back[1]['function']) ? 'unknown' : $back[1]['function']);
+	$args = (empty($back[2]['args']) ? array('unknown') : $back[2]['args']);
+	// Truncate long strings
+	array_walk_recursive($args, function (&$value) {
+		if (is_string($value) && mb_strlen($value) > 256) {
+			$value = mb_substr($value, 0, 256) . '...';
+		}
+	});
+	return [$function, $args];
+}
+// Throw exception
+public function error_wsod(
+	string $mess,
+) : void {
+	[$function, $args] = $this->error_trace();
+	error_log("{$function}->error_wsod() {$mess}\n".print_r($args,TRUE));
+	throw new Exception($mess);
+	return;
+}
+// Log error
+public function error_log(
+	string	$mess,
+	bool	$debug = FALSE,
+) : void {
+	if ($debug && empty($this->input['urlquery']['debug'])) { return; }
+	[$function, $args] = $this->error_trace();
+	error_log(($mess = "{$function}->error_log() {$mess}\n".print_r($args,TRUE)));
+	if (!empty($this->input['urlquery']['debug'])) { $this->debugs[] = $mess; }
+	return;
+}
+public function set_errors(					// Set errors
+	string ...$errors,						// Error strings
+) : void {
+	array_push($this->errors, ...$errors);
+	return;
+}
+public function get_debugs() : array {		// Get private debugs for public
+	return $this->debugs;
+}
+public function get_errors() : array {		// Get private errors for public
+	return $this->errors;
+}
+public function error_get_last() : ?string {// Get last error message
+	$error = error_get_last();
+	return ($error ? "{$error['message']} [type={$error['type']}] in {$error['file']} on line {$error['line']}" : NULL);
+}
+
+public function see_errors() : ?string {	// Format private errors for public
+	if (!empty($this->errors)) { return '<br><br>Errors:<br>'.implode('<br>',$this->errors); }
+	return NULL;
+}	
+	
+public function get_settings() : array {	// Get private settings for public
+	return $this->settings;
 }
 
 
