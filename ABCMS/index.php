@@ -1304,7 +1304,6 @@ echo <<<EOF
 <button type='submit' name='register'	value='register'>Register</button>
 <button type='submit' name='login'		value='login'	>Login</button>
 <button type='submit' name='reset'		value='reset'	>Reset</button>
-<input type='submit' name='testy' id='testy'		value='testy'	>
 EOF;
 }
 else {
@@ -1312,7 +1311,6 @@ echo <<<EOF
 <button type='submit' name='logout'		value='logout'	>Logout</button>
 <button type='submit' name='update'		value='update'	>Update</button>														
 <button type='submit' name='delete'		value='delete'	>Delete</button>
-<input type='submit' name='testy' id='testy'		value='testy'	>
 EOF;
 }
 echo "</div></form>";
