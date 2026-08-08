@@ -157,12 +157,11 @@ private		bool	$formvalid	= FALSE;	// form valid
 private		bool	$formhuman	= FALSE;	// form human
 // construct object
 function __construct() {
-	// read settings
+	// read settings, log location, dump buffers
 	if (FALSE === $this->settings(TRUE)) { $this->error_wsod("Application settings not found."); }
-	// transaction log
 	if (FALSE === ini_set('error_log', $this->settings['core']['translog'])) { $this->error_log("Set error_log location failed."); }
-	// dump unknown buffers
 	while(ob_get_level() > 0) { if (FALSE !== ($buf = ob_get_clean()) && '' !== $buf) { $this->error_log("I got stuff in my buffers."); } }
+
 	// bootstrap inputs for session_start(), then session user validates remaining inputs
 	$this->boots = array(
 		// current time()
@@ -206,8 +205,10 @@ function __construct() {
 		// URL second+ segments for secondary router
 		'urlpathext' => (!$ret || empty($matches[2]) ? '/' : $matches[2]),
 	);
+
 	// lazy start
 	$session = $this->session_start(0);
+
 	// sanitize inputs given user role
 	$this->input = array(
 		// session result
@@ -226,10 +227,12 @@ function __construct() {
 		// style & script security nonce
 		'nonce' => $this->get_uniq(),
 	);
+
 	// require composer
 	if ($this->boots['auto']) { require_once($this->boots['auto']); }
-	// vars in path if !str_starts with
+	// URL vars misplaced if !str_starts_with, URL externally constructed
 	if (!str_starts_with($urldecoded, $urlpathall)) { $this->set_errors("URL questioned, variables within path"); }
+
 	// done
 	return;
 }
@@ -535,10 +538,10 @@ EOF
 		ABCMS_REGEX_FORM,
 		function($matches) use ($inject_tokens, $inject_captcha) {
 			$replace = $matches[1].$matches[2];
-			// CAPTCHA injection
+			// only one CAPTCHA injection in front of <button> preferred or <input type=submit>
 			if ($inject_captcha &&
-				(!($replace = preg_replace("/(<input\s+[^>]*?type\s*=(\s*submit|\s*'submit'|\s*\"submit\"))(>|\s+[^>]*?>)/uis", $inject_captcha, $replace, 1, $one)) ||
-				(1 !== $one && (!($replace = preg_replace("/(<butto(n))(.+?<\/button>)/uis", $inject_captcha, $replace, 1, $one)) || 1 !== $one)))) {
+				(!($replace = preg_replace("/(<butto(n))(.+?<\/button>)/uis", $inject_captcha, $replace, 1, $one)) ||
+				(1 !== $one && (!($replace = preg_replace("/(<input\s+[^>]*?type\s*=(\s*submit|\s*'submit'|\s*\"submit\"))(>|\s+[^>]*?>)/uis", $inject_captcha, $replace, 1, $one)) || 1 !== $one)))) {
 				$this->error_wsod("Form security CAPTCHA injection failed.");
 			}
 			// security tokens injection
@@ -553,9 +556,7 @@ EOF
 
 // inject debug information for administrator only
 private function output_debug(string &$html) : void {
-	// no html or not admin so skip
 	if (!$html || $this->input['role'] !== ABCMS_ROLE_ADMINS) { return; }
-	// debug injection
 	$injection = "<pre class='debug'>".print_r(array('ABCMS_OBJECT'=>$this, 'ABCMS_GLOBALS'=>$GLOBALS),TRUE)."</pre></body>";
 	if (!($html = preg_replace("/<\/body>/ui", $injection, $html, 1))) { $this->error_wsod("Debug injection for admin failed."); }
 	return;
@@ -639,8 +640,7 @@ private function settings(
 	$this->settings_extend(ABCMS_EXT_MAINX,	'home',		'CLI-GET-POST',	'IE',	'abcms()->home_router',		ABCMS_ROLE_PUBLIC,	-10);
 	$this->settings_equate(ABCMS_EXT_MAINX,	'home',		'/');
 	$this->settings_equate(ABCMS_EXT_MAINX,	'home',		'/account');
-	$this->settings_equate(ABCMS_EXT_MAINX,	'home',		'/home');
-	$this->settings_equate(ABCMS_EXT_MAINX,	'home',		'/home/');
+	$this->settings_equate(ABCMS_EXT_MAINX,	'home',		'/contact');
 	// admin extensions
 	$this->settings_extend(ABCMS_EXT_MAINX,	'console',	'CLI-GET-POST',	'IE',	'abcms()->console_router',	ABCMS_ROLE_ADMINS,	-10);
 	$this->settings_equate(ABCMS_EXT_MAINX,	'console',	'/console');
@@ -1085,81 +1085,6 @@ public function set_cookie(
 	return;
 }
 
-// account register, login, logout, update, delete
-private function session_account(mixed &...$unused) : ?bool {
-	// start session
-	echo "<h1>Account</h1>";
-	if (!$this->session_start(1)) {				echo "Session failed."; return NULL; } // early exit
-	$sess = $_SESSION[ABCMS_SES];
-
-	// possibilities switch
-	if ('POST' !== $this->boots['urlmethod']) {	$mess = "Login or register below"; }// not POST
-	else if (!$this->formvalid) {				$mess = "Suspect submital."; }		// suspect
-	else if (!$this->formhuman) {				$mess = "CAPTCHA failed."; }		// CAPTCHA
-	else if (empty($sess['user'])) {			$mess = "Login or Register."; }		// not logged in
-	else if (1 || 'register' === $_POST['clicked'] ||'login' === $_POST['clicked']) {
-		$email = $this->email(
-			$this->settings['core']['smtp_user'],					// From
-			$this->settings['core']['smtp_name'],					// Name
-			[$this->settings['core']['smtp_user']],					// Recipients
-			NULL,													// CCs
-			[$this->settings['core']['smtp_user']],					// BCCs
-			'ABCMS Login Success',									// Subject
-			'<h2>Success!</h2><p>One</p><p>Two</p><p>Three</p>',	// HTML body
-			"Success!\r\n\r\none\r\ntwo\r\nthree\r\n",				// Plain text
-			[__FILE__],												// Attachments
-			[	'smtp'	=> $this->settings['core']['smtp_host'],	// SMTP host
-				'port'	=> $this->settings['core']['smtp_port'],	// SMTP port
-				'user'	=> $this->settings['core']['smtp_user'],	// SMTP user
-				'pass'	=> $this->settings['core']['smtp_pass'],	// SMTP pass
-				'ehlo'	=> $this->boots['urldomain'],				// SMTP EHLO
-				//'debug'	=> TRUE,									// debug
-			],
-		);
-		$mess = "Registered logged in. {$email}";
-	}
-	else if ('reset' === $_POST['clicked']) {	$mess = "Account reset."; }			// reset
-	else if ('logout' === $_POST['clicked']) {	$mess = "Logged out."; }			// logged out
-	else if ('update' === $_POST['clicked']) {	$mess = "Account updated."; }		// updated
-	else if ('delete' === $_POST['clicked']) {	$mess = "Account deleted."; }		// deleted
-
-	// initalize display
-	$status	= (!empty($sess['user'])			? 'Logged in' : (isset($_COOKIE[$this->settings['core']['session_logins']]) ? 'Validated, one credential login' : 'Unknown, two credential login'));
-	$email	= (!empty($sess['user']['email'])	? $this->hsc($sess['user']['email']) : '');
-	$email2	= (!empty($sess['user']['email2'])	? $this->hsc($sess['user']['email']) : '');
-
-	// display account
-	echo <<<EOF
-<form action='' method='post' accept-charset='UTF-8' class='form-grid'>
-<label							>Result:</label>		<span>{$mess}</span>
-<label							>Status:</label>		<span>{$status}</span>
-<label for='Account_Email'		>Email:</label>			<input type='email'		id='Account_Email'		name='Account_Email'	value='{$email}'>
-<label for='Account_Email2'		>Email2:</label>		<input type='email'		id='Account_Email2'		name='Account_Email2'	value='{$email2}'>
-<label for='Account_Password'	>Password:</label>		<input type='password'	id='Account_Password'	name='Account_Password'	value=''>
-<label></label>
-<div>
-EOF;
-if (empty($sess['user'])) {
-echo <<<EOF
-<button type='submit' name='register'	value='register'>Register</button>
-<button type='submit' name='login'		value='login'	>Login</button>
-<button type='submit' name='reset'		value='reset'	>Reset</button>
-<input type='submit' name='testy' id='testy'		value='testy'	>
-EOF;
-}
-else {
-echo <<<EOF
-<button type='submit' name='logout'		value='logout'	>Logout</button>
-<button type='submit' name='update'		value='update'	>Update</button>														
-<button type='submit' name='delete'		value='delete'	>Delete</button>
-<input type='submit' name='testy' id='testy'		value='testy'	>
-EOF;
-}
-echo "</div></form>";
-
-return NULL;
-}
-
 
 
 
@@ -1269,85 +1194,135 @@ private function home_theme(
 ) : ?bool {
 $footer = <<<EOF
 <a href='/'>Home</a>
- / <a href='/home/more'>More</a>
- / <a href='/home/contact'>Contact</a>
  / <a href='/account'>Account</a>
+ / <a href='/contact'>Contact</a>
 EOF
 . ($this->input['role'] < ABCMS_ROLE_ADMINS ? NULL : " / <a href='/console'>Console</a>");
-
-return $this->theme( // theme
-	...$args = array( // spreader
-	NULL,	// css
-	NULL,	// js
-	<<<EOF
+	return $this->theme( // theme
+		...$args = array( // spreader
+			NULL,	// css
+			NULL,	// js
+<<<EOF
 <div class='home'>
 <div><a href='/' title='A Basic Content Management System' class='title'>abcms()</a></div>
 </div>
 EOF
-	,		// header
-	NULL,	// main
-	$footer,// footer
-	1,		// exclusive?
-	),
-);
+			,		// header
+			NULL,	// main
+			$footer,// footer
+			1,		// exclusive?
+		),
+	);
 }
 // inject error display here?
 private function home_router(mixed &...$unused) : ?bool {
-switch ($this->boots['urlpathall']) {
-case '/':
-case '/home':			$this->home();				return NULL;
-case '/home/contact':	$this->home_contact();		return NULL;
-case '/home/more':		$this->home_more();			return NULL;
-case '/account':		$this->session_account();	return NULL;
-default:				$this->home_notfound();		return NULL;
-}
-return NULL;
+	switch ($this->boots['urlpathall']) {
+		case '/':			$this->home();			break;
+		case '/contact':	$this->home_contact();	break;
+		case '/account':	$this->home_account();	break;
+		default:			$this->home_notfound();	break;
+	}
+	return NULL;
 }
 private function home(mixed &...$unused) : ?bool {
-echo <<<EOF
+	echo <<<EOF
 <h1>A Basic Content Management System&trade;</h1>
 <p class='homepage'>
 AKA "<a href='https://www.AionianBible.org' target='_blank'>Aionian Bible</a> Content Management System"<br>
-Nice, a PHP toolkit and CMS in one file.<br>
-Really, everything is a routed extension.<br>
-Composer or hey, just run index.php.<br>
+I am a PHP web developer toolkit and CMS in a single file.
+</p>
+Install with Composer or just index.php in a document root. Everything is an extension with the &dollar;abcms() router.  The core output() function expects to be extended by you to do something meaningful. You override the "/nainoiainc/abcms/begin" hook to output what you want and include your own extendable calls to output(). Since function file locations are passed to the extension manager at execution time this model is even faster than Composer lazy loading which matches every registered object class with the file location on every call. Lazy loading does a lot of work! ABMCS instead includes only the needed extensions at execution time. ABCMS also allows the extension of files, functions, methods, objects, and classes, while Composer only allows the extension of classes.
+</p>
+<p>
+ABCMS uses PHP as the template engine. PHP is designed to intermingle both HTML and procedural function with conditional logic. And PHP is well known so that one does not need to learn another language like Symfony Twig or Laravel Blade. Symfony and Laravel template engines seem an unneccessary reduction of PHP template power. So PHP is the template engine for ABCMS. Frontend developers must understand PHP and HTML, but that is a simpler and more powerful recipe.
+</p>
+<p>
+The first version of ABCMS uses files alone for data storage. While SQL and other databases allow flexible and fast data storage and retrieval not every website application needs this level of data storage complexity. In fact SQL databases often encourage data storage complexity with all the possible data storage rows, columns, types, and indices. However, if a unit of data is only every accessed as a unit, such as a website page, why not store the entire	blob of page data in a single file? This is better for many applications. The page can then be quickly read as a single file rather than many reads of tiny pieces of data to build the page. I once heard Drupal brag that it made thousands of database calls to contruct a single page. Drupal should not brag about this, but instead be ashamed. An SQL database API may be added later for applications that require more complexity.
+</p>
+<p>
+Session security strategy breaks convention with a slightly longer session lifetime. However, threat is migtigated with the addition of a custom 64 byte security cookie name and token value for validating the session along with reasonable inactive and maxlifetime session threshholds. There is no "Remember Me" option for longer active logins because password lockers make it easier to login anyway. Additional form security is injected into every <form> with a CSRF token, honeypot, void pot, image captcha, javascript expected delay, and rapid submission triggers. Finally, the \$_SESSION is not protected from rogue extensions. So extension are discouraged from using \$_SESSION, but if needed sequester yourself to \$_SESSION[extension-name']. Users must be allowed to opt-in or opt-out of session cookies.
 </p>
 EOF;
 	return NULL;
+}
+// account register, login, logout, update, delete
+public function home_account(mixed &...$unused) : ?bool {
+	// start session
+	echo "<h1>Account</h1>";
+	if (!$this->session_start(1)) {				echo "Session failed."; return NULL; } // early exit
+	$sess = $_SESSION[ABCMS_SES];
+
+	// possibilities switch
+	if ('POST' !== $this->boots['urlmethod']) {	$mess = "Login or register below"; }// not POST
+	else if (!$this->formvalid) {				$mess = "Suspect submital."; }		// suspect
+	else if (!$this->formhuman) {				$mess = "CAPTCHA failed."; }		// CAPTCHA
+	else if (empty($sess['user'])) {			$mess = "Login or Register."; }		// not logged in
+	else if (1 || 'register' === $_POST['clicked'] ||'login' === $_POST['clicked']) {
+		$email = $this->email(
+			$this->settings['core']['smtp_user'],					// From
+			$this->settings['core']['smtp_name'],					// Name
+			[$this->settings['core']['smtp_user']],					// Recipients
+			NULL,													// CCs
+			[$this->settings['core']['smtp_user']],					// BCCs
+			'ABCMS Login Success',									// Subject
+			'<h2>Success!</h2><p>One</p><p>Two</p><p>Three</p>',	// HTML body
+			"Success!\r\n\r\none\r\ntwo\r\nthree\r\n",				// Plain text
+			[__FILE__],												// Attachments
+			[	'smtp'	=> $this->settings['core']['smtp_host'],	// SMTP host
+				'port'	=> $this->settings['core']['smtp_port'],	// SMTP port
+				'user'	=> $this->settings['core']['smtp_user'],	// SMTP user
+				'pass'	=> $this->settings['core']['smtp_pass'],	// SMTP pass
+				'ehlo'	=> $this->boots['urldomain'],				// SMTP EHLO
+				//'debug'	=> TRUE,									// debug
+			],
+		);
+		$mess = "Registered logged in. {$email}";
+	}
+	else if ('reset' === $_POST['clicked']) {	$mess = "Account reset."; }			// reset
+	else if ('logout' === $_POST['clicked']) {	$mess = "Logged out."; }			// logged out
+	else if ('update' === $_POST['clicked']) {	$mess = "Account updated."; }		// updated
+	else if ('delete' === $_POST['clicked']) {	$mess = "Account deleted."; }		// deleted
+
+	// initalize display
+	$status	= (!empty($sess['user'])			? 'Logged in' : (isset($_COOKIE[$this->settings['core']['session_logins']]) ? 'Validated, one credential login' : 'Unknown, two credential login'));
+	$email	= (!empty($sess['user']['email'])	? $this->hsc($sess['user']['email']) : '');
+	$email2	= (!empty($sess['user']['email2'])	? $this->hsc($sess['user']['email']) : '');
+
+	// display account
+	echo <<<EOF
+<form action='' method='post' accept-charset='UTF-8' class='form-grid'>
+<label							>Result:</label>		<span>{$mess}</span>
+<label							>Status:</label>		<span>{$status}</span>
+<label for='Account_Email'		>Email:</label>			<input type='email'		id='Account_Email'		name='Account_Email'	value='{$email}'>
+<label for='Account_Email2'		>Email2:</label>		<input type='email'		id='Account_Email2'		name='Account_Email2'	value='{$email2}'>
+<label for='Account_Password'	>Password:</label>		<input type='password'	id='Account_Password'	name='Account_Password'	value=''>
+<label></label>
+<div>
+EOF;
+if (empty($sess['user'])) {
+echo <<<EOF
+<button type='submit' name='register'	value='register'>Register</button>
+<button type='submit' name='login'		value='login'	>Login</button>
+<button type='submit' name='reset'		value='reset'	>Reset</button>
+<input type='submit' name='testy' id='testy'		value='testy'	>
+EOF;
+}
+else {
+echo <<<EOF
+<button type='submit' name='logout'		value='logout'	>Logout</button>
+<button type='submit' name='update'		value='update'	>Update</button>														
+<button type='submit' name='delete'		value='delete'	>Delete</button>
+<input type='submit' name='testy' id='testy'		value='testy'	>
+EOF;
+}
+echo "</div></form>";
+
+return NULL;
 }
 private function home_contact(mixed &...$unused) : ?bool {
 echo <<<EOF
 <h1>Contact</h1>
 EOF;
-	return NULL;
-}
-private function home_more(mixed &...$unused) : ?bool {
-echo <<<EOF
-<h1>More</h1>
-<p>
-Welcome! I am <span class='italic'>A Basic Content Management System</span>,
-and also known as the <a href='https://www.AionianBible.org' target='_blank'>Aionian Bible</a> Content Management System.
-I am a PHP web developer toolkit and CMS in a single file.
-Everything is an extension with my &dollar;abcms() router.
-Install me with Composer or run me in a document root.
-</p>
-
-<p>
-All output is extendable which helps us think more simply about content management. We have inputs, processing, and outputs. The output function serves as both a command router and extension manager. The generic output() function does not even require a default function because it expects to be extended by you to do something meaningful. The ABCMS engine expects you to override the "/nainoiainc/abcms/begin" hook first. From there you output what you want and also include your own extendable calls to output() yourself. Since file and function locations are passed to the extension manager at execution time this model is even faster than Composer lazy loading which matches every registered object class with the file location on every call. Lazy loading does a lot of work! But ABMCS locates and includes only the needed extensions at execution time. ABCMS also allows the extension of files, functions, methods, objects, and classes, while Composer only allows the extension of classes.
-</p>
-
-<p>
-ABCMS uses PHP as the template engine. PHP is designed to intermingle both HTML and procedural function with conditional logic. And PHP is well known so that one does not need to learn another language like Symfony Twig or Laravel Blade. Symfony and Laravel template engines seem an unneccessary reduction of PHP template power. So PHP is the template engine for ABCMS. Frontend developers must understand PHP and HTML, but that is a simpler and more powerful recipe.
-</p>
-
-<p>
-The first version of ABCMS uses files alone for data storage. While SQL and other databases allow flexible and fast data storage and retrieval not every website application needs this level of data storage complexity. In fact SQL databases often encourage data storage complexity with all the possible data storage rows, columns, types, and indices. However, if a unit of data is only every accessed as a unit, such as a website page, why not store the entire	blob of page data in a single file? This is better for many applications. The page can then be quickly read as a single file rather than many reads of tiny pieces of data to build the page. I once heard Drupal brag that it made thousands of database calls to contruct a single page. Drupal should not brag about this, but instead be ashamed. An SQL database API may be added later for applications that require more complexity.
-</p>
-
-<p>
-Session security strategy breaks convention with a slightly longer session lifetime. However, threat is migtigated with the addition of a custom 64 byte security cookie name and token value for validating the session along with reasonable inactive and maxlifetime session threshholds. There is no "Remember Me" option for longer active logins because password lockers make it easier to login anyway. Additional form security is injected into every <form> with a CSRF token, honeypot, void pot, image captcha, javascript expected delay, and rapid submission triggers. Finally, the \$_SESSION is not protected from rogue extensions. So extension are discouraged from using \$_SESSION, but if needed sequester yourself to \$_SESSION[extension-name']. Users must be allowed to opt-in or opt-out of session cookies.
-</p>
-EOF;	
 	return NULL;
 }
 private function home_notfound(mixed &...$unused) : ?bool {
@@ -1387,50 +1362,47 @@ private function console_theme(
 ) : ?bool {
 	return $this->theme(
 		...$args = array(
-		<<<EOF
+<<<EOF
 body { border: 2rem solid #999999; border-top: 0; }
 header a:link, header a:visited { color: #336699; }
 header a:hover, header a:focus { color: #99ccff; }
 header a:active { color: #993366; }
 EOF
-		,				// css
-		NULL,			// js
-		<<<EOF
+			,				// css
+			NULL,			// js
+<<<EOF
 <div class='console'>
 <div><a href='/console'>Console</a></div>
 <div><a href='/' title='Close Console'>X</a></div>
 </div>
 EOF
-		,				// header
-		NULL,			// main
-		NULL,			// footer
-		1,				// exclusive?
+			,				// header
+			NULL,			// main
+			NULL,			// footer
+			1,				// exclusive?
 		),
 	);
 }
 private function console_router(mixed &...$unused) : ?bool {
-switch ($this->boots['urlpathall']) {
-case '/console':
-case '/console/menu':		$this->console_menu();		return NULL;
-case '/console/browse':		$this->console_browse();	return NULL;
-case '/console/help':		$this->console_help();		return NULL;
-case '/console/status':		$this->console_status();	return NULL;
-case '/console/tests':		$this->console_tests();		return NULL;
-case '/console/webservant':	$this->console_webservant();return NULL;
-default:					$this->home_notfound();		return NULL;
-}
-return NULL;
+	switch ($this->boots['urlpathall']) {
+		case '/console':
+		case '/console/menu':		$this->console_menu();			break;
+		case '/console/browse':		$this->console_browse();		break;
+		case '/console/help':		$this->console_help();			break;
+		case '/console/status':		$this->console_status();		break;
+		case '/console/tests':		$this->console_tests();			break;
+		case '/console/webservant':	$this->console_webservant();	break;
+		default:					$this->home_notfound();			break;
+	}
+	return NULL;
 }
 private function console_menu(mixed &...$unused) : ?bool {
-echo <<<EOF
+	echo <<<EOF
 <h1>Menu</h1>
 <br>
 <a href='/'						>/</a><br>
-<a href='/home'					>/home</a><br>
-<a href='/home/contact'			>/home/contact</a><br>
-<a href='/home/login'			>/home/login</a><br>
-<a href='/home/logout'			>/home/logout</a><br>
-<a href='/home/more'			>/home/more</a><br>
+<a href='/account'				>/account</a><br>
+<a href='/contact'				>/contact</a><br>
 <br>
 <a href='/console'				>/console</a><br>
 <a href='/console/menu'			>/console/menu</a><br>
@@ -1470,28 +1442,28 @@ EOF;
 	return NULL;
 }
 private function console_help(mixed &...$unused) : ?bool {
-echo <<<EOF
+	echo <<<EOF
 <h1>Help</h1>
 EOF;	
 	return NULL;
 }
 private function console_status(mixed &...$unused) : ?bool {
-echo <<<EOF
+	echo <<<EOF
 <h1>Status</h1>
 EOF;	
 	return NULL;
 }
 private function console_tests(mixed &...$unused) : ?bool {
-echo <<<EOF
+	echo <<<EOF
 <h1>Tests</h1>
 EOF;
-return NULL;
+	return NULL;
 }
 private function console_webservant(mixed &...$unused) : ?bool {
-echo <<<EOF
+	echo <<<EOF
 <h1>Webservant</h1>
 EOF;
-return NULL;
+	return NULL;
 }
 
 
@@ -1504,16 +1476,16 @@ return NULL;
 SECTION COMMAND: Core extension /command/*
 */
 private function command_router(mixed &...$unused) : ?bool {
-switch ($this->boots['urlpathall']) {
-case '/command/code':		$this->command_code();		return NULL;
-case '/command/cron':		$this->command_cron();		return NULL;
-case '/command/help':		$this->command_help();		return NULL;
-case '/command/phpinfo':	$this->command_phpinfo();	return NULL;
-case '/command/settings':	$this->command_settings();	return NULL;
-case '/command/updater':	$this->command_updater();	return NULL;
-default:					echo "Invalid command";		return NULL;
-}
-return NULL;
+	switch ($this->boots['urlpathall']) {
+		case '/command/code':		$this->command_code();		return NULL;
+		case '/command/cron':		$this->command_cron();		return NULL;
+		case '/command/help':		$this->command_help();		return NULL;
+		case '/command/phpinfo':	$this->command_phpinfo();	return NULL;
+		case '/command/settings':	$this->command_settings();	return NULL;
+		case '/command/updater':	$this->command_updater();	return NULL;
+		default:					echo "Invalid command";		return NULL;
+	}
+	return NULL;
 }
 private function command_code(mixed &...$unused) : ?bool {
 	highlight_file(__FILE__);
