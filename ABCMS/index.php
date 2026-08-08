@@ -1204,9 +1204,7 @@ EOF
 			NULL,	// css
 			NULL,	// js
 <<<EOF
-<div class='home'>
-<div><a href='/' title='A Basic Content Management System' class='title'>abcms()</a></div>
-</div>
+<h1><a href='/' title='A Basic Content Management System'>A Basic Content Management System&trade;</h1></a></h1>
 EOF
 			,		// header
 			NULL,	// main
@@ -1227,21 +1225,31 @@ private function home_router(mixed &...$unused) : ?bool {
 }
 private function home(mixed &...$unused) : ?bool {
 	echo <<<EOF
-<h1>A Basic Content Management System&trade;</h1>
-<p class='homepage'>
+<p class='center margin-top-0'>
 AKA "<a href='https://www.AionianBible.org' target='_blank'>Aionian Bible</a> Content Management System"<br>
-I am a PHP web developer toolkit and CMS in a single file.
+A PHP web developer toolkit and CMS in one file.
 </p>
-Install with Composer or just index.php in a document root. Everything is an extension with the &dollar;abcms() router.  The core output() function expects to be extended by you to do something meaningful. You override the "/nainoiainc/abcms/begin" hook to output what you want and include your own extendable calls to output(). Since function file locations are passed to the extension manager at execution time this model is even faster than Composer lazy loading which matches every registered object class with the file location on every call. Lazy loading does a lot of work! ABMCS instead includes only the needed extensions at execution time. ABCMS also allows the extension of files, functions, methods, objects, and classes, while Composer only allows the extension of classes.
-</p>
-<p>
-ABCMS uses PHP as the template engine. PHP is designed to intermingle both HTML and procedural function with conditional logic. And PHP is well known so that one does not need to learn another language like Symfony Twig or Laravel Blade. Symfony and Laravel template engines seem an unneccessary reduction of PHP template power. So PHP is the template engine for ABCMS. Frontend developers must understand PHP and HTML, but that is a simpler and more powerful recipe.
-</p>
-<p>
-The first version of ABCMS uses files alone for data storage. While SQL and other databases allow flexible and fast data storage and retrieval not every website application needs this level of data storage complexity. In fact SQL databases often encourage data storage complexity with all the possible data storage rows, columns, types, and indices. However, if a unit of data is only every accessed as a unit, such as a website page, why not store the entire	blob of page data in a single file? This is better for many applications. The page can then be quickly read as a single file rather than many reads of tiny pieces of data to build the page. I once heard Drupal brag that it made thousands of database calls to contruct a single page. Drupal should not brag about this, but instead be ashamed. An SQL database API may be added later for applications that require more complexity.
-</p>
-<p>
-Session security strategy breaks convention with a slightly longer session lifetime. However, threat is migtigated with the addition of a custom 64 byte security cookie name and token value for validating the session along with reasonable inactive and maxlifetime session threshholds. There is no "Remember Me" option for longer active logins because password lockers make it easier to login anyway. Additional form security is injected into every <form> with a CSRF token, honeypot, void pot, image captcha, javascript expected delay, and rapid submission triggers. Finally, the \$_SESSION is not protected from rogue extensions. So extension are discouraged from using \$_SESSION, but if needed sequester yourself to \$_SESSION[extension-name']. Users must be allowed to opt-in or opt-out of session cookies.
+Composer install, or drop index.php in docroot and go. What's included?
+<ul class='line-height-16'>
+<li>Zero dependencies in one file with no node_modules, no build, no vendor lock-in, for a working CMS.</li>
+<li>Routed extensions via output(); one call routes pages, APIs, CLI, anything, and without controller boilerplate.</li>
+<li>Automatic input validation and sanitization on query strings, form data, and path variables.</li>
+<li>Path variables live in the URL itself as /key=value segments with no router configuration needed.</li>
+<li>Realtime file-based routing because extensions load on demand without Composer autoload overhead.</li>
+<li>Secure sessions done right with timeout, idle detection, rotation, cookie-consent, and bad-actor detection.</li>
+<li>Form security with CSRF, session rotation, honeypot, reverse-honeypot, and CAPTCHA injected always.</li>
+<li>Built-in abuse detection with rapid-hit throttling and bad-actor tags for 400/429 responses, not just login limits.</li>
+<li>Fails closed, never fails open, if the security subsystem can't verify itself, forms disable visibly and safely.</li>
+<li>Trifecta authentication with account email, security email, and system-generated 64-byte passwords.</li>
+<li>CSP-ready by default with nonces wired into every injected script and style tag.</li>
+<li>Concurrency-safe JSON database, with locked read/write and CSV, SQLite, and MySQL on the roadmap.</li>
+<li>Graceful failure handling with clean, safe error pages for visitors, and full debug coredumps for autopsy.</li>
+<li>Homepage, contact, accounts, blog, admin console, and CLI, all using the same output() mechanism.</li>
+<li>Built-in SMTP, hardened against header injection, with no mail library required.</li>
+<li>Essential utilities include fail-safe include_once(), unique token generation, and more.</li>
+<li>PHP itself is the template engine so no new syntax to learn, and no templating DSL to fight.</li>
+</ul>
+No frameworks. No ceremony. Just PHP, HTML, JavaScript. Why can't a CMS be simple? Yee Haw!
 </p>
 EOF;
 	return NULL;
@@ -1249,7 +1257,7 @@ EOF;
 // account register, login, logout, update, delete
 public function home_account(mixed &...$unused) : ?bool {
 	// start session
-	echo "<h1>Account</h1>";
+	echo "<h2>Account</h2>";
 	if (!$this->session_start(1)) {				echo "Session failed."; return NULL; } // early exit
 	$sess = $_SESSION[ABCMS_SES];
 
@@ -1320,13 +1328,13 @@ return NULL;
 }
 private function home_contact(mixed &...$unused) : ?bool {
 echo <<<EOF
-<h1>Contact</h1>
+<h2>Contact</h2>
 EOF;
 	return NULL;
 }
 private function home_notfound(mixed &...$unused) : ?bool {
 echo <<<EOF
-<h1>Status</h1>
+<h2>Status</h2>
 <p class='center'>
 My sincere apologies.<br>
 I just cannot find the page requested.<br>
@@ -1924,20 +1932,22 @@ html, body, #page, header, main, footer { margin: 0; padding: 0; width: 100%; te
 html { font-size: 100%; overflow-wrap: break-word; word-wrap: break-word; }
 body { color: #333333; background-color: #FFFFFF; font-size: 1.125rem; line-height: 1.3; font-family: Arial, sans-serif; }
 #page { display: flex; flex-direction: column; min-height: 100vh; }
-header a:link, header a:visited { color: #999999; }
+header a:link, header a:visited { color: #336699; }
 header a:hover, header a:focus { color: #99ccff; }
 header a:active { color: #993366; }
-header .home { width:100%; display: flex; justify-content: center; padding: 10px 0; }
-header .title { font-size: 4rem; font-weight: bold; }
 header .console { width:100%; display: flex; justify-content: space-between; padding: 10px 0; background-color: #999999; color: #333333; font-size: 2rem; font-weight: bold; }
 main { flex: 1;	max-width: 1024px; min-width: min(360px, 100%); margin: 1rem auto; padding: 0rem 3rem 1rem 3rem; text-align: justify; }
-main .homepage { line-height: 2rem; text-align: center; }
 footer { margin-bottom: 1rem; }
 h1, h2, h3, h4 { color: #336699; }
-h1 { text-align: center; }
+h1, h2 { text-align: center; }
 .bold { font-weight: 700; }
 .italic { font-style: italic; }
 .center { text-align: center; }
+.margin-top-0 { margin-top: 0; }
+.margin-bottom-0 { margin-bottom: 0; }
+.line-height-14 { line-height: 1.4; }
+.line-height-16 { line-height: 1.6; }
+.line-height-18 { line-height: 1.8; }
 a { text-decoration: none; }
 a:link { color: #6cc9ff; }
 a:visited { color: #996633; }

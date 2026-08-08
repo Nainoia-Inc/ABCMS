@@ -1,0 +1,12 @@
+Copyright (c) 2026 Nainoia Inc. All rights reserved.
+
+This software and associated documentation files are the sole property of the author. 
+No permission is granted for distribution, modification, or commercial use.
+
+The purpose for this restrictive copyright is so that interested parties are moved
+to help develop and improve this project. 
+
+Once the project has legs and is in production the copyright will be removed so that
+others can continue to help develop this project or fork and copy code as they please.
+
+However, no copying code now, just helping the author.
