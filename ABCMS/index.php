@@ -148,21 +148,21 @@ $_abcms = new class {						// object assigned
 readonly	array	$boots;					// bootstrap input before session
 readonly	array	$input;					// sanitized input after session
 readonly	array	$settings;				// application settings
-private		array	$compiles	= array();	// compile settings
-private		array	$database	= array();	// database
-private		array	$errors		= array();	// errors
-private		array	$debugs		= array();	// debugs
-private		array	$stack		= array();	// extension stack
+private		?array	$compiles	= NULL;		// compile settings
+private		?array	$database	= NULL;		// database
+private		array	$errors		= [];		// errors
+private		array	$debugs		= [];		// debugs
+private		array	$stack		= [];		// extension stack
 private		bool	$formvalid	= FALSE;	// form valid
 private		bool	$formhuman	= FALSE;	// form human
 // construct object
 function __construct() {
-	// error location, always continue
-	if (FALSE === ini_set('error_log', __DIR__ . "/../private/nainoiainc/abcms/ABCMS.errorlog")) { $this->error_log("Set error_log location failed."); }
-	// dump unknown buffers, always continue
-	while(ob_get_level() > 0) { if (FALSE !== ($buf = ob_get_clean()) && '' !== $buf) { $this->error_log("Wrong, I got stuff in my buffers."); } }
 	// read settings
-	if (FALSE === $this->settings(TRUE)){ $this->error_wsod("Application settings not found."); }
+	if (FALSE === $this->settings(TRUE)) { $this->error_wsod("Application settings not found."); }
+	// transaction log
+	if (FALSE === ini_set('error_log', $this->settings['core']['translog'])) { $this->error_log("Set error_log location failed."); }
+	// dump unknown buffers
+	while(ob_get_level() > 0) { if (FALSE !== ($buf = ob_get_clean()) && '' !== $buf) { $this->error_log("I got stuff in my buffers."); } }
 	// bootstrap inputs for session_start(), then session user validates remaining inputs
 	$this->boots = array(
 		// current time()
@@ -598,18 +598,27 @@ private function settings(
 	$password = NULL;
 	$this->error_log("Retrieve new password and delete the file please.");
 	$this->compiles['core']['secret']			= $this->get_uniq(); // My hashing secret
-	if (!is_dir(($dir = __DIR__ . "/../private/nainoiainc/abcms/ABCMS.sessions")) && !mkdir($dir, 0755, true)) { $this->error_wsod("Session folder does not exist."); }
-	$this->compiles['core']['session_folder']	= $dir; // My session folder
-	$this->compiles['core']['session_cookie']	= $this->get_hash('session_cookie'); // My session cookie name
-	$this->compiles['core']['session_logins']	= $this->get_hash('session_logins'); // My login cookie name
-	$this->compiles['core']['session_badact']	= $this->get_hash('session_badact'); // My bad actor cookie name
-	$this->compiles['core']['session_allows']	= $this->get_hash('session_allows'); // My user allows cookie name
+	if (!is_dir(($dir = __DIR__ . "/../private/nainoiainc/abcms/ABCMS.sessions")) && (!mkdir($dir, 0755, true) || !($dir=realpath($dir)))) { $this->error_wsod("Session folder does not exist."); }
+	$this->compiles['core']['session_folder']	= $dir; // session folder
+	$this->compiles['core']['session_cookie']	= $this->get_hash('session_cookie'); // session cookie name
+	$this->compiles['core']['session_logins']	= $this->get_hash('session_logins'); // login cookie name
+	$this->compiles['core']['session_badact']	= $this->get_hash('session_badact'); // bad actor cookie name
+	$this->compiles['core']['session_allows']	= $this->get_hash('session_allows'); // user allows cookie name
 	$this->compiles['core']['session_killit']	= TRUE; // kill when close browser
 	$this->compiles['core']['smtp_host']		= NULL; // SMTP server
 	$this->compiles['core']['smtp_port']		= NULL; // SMTP port
+	$this->compiles['core']['smtp_name']		= NULL; // SMTP name
 	$this->compiles['core']['smtp_user']		= NULL; // SMTP username
 	$this->compiles['core']['smtp_pass']		= NULL; // SMTP password
 	$this->compiles['core']['smtp_ehlo']		= NULL; // SMTP EHLO
+	if (!file_exists(($log=__DIR__."/../private/nainoiainc/abcms/ABCMS.translog")) && (!touch($log) || !($log=realpath($log)))) { $this->error_wsod("Transaction log does not exist."); }
+	$this->compiles['core']['translog']			= $log;	// transaction log
+	if (!file_exists(($dat=__DIR__."/../private/nainoiainc/abcms/ABCMS.database")) && (!touch($dat) || !($dat=realpath($dat)))) { $this->error_wsod("Database does not exist."); }
+	$this->compiles['core']['database']			= $dat;	// database
+	if (!file_exists(($lok=__DIR__."/../private/nainoiainc/abcms/ABCMS.lockfile")) && (!touch($lok) || !($lok=realpath($lok)))) { $this->error_wsod("Lockfile does not exist."); }
+	$this->compiles['core']['lockfile']			= $lok;	// lockfile
+	if (!file_exists(($ove=__DIR__."/../private/nainoiainc/abcms/ABCMS.override")) && (!touch($ove) || !($ove=realpath($ove)))) { $this->error_wsod("Settings override does not exist."); }
+	$this->compiles['core']['override']			= $ove;	// overrides
 	// register URL PATH variables
 	$this->settings_varpath('debug',	'bool',		ABCMS_ROLE_ADMINS);
 	// register $_GET variables
@@ -636,19 +645,16 @@ private function settings(
 	$this->settings_extend(ABCMS_EXT_MAINX,	'console',	'CLI-GET-POST',	'IE',	'abcms()->console_router',	ABCMS_ROLE_ADMINS,	-10);
 	$this->settings_equate(ABCMS_EXT_MAINX,	'console',	'/console');
 	$this->settings_equate(ABCMS_EXT_MAINX,	'console',	'/console/');
-	// INIT.php run by composer or at will if ABCMS or plugin changes to rebuild the settings extension array
-	// while() { include init.php; }
-	// clean up - remove mixed non-exclusive or exclusive routes.
-	while(0) { ; } // loop through extension SETTINGS.php
+	// SETTINGS.php run by composer or at will if ABCMS or plugin changes to rebuild the settings extension array
+	// TODO remove mixed non-exclusive or exclusive routes.
+	while(0) { ; } // TODO loop through extension SETTINGS.php
 	// override settings
-	if (($override = json_decode(file_get_contents(__DIR__ . "/../private/nainoiainc/abcms/ABCMS.override"), TRUE))) {
-		$this->array_walk_merge($this->compiles, $override);
-	}
+	if (($override = json_decode(file_get_contents($this->compiles['core']['override']), TRUE))) { $this->array_walk_merge($this->compiles, $override); }
 	// save settings atomically with rename()
 	$temp = "{$storage}.".getmypid();
 	if (FALSE === $this->set_json($temp, $this->compiles) || !rename($temp, $storage)) {	$this->error_wsod("Settings write failure."); }
 	if ($boot) { $this->settings = $this->compiles; }
-	unset($this->compiles);
+	$this->compiles = [];
 	return TRUE;
 }
 // Register hook extension
@@ -916,7 +922,7 @@ public function session_start(
 		else if (isset($_COOKIE[$this->settings['core']['session_logins']]) &&
 			(($_COOKIE[$this->settings['core']['session_logins']]?:'x') !== $sess['logins'] || empty($sess['user']) ||
 			// reload user every page to confirm permissions
-			!($sess['user'] = $this->get_database('user', $sess['user']['userid'])))) {									$error = 'Session ended, resume login failed.'; }
+			!($sess['user'] = $this->get_database(array('user',$sess['user']['email']))))) {							$error = 'Session ended, resume login failed.'; }
 		// login expired
 		else if (!isset($_COOKIE[$this->settings['core']['session_logins']]) && !empty($sess['user'])) {				$error = 'Session ended, login expired.'; }
 		// idle time exceeded
@@ -956,40 +962,36 @@ KILL:	// set errors
 	if ($sess) {
 		$logout = FALSE;
 
-		// valid POST / form
+		// valid POST
 		if ($post) {
 			$this->formvalid = TRUE;
 			$this->formhuman = ($formhuman ? TRUE :FALSE);
-			// process login on page load
-			if ('/home/login' === $this->boots['urlpathall']) {
-				// punish max login failures
-				if (++$sess['trys'] > ABCMS_SES_LOGI) {
-					$error = 'Too many login failures, attack suspected.'; $slap = 400;
-					goto KILL; // failed login kills session
-				}
-				// login sucessful
-				/*
-					return array(
-						'email'	=> 'jeff@dgjc.org',
-						'email2'=> 'nainoia-inc@signedon.net',
-						'pass'	=> '',
-						'role'	=>	ABCMS_ROLE_ADMINS,
-					);
-				*/
-				if ($this->formhuman &&
-					!empty(($_POST['Account_Email']??NULL).($_POST['Account_Email2']??NULL)) &&
-					!empty($_POST['Account_Password']) &&
-					password_verify($_POST['Account_Password'], $this->settings['core']['password'])) {
-					$sess['trys'] = 0;
-					$sess['user'] = $this->get_database('user', $_POST);
-					$sess['logins'] = $this->get_uniq();
-					$this->set_cookie($this->settings['core']['session_logins'], $sess['logins'], $sess['create'] + ABCMS_SES_LIFE);
-				}
-				// logout if login failure, but session remains
-				else {
-					$this->set_errors('Attempted login failure.');
+			// process account operations on page load
+			if ('/account' === $this->boots['urlpathall']) {
+				$operation = ($this->formhuman && isset($_POST['clicked']) ? $_POST['clicked'] : 'logout');
+				if (!password_verify($_POST['Account_Password'], $this->settings['core']['password']) ||
+					empty($_POST['Account_Email']) ||
+					empty($_POST['Account_Email2'])) {
+					if (++$sess['trys'] > ABCMS_SES_LOGI) {	$error = 'Too many login failures, attack suspected.'; $slap = 400; goto KILL; } // too many failed logins
+					$this->set_errors('Login failure, please try again.');
 					$logout = TRUE;
 				}
+				else if (1 || 'register' === $operation) {
+					$this->set_database(array('user', $_POST['Account_Email']), array('email'=>$_POST['Account_Email'],'email2'=>$_POST['Account_Email2'],'role'=>ABCMS_ROLE_ADMINS));
+					if (($sess['user'] = $this->get_database(array('user', $_POST['Account_Email'])))) {
+						$sess['trys'] = 0;
+						$sess['logins'] = $this->get_uniq();
+						$this->set_cookie($this->settings['core']['session_logins'], $sess['logins'], $sess['create'] + ABCMS_SES_LIFE);
+					}
+					else {
+						$this->set_errors('Login failure, please try again.');
+						$logout = TRUE;
+					}
+				}
+				else if ('login'=== $operation) { }
+				else if ('reset'=== $operation) { }
+				else if ('update'=== $operation) { }
+				else if ('delete'=== $operation) { }
 			}
 		}
 
@@ -1095,25 +1097,26 @@ private function session_account(mixed &...$unused) : ?bool {
 	else if (!$this->formvalid) {				$mess = "Suspect submital."; }		// suspect
 	else if (!$this->formhuman) {				$mess = "CAPTCHA failed."; }		// CAPTCHA
 	else if (empty($sess['user'])) {			$mess = "Login or Register."; }		// not logged in
-	else if ('register' === $_POST['clicked']){	$mess = "Registered."; }			// registered
-	else if ('login' === $_POST['clicked']) {	$mess = "Logged in.";				// logged in
+	else if (1 || 'register' === $_POST['clicked'] ||'login' === $_POST['clicked']) {
 		$email = $this->email(
-		'jeff@dgjc.org',										// From
-		'Jeff Martin',											// Name
-		['jeff@dgjc.org'],										// Recipients
-		['jmartin@prwa.com'],									// CCs
-		['nainoia-inc@signedon.net'],							// BCCs
-		'ABCMS test login email',								// Subject
-		'<h2>Success!</h2><p>One</p><p>Two</p><p>Three</p>',	// HTML body
-		"Success!\r\n\r\none\r\ntwo\r\nthree\r\n",				// Plain text
-		[__FILE__],												// Attachments
-		[	'smtp'	=> $this->settings['core']['smtp_host'],	// SMTP host
-			'port'	=> $this->settings['core']['smtp_port'],	// SMTP port
-			'user'	=> $this->settings['core']['smtp_user'],	// SMTP user
-			'pass'	=> $this->settings['core']['smtp_pass'],	// SMTP pass
-			'ehlo'	=> $this->boots['urldomain'],				// SMTP EHLO
-		],
+			$this->settings['core']['smtp_user'],					// From
+			$this->settings['core']['smtp_name'],					// Name
+			[$this->settings['core']['smtp_user']],					// Recipients
+			NULL,													// CCs
+			[$this->settings['core']['smtp_user']],					// BCCs
+			'ABCMS Login Success',									// Subject
+			'<h2>Success!</h2><p>One</p><p>Two</p><p>Three</p>',	// HTML body
+			"Success!\r\n\r\none\r\ntwo\r\nthree\r\n",				// Plain text
+			[__FILE__],												// Attachments
+			[	'smtp'	=> $this->settings['core']['smtp_host'],	// SMTP host
+				'port'	=> $this->settings['core']['smtp_port'],	// SMTP port
+				'user'	=> $this->settings['core']['smtp_user'],	// SMTP user
+				'pass'	=> $this->settings['core']['smtp_pass'],	// SMTP pass
+				'ehlo'	=> $this->boots['urldomain'],				// SMTP EHLO
+				//'debug'	=> TRUE,									// debug
+			],
 		);
+		$mess = "Registered logged in. {$email}";
 	}
 	else if ('reset' === $_POST['clicked']) {	$mess = "Account reset."; }			// reset
 	else if ('logout' === $_POST['clicked']) {	$mess = "Logged out."; }			// logged out
@@ -1164,18 +1167,15 @@ return NULL;
 /*************************************************************************************************
 SECTION DATABASE: Store data in JSON, CSV, SQLite, or MySQL.
 */
+// I reduced this API to one json data file, BUT will expand again to multiple-files of various types!!!!
+// Further the file does not need to exist but can be created on the fly
 // database set
 public function set_database(
-	string $filename,	// location
-	array $keys,		// element keys, [] replaces database with $data if array or [$data]
+	array $keys,		// element keys, [] replaces database with (is_array($data) ? $data : [$data])
 	mixed $data,		// element
 ) : bool {
-	// database file
-	if ((!file_exists(__DIR__ . $filename) && !touch(__DIR__ . $filename)) ||
-		!($datafile = realpath(__DIR__ . $filename))) {
-		$this->error_wsod("Database not found: $filename");
-	}
-	// update element
+	// initialize update element
+	$database = $this->settings['core']['database'];
 	$update = [];
 	$current = &$update;
 	foreach($keys as $key) {
@@ -1184,27 +1184,30 @@ public function set_database(
 	}
 	$current = $data;
 	// exclusive lock
-	if (!($lockfd = fopen($datafile.".lock", 'c')) || !flock($lockfd, LOCK_EX)) {
+	if (!($lockfd = fopen($this->settings['core']['lockfile'], 'r+')) || !flock($lockfd, LOCK_EX)) {
 		if ($lockfd) { fclose($lockfd); }
 		$this->error_wsod("Database exclusive lock failure");
 	}
-	// read database
-	if (FALSE === ($raw = file_get_contents($datafile))) {
+	// read
+	if (FALSE === ($raw = file_get_contents($database))) {
 		flock($lockfd, LOCK_UN); fclose($lockfd);
-		$this->error_wsod("Database read failure: {$datafile}");
+		$this->error_wsod("Database read failure");
 	}
 	else if ('' === $raw) {
-		$this->database[$datafile] = [];
+		$this->database = [];
 	}
-	else if (!is_array($this->database[$datafile] = json_decode($raw, TRUE))) {
+	else if (!is_array($raw = json_decode($raw, TRUE))) {
 		flock($lockfd, LOCK_UN); fclose($lockfd);
-		$this->error_wsod("Database corrupted: {$datafile}");
+		$this->error_wsod("Database json corrupted");
+	}
+	else {
+		$this->database = $raw;
 	}
 	// merge update
-	if (empty($keys)) { $this->database[$datafile] = (is_array($data) ? $data : array($data)); }
-	else {				$this->array_walk_merge($this->database[$datafile], $update); }
-	// write database
-	if (FALSE===$this->set_json($datafile, $this->database[$datafile])) {
+	if (empty($keys)) { $this->database = (is_array($data) ? $data : array($data)); }
+	else {				$this->array_walk_merge($this->database, $update); }
+	// write
+	if (FALSE===$this->set_json($database, $this->database)) {
 		flock($lockfd, LOCK_UN); fclose($lockfd);
 		$this->error_wsod("Database write failure.");
 	}
@@ -1213,38 +1216,36 @@ public function set_database(
 }
 // database get
 public function get_database(
-	string $filename,	// location
 	array $keys,		// element keys, [] returns whole database
 ) : mixed {
-	// database file
-	if ((!file_exists(__DIR__ . $filename) && !touch(__DIR__ . $filename)) ||
-		!($datafile = realpath(__DIR__ . $filename))) {
-		$this->error_wsod("Database not found: {$filename}");
-	}
 	// cached or not cached
-	if (!isset($this->database[$datafile])) {
+	if (!isset($this->database)) {
 		// shared lock
-		if (!($lockfd = fopen($datafile.".lock", 'c')) || !flock($lockfd, LOCK_SH)) {
+		if (!($lockfd = fopen($this->settings['core']['lockfile'], 'r')) || !flock($lockfd, LOCK_SH)) {
 			if ($lockfd) { fclose($lockfd); }
-			$this->error_wsod("Database shared lock failure: {$datafile}");
+			$this->error_wsod("Database shared lock failure");
 		}
-		// read database
-		if (FALSE === ($raw = file_get_contents($datafile))) {
+		// read
+		$database = $this->settings['core']['database'];
+		if (FALSE === ($raw = file_get_contents($database))) {
 			flock($lockfd, LOCK_UN); fclose($lockfd);
-			$this->error_wsod("Database read failure: {$datafile}");
+			$this->error_wsod("Database read failure");
 		}
 		else if ('' === $raw) {
-			$this->database[$datafile] = [];
+			$this->database = [];
 		}
-		else if (!is_array($this->database[$datafile] = json_decode($raw, TRUE))) {
+		else if (!is_array($raw = json_decode($raw, TRUE))) {
 			flock($lockfd, LOCK_UN); fclose($lockfd);
-			$this->error_wsod("Database corrupted: {$datafile}");
+			$this->error_wsod("Database corrupted");
+		}
+		else {
+			$this->database = $raw;
 		}
 		// release lock
 		flock($lockfd, LOCK_UN); fclose($lockfd);
 	}
 	// return data
-	$element = $this->database[$datafile];
+	$element = $this->database;
 	foreach ($keys as $key) {
 		if (!isset($element[$key])) { return NULL; }
 		$element = $element[$key];
@@ -1804,7 +1805,7 @@ public function email(
 		}
 		else if (in_array('login', $methods, TRUE)) {
 			[$status] = $command('AUTH LOGIN');
-			if ($status != 334) { return $fail('Email AUTH LOGIN not accepted.'); }
+			if ($status != 334) { return $fail('Email AUTH LOGIN rejected.'); }
 			[$status] = $command(base64_encode($options_user), FALSE);
 			if ($status != 334) { return $fail('Email AUTH username rejected.'); }
 			[$status] = $command(base64_encode($options_pass), FALSE);
