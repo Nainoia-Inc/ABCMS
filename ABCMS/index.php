@@ -721,6 +721,10 @@ public function set_database(
 	mixed $data,		// element
 	bool $new = TRUE,	// TRUE to add new record (fails if exists), FALSE to update existing (fails if doesn't exist)
 ) : bool {
+	// no new NULL
+	if ($new && NULL === $data) {
+		return FALSE;
+	}
 	// initialize update element
 	$database = $this->settings['core']['database'];
 	$update = [];
@@ -758,20 +762,27 @@ public function set_database(
 			return FALSE;
 		}
 		// but you can update an entire empty or full database
-		$this->database = (is_array($data) ? $data : array($data));
+		$this->database = (is_array($data) ? $data : (NULL === $data ? [] : array($data)));
 	}
 	else {
 		// search to find or not find element
-		$element = $this->database;
+		$element = &$this->database;
+		$previous = $key = NULL;
 		foreach ($keys as $key) {
+			$previous = &$element;
 			if (!isset($element[$key])) { $element = NULL; break; }
-			$element = $element[$key];
+			$element = &$element[$key];
 		}
 		if (($new && $element) || (!$new && !$element)) {
 			flock($lockfd, LOCK_UN); fclose($lockfd);
 			return FALSE;
 		}
-		$this->array_walk_merge($this->database, $update);
+		else if (NULL === $data) {
+			unset($previous[$key]);
+		}
+		else {
+			$this->array_walk_merge($this->database, $update);
+		}
 	}
 	// write
 	if (FALSE===$this->set_json($database, $this->database)) {
@@ -1185,6 +1196,8 @@ $footer = <<<EOF
  / <a href='/contact'>Contact</a>
 EOF
 . ($this->input['role'] < ABCMS_ROLE_ADMINS ? NULL : " / <a href='/console'>Console</a>");
+// TODO, the above line is wrong when first logging in because don't know I am authenticated till later...
+// how can I do that without putting the authentication into session_start()????
 	return $this->theme( // theme
 		...$args = array( // spreader
 			NULL,	// css
@@ -1253,8 +1266,7 @@ public function home_account(mixed &...$unused) : ?bool {
 		(!$this->formhuman ? 'inhuman' :
 		(!empty($_POST['clicked']) ? $_POST['clicked'] : 'unknown')))));		
 	if (empty($_SESSION[ABCMS_SES]['create'])) { $sess = NULL; } else { $sess = &$_SESSION[ABCMS_SES]; }
-	$mess = "Login or register below.";
-	$email = $email2 = $subject = $body = NULL;
+	$mess = $email = $email2 = $subject = $body = NULL;
 
 	// switch
 	switch ($switch) {
@@ -1301,14 +1313,32 @@ public function home_account(mixed &...$unused) : ?bool {
 							else {				$mess = "Registration failure, please try again."; }
 							break;
 
-		case 'logout':		$this->session_start(-1); $sess = NULL;
-							$mess = "You are logged out.";
+		case 'delete':		if (empty($sess['user']['email']) ||
+								empty($_POST['Account_Email']) ||
+								$_POST['Account_Email'] !== $sess['user']['email'] ||
+								!$this->set_database(array('user', $sess['user']['email']), NULL, FALSE)) {
+								$mess = "Delete failure, please try again.";
+								break;
+							}
+							$mess = "Account deleted.";
+							$subject = "ABCMS Account Deleted: {$_POST['Account_Email']}";
+							$body = "<h4>Hello</h4>Your account is deleted at " . $this->boots['urldomain'];
+
+		case 'logout':		$this->session_start(-1);
+							$sess = NULL;
+							$mess = ($mess??"You are logged out.");
+							break;
+
 		case 'reset':
 		case 'update':
-		case 'delete':
 		case 'form':
 		case 'unknown':
-		default:			break;
+		default:			if (!empty($sess['user']['valid'])) {
+								$email = $this->hsc($sess['user']['email']);
+								$email2 = $this->hsc($sess['user']['email2']);
+							}
+							$mess = "Login or register below.";
+							break;
 	}
 	
 	// send email
