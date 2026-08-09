@@ -343,9 +343,9 @@ private function settings(
 	if (!file_exists(($ove=__DIR__."/../private/nainoiainc/abcms/ABCMS.override")) && (!touch($ove) || !($ove=realpath($ove)))) { $this->error_wsod("Settings override does not exist."); }
 	$this->compiles['core']['override']			= $ove;	// overrides
 	// register URL PATH variables
-	$this->settings_varpath('debug',	'bool',		ABCMS_ROLE_ADMINS);
+	$this->settings_varpath('debug', 'bool', ABCMS_ROLE_ADMINS);
 	// register $_GET variables
-	$this->settings_varget('debug',	'bool',		ABCMS_ROLE_ADMINS);
+	$this->settings_varget('debug', 'bool', ABCMS_ROLE_ADMINS);
 	// register _POST variables
 	// extension controls
 	// 'I' = Input -OR- 'O' = Output filter, default Input
@@ -533,9 +533,12 @@ public function session_start(
 	// early exits
 	if ($alreadydenied) { return FALSE; } // already denied
 	if ($cmd < 0) { $error = 'You are logged out.'; goto KILL; } // destroy session
-	if ($active) { return TRUE; } // already started
+	if ($active) {
+		if (0 === $cmd) { $this->error_wsod("Session started to early.");	} // abcms must start the session
+		return TRUE; // already started
+	}
 	if (headers_sent()) { $this->error_wsod("Session start failed, headers already sent.");	} // already headers
-	if (!isset($_COOKIE[$this->settings['core']['session_allows']])) { $this->set_cookie($this->settings['core']['session_allows'], ABCMS_COOK_NAVS, $now + ABCMS_COOK_LIFE, FALSE); }	// TEMP CODE TO ALLOW COOKIES
+	if (!isset($_COOKIE[$this->settings['core']['session_allows']])) { $this->set_cookie($this->settings['core']['session_allows'], ABCMS_COOK_NAVS, $now + ABCMS_COOK_LIFE, FALSE); }	// TODO TEMP CODE TO ALLOW COOKIES
 	if (empty($_COOKIE[$this->settings['core']['session_allows']])) {	$this->set_errors('Session denied without your cookie approval.'); return FALSE; } // cookies not approved
 	if (isset($_COOKIE[$this->settings['core']['session_badact']])) {	$this->set_errors('Session denied to suspected bad actor.'); $alreadydenied = TRUE; return FALSE; } // bad actor
 	$post = ('POST' === $this->boots['urlmethod'] && !$posthandled ? TRUE : FALSE); // is this a POST?
@@ -544,7 +547,7 @@ public function session_start(
 	// start the session and assign more variables
 	if (!session_start($options) || !($_COOKIE[$options['name']] = session_id())) { $this->error_wsod("Session start failed, unknown reason.");	}
 	$active = $posthandled = TRUE;
-	$error = $formhuman = NULL;
+	$error = $gauntlet = NULL;
 	$csrf = ($post && !empty($_POST['csrf']) ? $_POST['csrf'] : '');
 	if (empty($_SESSION[ABCMS_SES]['create'])) { $sess = NULL; } else { $sess = &$_SESSION[ABCMS_SES]; }
 
@@ -572,10 +575,9 @@ public function session_start(
 		else if ($csrf && !hash_equals($sess['full_valu'], (($_POST[$sess['full_name']]??'x')?:'x'))) {					$error = 'Session ended, CAPTCHA2 error.';			$slap = 400; }
 		// POST rapid
 		else if ($csrf && ($now - $sess['active']) < ABCMS_SES_WAIT) {													$error = "Session ended, rapid submission.";		$slap = 400; }
-		// login failed session ended
+		// fail resume login, cookies or session expired, always reload user to confirm permissions
 		else if (isset($_COOKIE[$this->settings['core']['session_logins']]) &&
 			(($_COOKIE[$this->settings['core']['session_logins']]?:'x') !== $sess['logins'] || empty($sess['user']) ||
-			// reload user every page to confirm permissions
 			!($sess['user'] = $this->get_database(array('user',$sess['user']['email']))))) {							$error = 'Session ended, resume login failed.'; }
 		// login expired
 		else if (!isset($_COOKIE[$this->settings['core']['session_logins']]) && !empty($sess['user'])) {				$error = 'Session ended, login expired.'; }
@@ -585,21 +587,21 @@ public function session_start(
 		else if ($now > ($sess['create'] + ABCMS_SES_LIFE)) {															$error = 'Session ended, maxtime threshold.'; }
 		// POST image mismatch
 		else if ($csrf && empty($sess['user']) && ($sess['test_valu'] !== (($_POST[$sess['test_name']]??'x')?:'x'))) {	$this->set_errors('CAPTCHA failure, please try again.'); }
-		// Passed gauntlet must be human
-		else {																											$formhuman = TRUE; }
+		// Passed gauntlet so maybe human
+		else {																											$gauntlet = TRUE; }
 	}
 
 	// destroy by request or for corruption
 	if ($error) {
 KILL:	// set errors
 		$this->set_errors($error);
-		// start session to destroy
+		// start session to destroy it, weird
 		if (!$active) { $active = session_start($options); }
 		// remove cookies
 		$this->set_cookie($options['name'], '', 1); // session
 		if (isset($_SESSION[ABCMS_SES]['cookie'])) { $this->set_cookie($_SESSION[ABCMS_SES]['cookie'], '', 1); } // secret
 		$this->set_cookie($this->settings['core']['session_logins'], '', 1); // login
-		// PHP says mark for garbage collection, but don't want garbage around
+		// PHP says mark for garbage collection, but I don't want garbage laying around
 		$_SESSION = [];
 		if ($active && !session_destroy()) { $this->error_log("Session destroy failed.");	}
 		// slap evil and assign bad actor cookie
@@ -614,48 +616,11 @@ KILL:	// set errors
 
 	// update valid session
 	if ($sess) {
-		$logout = FALSE;
-
-		// valid POST
+		// valid POST, though POST data validated in form handler
 		if ($post) {
 			$this->formvalid = TRUE;
-			$this->formhuman = ($formhuman ? TRUE :FALSE);
-			// process account operations on page load
-			if ('/account' === $this->boots['urlpathall']) {
-				$operation = ($this->formhuman && isset($_POST['clicked']) ? $_POST['clicked'] : 'logout');
-				if (!password_verify($_POST['Account_Password'], $this->settings['core']['password']) ||
-					empty($_POST['Account_Email']) ||
-					empty($_POST['Account_Email2'])) {
-					if (++$sess['trys'] > ABCMS_SES_LOGI) {	$error = 'Too many login failures, attack suspected.'; $slap = 400; goto KILL; } // too many failed logins
-					$this->set_errors('Login failure, please try again.');
-					$logout = TRUE;
-				}
-				else if (1 || 'register' === $operation) {
-					$this->set_database(array('user', $_POST['Account_Email']), array('email'=>$_POST['Account_Email'],'email2'=>$_POST['Account_Email2'],'role'=>ABCMS_ROLE_ADMINS));
-					if (($sess['user'] = $this->get_database(array('user', $_POST['Account_Email'])))) {
-						$sess['trys'] = 0;
-						$sess['logins'] = $this->get_uniq();
-						$this->set_cookie($this->settings['core']['session_logins'], $sess['logins'], $sess['create'] + ABCMS_SES_LIFE);
-					}
-					else {
-						$this->set_errors('Login failure, please try again.');
-						$logout = TRUE;
-					}
-				}
-				else if ('login'=== $operation) { }
-				else if ('reset'=== $operation) { }
-				else if ('update'=== $operation) { }
-				else if ('delete'=== $operation) { }
-			}
+			$this->formhuman = ($gauntlet ? TRUE :FALSE);
 		}
-
-		// process logout on page load 
-		if ($logout || '/home/logout' === $this->boots['urlpathall']) {
-			$sess['user'] = NULL;
-			$sess['logins'] = NULL;
-			$this->set_cookie($this->settings['core']['session_logins'], '', 1);
-		}
-
 		// rotate session and CSRF if exceed rotate time or $user role changed
 		if ($now > ($sess['rotate'] + ABCMS_SES_ROTA) || $sess['role'] !== ($sess['user']['role']??NULL)) {
 			// session cookie
@@ -754,6 +719,7 @@ SECTION DATABASE: Store data in JSON, CSV, SQLite, or MySQL.
 public function set_database(
 	array $keys,		// element keys, [] replaces database with (is_array($data) ? $data : [$data])
 	mixed $data,		// element
+	bool $new = TRUE,	// TRUE to add new record (fails if exists), FALSE to update existing (fails if doesn't exist)
 ) : bool {
 	// initialize update element
 	$database = $this->settings['core']['database'];
@@ -784,9 +750,29 @@ public function set_database(
 	else {
 		$this->database = $raw;
 	}
-	// merge update
-	if (empty($keys)) { $this->database = (is_array($data) ? $data : array($data)); }
-	else {				$this->array_walk_merge($this->database, $update); }
+	// merge update TODO handle add new or update existing records
+	if (empty($keys)) {
+		// may not write entirely new database if database exists
+		if ($new && !empty($this->database)) {
+			flock($lockfd, LOCK_UN); fclose($lockfd);
+			return FALSE;
+		}
+		// but you can update an entire empty or full database
+		$this->database = (is_array($data) ? $data : array($data));
+	}
+	else {
+		// search to find or not find element
+		$element = $this->database;
+		foreach ($keys as $key) {
+			if (!isset($element[$key])) { $element = NULL; break; }
+			$element = $element[$key];
+		}
+		if (($new && $element) || (!$new && !$element)) {
+			flock($lockfd, LOCK_UN); fclose($lockfd);
+			return FALSE;
+		}
+		$this->array_walk_merge($this->database, $update);
+	}
 	// write
 	if (FALSE===$this->set_json($database, $this->database)) {
 		flock($lockfd, LOCK_UN); fclose($lockfd);
@@ -1076,7 +1062,7 @@ EOF;
 <input type='hidden' name='{$sess['full_name']}'	value=''>
 EOF;
 	// form CAPTCHA
-	$inject_captcha = (!empty($sess['user']) ? NULL : <<<EOF
+	$inject_captcha = (!empty($sess['user']['valid']) ? NULL : <<<EOF
 <div class='captcha'>
 CAPTCHA <input name='{$sess['test_name']}' value=''> \$1 \$3
 </div>
@@ -1244,7 +1230,7 @@ Composer install, or drop index.php in docroot and go. What's included?
 <li>CSP-ready by default with nonces wired into every injected script and style tag.</li>
 <li>Concurrency-safe JSON database, with locked read/write and CSV, SQLite, and MySQL on the roadmap.</li>
 <li>Graceful failure handling with clean, safe error pages for visitors, and full debug coredumps for autopsy.</li>
-<li>Homepage, contact, accounts, blog, admin console, and CLI, all using the same output() mechanism.</li>
+<li>Core /homepage, /contact, /account, /webfiles, /console, and /CLI, all use the same output() mechanism.</li>
 <li>Built-in SMTP, hardened against header injection, with no mail library required.</li>
 <li>Essential utilities include fail-safe include_once(), unique token generation, and more.</li>
 <li>PHP itself is the template engine so no new syntax to learn, and no templating DSL to fight.</li>
@@ -1254,61 +1240,114 @@ No frameworks. No ceremony. Just PHP, HTML, JavaScript. Why can't a CMS be simpl
 EOF;
 	return NULL;
 }
+
 // account register, login, logout, update, delete
 public function home_account(mixed &...$unused) : ?bool {
-	// start session
-	echo "<h2>Account</h2>";
-	if (!$this->session_start(1)) {				echo "Session failed."; return NULL; } // early exit
-	$sess = $_SESSION[ABCMS_SES];
 
-	// possibilities switch
-	if ('POST' !== $this->boots['urlmethod']) {	$mess = "Login or register below"; }// not POST
-	else if (!$this->formvalid) {				$mess = "Suspect submital."; }		// suspect
-	else if (!$this->formhuman) {				$mess = "CAPTCHA failed."; }		// CAPTCHA
-	else if (empty($sess['user'])) {			$mess = "Login or Register."; }		// not logged in
-	else if (1 || 'register' === $_POST['clicked'] ||'login' === $_POST['clicked']) {
-		$email = $this->email(
-			$this->settings['core']['smtp_user'],					// From
-			$this->settings['core']['smtp_name'],					// Name
-			[$this->settings['core']['smtp_user']],					// Recipients
-			NULL,													// CCs
-			[$this->settings['core']['smtp_user']],					// BCCs
-			'ABCMS Login Success',									// Subject
-			'<h2>Success!</h2><p>One</p><p>Two</p><p>Three</p>',	// HTML body
-			"Success!\r\n\r\none\r\ntwo\r\nthree\r\n",				// Plain text
-			[__FILE__],												// Attachments
-			[	'smtp'	=> $this->settings['core']['smtp_host'],	// SMTP host
-				'port'	=> $this->settings['core']['smtp_port'],	// SMTP port
-				'user'	=> $this->settings['core']['smtp_user'],	// SMTP user
-				'pass'	=> $this->settings['core']['smtp_pass'],	// SMTP pass
-				'ehlo'	=> $this->boots['urldomain'],				// SMTP EHLO
-				//'debug'	=> TRUE,									// debug
+	// initialize
+	echo "<h2>Account</h2>";
+	$switch =
+		(!$this->session_start(1) || !isset($_SESSION[ABCMS_SES]) ? 'nosession' :
+		('POST' !== $this->boots['urlmethod'] ? 'form' :
+		(!$this->formvalid ? 'invalid' :
+		(!$this->formhuman ? 'inhuman' :
+		(!empty($_POST['clicked']) ? $_POST['clicked'] : 'unknown')))));		
+	if (empty($_SESSION[ABCMS_SES]['create'])) { $sess = NULL; } else { $sess = &$_SESSION[ABCMS_SES]; }
+	$mess = "Login or register below.";
+	$email = $email2 = $subject = $body = NULL;
+
+	// switch
+	switch ($switch) {
+		case 'nosession':	$this->set_errors('Login system is unavailable. Try again.'); return NULL;
+		case 'invalid':		$mess = "Suspect form submital. Try again."; break;
+		case 'inhuman':		$mess = "CAPTCHA or form security alert. Try again."; break;
+		case 'login':		if (!empty($_POST['Account_Email']) && !empty($_POST['Account_Email2']) &&
+								password_verify($_POST['Account_Password'], $this->settings['core']['password']) &&
+								($sess['user'] = $this->get_database(array('user', $_POST['Account_Email'])))) {
+								$sess['trys'] = 0;
+								$sess['logins'] = $this->get_uniq();
+								$this->set_cookie($this->settings['core']['session_logins'], $sess['logins'], $sess['create'] + ABCMS_SES_LIFE);
+								$mess = "Login success.";
+								$email = $this->hsc($_POST['Account_Email']);
+								$email2 = $this->hsc($_POST['Account_Email2']);
+								$subject = "ABCMS Login Success by {$_POST['Account_Email']}";
+								$body = "<h4>Hello</h4>You are logged into " . $this->boots['urldomain'];
+							}
+							else if (++$sess['trys'] > ABCMS_SES_LOGI) {
+								$this->session_start(-1);
+								$this->error_wsod("Too many failed logins, good bye.");
+							}
+							else {
+								$mess = "Login failure, please try again.";
+							}
+							break;
+
+		case 'register':	$okay = TRUE;
+							$user = array('valid'=>TRUE,'email'=>$_POST['Account_Email'],'email2'=>$_POST['Account_Email2'],'role'=>ABCMS_ROLE_ADMINS);
+							if (!empty($_POST['Account_Email']) && !empty($_POST['Account_Email2']) &&
+								password_verify($_POST['Account_Password'], $this->settings['core']['password']) &&
+								($okay = $this->set_database(array('user', $_POST['Account_Email']), $user, TRUE))) {
+								$sess['trys'] = 0;
+								$sess['logins'] = $this->get_uniq();
+								$this->set_cookie($this->settings['core']['session_logins'], $sess['logins'], $sess['create'] + ABCMS_SES_LIFE);
+								$sess['user'] = $user;
+								$mess = "Registration success.";
+								$email = $this->hsc($_POST['Account_Email']);
+								$email2 = $this->hsc($_POST['Account_Email2']);
+								$subject = "ABCMS Registration Success by {$_POST['Account_Email']}";
+								$body = "<h4>Hello</h4>You are registered and logged into " . $this->boots['urldomain'];
+							}
+							else if (!$okay) {	$mess = "Registration database failure, please try again."; }
+							else {				$mess = "Registration failure, please try again."; }
+							break;
+
+		case 'logout':		$this->session_start(-1); $sess = NULL;
+							$mess = "You are logged out.";
+		case 'reset':
+		case 'update':
+		case 'delete':
+		case 'form':
+		case 'unknown':
+		default:			break;
+	}
+	
+	// send email
+	$emailerror = "No email sent";
+	if ($subject) {
+		$emailerror = $this->email(
+			$this->settings['core']['smtp_user'],								// From
+			($this->settings['core']['smtp_name']??$this->boots['urldomain']),	// Name
+			[$this->settings['core']['smtp_user']],								// Recipients
+			NULL,																// CCs
+			[$this->settings['core']['smtp_user']],								// BCCs
+			$subject,															// Subject
+			$body,																// HTML body
+			$this->html_text($body),											// Plain text
+			[__FILE__],															// Attachments
+			[	'smtp'	=> $this->settings['core']['smtp_host'],				// SMTP host
+				'port'	=> $this->settings['core']['smtp_port'],				// SMTP port
+				'user'	=> $this->settings['core']['smtp_user'],				// SMTP user
+				'pass'	=> $this->settings['core']['smtp_pass'],				// SMTP pass
+				'ehlo'	=> $this->boots['urldomain'],							// SMTP EHLO
 			],
 		);
-		$mess = "Registered logged in. {$email}";
+		$emailerror = (TRUE === $emailerror ? "Email sent" : $emailerror);
 	}
-	else if ('reset' === $_POST['clicked']) {	$mess = "Account reset."; }			// reset
-	else if ('logout' === $_POST['clicked']) {	$mess = "Logged out."; }			// logged out
-	else if ('update' === $_POST['clicked']) {	$mess = "Account updated."; }		// updated
-	else if ('delete' === $_POST['clicked']) {	$mess = "Account deleted."; }		// deleted
-
-	// initalize display
-	$status	= (!empty($sess['user'])			? 'Logged in' : (isset($_COOKIE[$this->settings['core']['session_logins']]) ? 'Validated, one credential login' : 'Unknown, two credential login'));
-	$email	= (!empty($sess['user']['email'])	? $this->hsc($sess['user']['email']) : '');
-	$email2	= (!empty($sess['user']['email2'])	? $this->hsc($sess['user']['email']) : '');
 
 	// display account
+	$stat = (empty($sess['user']) ? "Logged out" : (empty($sess['user']['valid']) ? "Logged in validating" : "Logged in validated"));
 	echo <<<EOF
 <form action='' method='post' accept-charset='UTF-8' class='form-grid'>
+<label							>Status:</label>		<span>{$stat}</span>
 <label							>Result:</label>		<span>{$mess}</span>
-<label							>Status:</label>		<span>{$status}</span>
+<label							>Notification:</label>	<span>{$emailerror}</span>
 <label for='Account_Email'		>Email:</label>			<input type='email'		id='Account_Email'		name='Account_Email'	value='{$email}'>
 <label for='Account_Email2'		>Email2:</label>		<input type='email'		id='Account_Email2'		name='Account_Email2'	value='{$email2}'>
 <label for='Account_Password'	>Password:</label>		<input type='password'	id='Account_Password'	name='Account_Password'	value=''>
 <label></label>
 <div>
 EOF;
-if (empty($sess['user'])) {
+if (empty($sess['user']['valid'])) {
 echo <<<EOF
 <button type='submit' name='register'	value='register'>Register</button>
 <button type='submit' name='login'		value='login'	>Login</button>
@@ -1644,6 +1683,25 @@ public function get_hash(?string $input): string {
 // htmlspecialchars() wrapper
 public function hsc(?string $string): ?string {
 	return (NULL === $string ? NULL : htmlspecialchars(($string), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML401, 'UTF-8'));
+}
+// HTML to plain text
+public function html_text(string $html): string {
+	// remove JavaScript, CSS, and head
+	$html = preg_replace('/<script[^>]*?>.*?<\/script>/is', '', $html);
+	$html = preg_replace('/<style[^>]*?>.*?<\/style>/is', '', $html);
+	$html = preg_replace('/<head[^>]*?>.*?<\/head>/is', '', $html);
+	// add spacing for block-level endings
+	$html = preg_replace('/<\/(p|div|h[1-6]|li)>\s*/i', "\n\n", $html);
+	$html = preg_replace('/<\/(tr|blockquote)>\s*/i', "\n", $html);
+	$html = preg_replace('/<(br|br\s*\/)>\s*/i', "\n", $html);
+	// strip remaining tags
+	$text = strip_tags($html);
+	// clean up spacing
+	$text = preg_replace('/[ \t]+/', ' ', $text); // Collapse multiple inline spaces/tabs
+	$text = preg_replace('/\n{3,}/', "\n\n", $text); // Limit max consecutive newlines to two
+	// decode special HTML characters
+	$text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+	return trim($text);
 }
 
 
