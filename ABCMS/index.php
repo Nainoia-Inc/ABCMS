@@ -1,6 +1,17 @@
 <?php
 /*************************************************************************************************
 SECTION INTRODUCTION: A Basic Content Management System and PHP toolkit.
+
+Find developer documentation below and inline, and no where else.
+Copy index.php to a docroot or run "composer install nainoia-inc/abcms".
+Visit the website in a browser or run "php index.php /command/help".
+Save and delete the built-in super user password in "ABMCS.deleteme".
+Search for "SECTION" and "function" below to learn this toolkit.
+Build an extension imitating settings(), home_*(), webfiles_*(), console_*(), command_*()
+Access $_SESSION with s(), though $_SESSION remains vulnerable to abuse.
+ABCMS runs extensions SETUP.php on /command/setup and CRON.php on /command/cron.
+Schedule "php index.php /command/cron" to run every 15 minutes to 1x per day.
+
 */
 
 /*************************************************************************************************
@@ -669,6 +680,19 @@ KILL:	// set errors
 		$this->set_cookie($_SESSION[ABCMS_SES]['cookie'], $_SESSION[ABCMS_SES]['secret'], $now + ABCMS_SES_LIFE);
 	}
 	return TRUE;
+}
+
+// Please only use $this->s() to access $_SESSION;
+// Extensions safely segregated with $_SESSION[extension].
+// Read session extension element: $value = $this->s()['valid'];
+// Only create $_SESSION[extension] when $assign = TRUE for assignments.
+// Assign extension element: $this->s(TRUE)['valid'] = FALSE;
+// Assign whole extension: $sess = &$this->s(TRUE); $sess = array('valid' => TRUE);
+public function &s(bool $assign = FALSE) : array {
+	$ext = $this->extension(); // segregation key
+	if ($assign && !isset($_SESSION[$ext])) { $_SESSION[$ext] = []; } // assignment expected
+	if (isset($_SESSION[$ext])) { return $_SESSION[$ext]; } // return extension element
+	$empty = []; return $empty; // return fail-safe emptiness
 }
 
 // set cookie
