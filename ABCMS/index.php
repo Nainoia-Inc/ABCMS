@@ -690,8 +690,14 @@ KILL:	// set errors
 // Assign whole extension: $sess = &$this->s(TRUE); $sess = array('valid' => TRUE);
 public function &s(bool $assign = FALSE) : array {
 	$ext = $this->extension(); // segregation key
-	if ($assign && !isset($_SESSION[$ext])) { $_SESSION[$ext] = []; } // assignment expected
-	if (isset($_SESSION[$ext])) { return $_SESSION[$ext]; } // return extension element
+	$bad = TRUE; // allow only one call to session_status()
+	if ($assign) {
+		if (($bad = (session_status() !== PHP_SESSION_ACTIVE))) { $this->error_wsod("Session assignment but session doesn't exist."); }
+		if (!isset($_SESSION[$ext])) { $_SESSION[$ext] = []; } // assignment expected
+	}
+	if ((!$bad || (session_status() === PHP_SESSION_ACTIVE)) && isset($_SESSION[$ext])) {
+		return $_SESSION[$ext]; // return extension element
+	}
 	$empty = []; return $empty; // return fail-safe emptiness
 }
 
