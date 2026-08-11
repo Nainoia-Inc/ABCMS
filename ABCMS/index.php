@@ -163,7 +163,8 @@ private		?array	$compiles	= NULL;		// compile settings
 private		?array	$database	= NULL;		// database
 private		array	$errors		= [];		// errors
 private		array	$debugs		= [];		// debugs
-private		array	$stack		= [];		// extension stack
+private		array	$stackwho	= [];		// stack who
+private		array	$stackarg	= [];		// stack args
 private		bool	$formvalid	= FALSE;	// form valid
 private		bool	$formhuman	= FALSE;	// form human
 // construct object
@@ -881,7 +882,7 @@ public function output(
 	mixed	&...$args,	// Default arguments
 ) : array {
 	// Initialize
-	$whoami = $this->extension(); // Which extension am I?
+	$whoami = $this->extension(TRUE); // Which extension am I?
 	$hook = $whoami . $hook; // Full hook name
 	$ext = array( // Default
 		'I' => (empty($default) ? array() : array( array( // Empty default allowed
@@ -919,17 +920,17 @@ public function output(
 	foreach($ext['I'] as $extin) { // Input extensions by priority
 		if (!$this->output_doit($extin, $whoami, $flag, ($must || $dopt), $exin)) { continue; } // Skip for reasons
 		if (!$must && $extin['ord'] < 0 && !isset($extin['ctl']['D'])) { $dopt = FALSE; } // Omit default if hook and one extension says not required
-		if ($this->input['role'] >= ABCMS_ROLE_ADMINS) { $this->stack[] = func_get_args(); } // log the exension stack when I am administrator TEMP???
+		if ($this->input['role'] >= ABCMS_ROLE_ADMINS) { $this->stackarg[] = func_get_args(); } // log the exension stack when I am administrator
 		if (isset($extin['arg'])) { $this->array_walk_merge($args, $extin['arg']); } // Extend arguments
 		if (empty($extin['fun'])) { continue; } // Extension only grabs exclusivity or set args
 		do { // Repeat hook extension until FALSE -OR- NULL
 			if (FALSE === ob_start()) { $this->error_wsod("Buffer start failure."); } // Buffer output
-			$more = $this->output_call($whoami, $extin['fun'], ...$args); // Execute hook extension
+			$more = $this->output_call($whoami, $extin['who'], $extin['fun'], ...$args); // Execute hook extension
 			if (FALSE === ($out = ob_get_clean())) { $this->error_wsod("Buffer clean failure."); } // Retrieve buffer
 			// Output filter extensions by priority
 			foreach($ext['O'] as $extout) {
 				if (!$this->output_doit($extout, $whoami, $flag, TRUE, $exout)) { continue; } // Skip for reasons
-				$this->output_call($whoami, $extout['fun'], $out, ...$args); // Execute output filter
+				$this->output_call($whoami, $extout['who'], $extout['fun'], $out, ...$args); // Execute output filter
 			}
 			// ABCMS security output filter and injection, <FORM> security, and XSS checks, etc.
 			if (ABCMS_EXT_INITX == $hook) {
@@ -944,7 +945,10 @@ public function output(
 	return $args;
 }
 // which extension called the function that called me?
-private function extension() : string {
+private function extension(bool $output = FALSE) : string {
+	// output() context fast answer
+	if (!empty($this->stackwho)) { return end($this->stackwho); }
+	if ($output) { return ABCMS_EXT_SELF; }
 	// omit object and args, 2 levels back
 	$trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2);
 	// no trace
@@ -982,6 +986,7 @@ private function output_doit(
 // Call extension function
 private function output_call(
 	string	$whoami,	// Am I ABCMS?
+	string	$who,		// extension stack
 	string	$filefunc,	// Includefile?function
 	mixed	&...$args,	// Arguments passed
 ) : ?bool {
@@ -993,6 +998,7 @@ private function output_call(
 	$funcmeth	= $match[7]; // function / method
 	// include the file
 	$result = FALSE; // Default failure
+	$this->stackwho[] = $who; // load who stack
 	if ($filepath) {
 		if ($funcmeth) {	$result = (bool)$this->include_once($filepath, ...$args); } // failsafe include once for definition
 		else {				$result = (bool)$this->include($filepath, ...$args); } // or multiple executions allowed
@@ -1028,6 +1034,7 @@ private function output_call(
 			$result = (bool)$funcmeth(...$args); // Execute
 		}
 	}
+	array_pop($this->stackwho); // pop who stack
 	return $result;
 }
 
