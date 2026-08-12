@@ -2,14 +2,14 @@
 /*************************************************************************************************
 SECTION INTRODUCTION: A Basic Content Management System and PHP toolkit.
 
-Find developer documentation below and inline, and no where else.
+Read developer documentation below and inline, and no where else.
 Copy index.php to a docroot or run "composer install nainoia-inc/abcms".
 Visit the website in a browser or run "php index.php /command/help".
-Save and delete the built-in super user password in "ABMCS.deleteme".
+Download and delete the built-in super user password in "ABMCS.deleteme".
 Search for "SECTION" and "function" below to learn this toolkit.
-Build an extension imitating settings(), home_*(), webfiles_*(), console_*(), command_*()
-Access $_SESSION with s(), though $_SESSION remains vulnerable to abuse.
-ABCMS runs extensions SETUP.php on /command/setup and CRON.php on /command/cron.
+Build an extension imitating settings(), home_*(), webfiles_*(), console_*(), command_*().
+Access $_SESSION only with s(), though $_SESSION remains exposed.
+Run extensions' SETUP.php on /command/setup and CRON.php on /command/cron.
 Schedule "php index.php /command/cron" to run every 15 minutes to 1x per day.
 
 */
@@ -40,7 +40,6 @@ const ABCMS_REGEX_HOOK	= "/^\/[^\/]+\/[^\/]+\/[^\/]+$/u";				// hook name, path-
 const ABCMS_REGEX_URLV	= "/\/([a-z0-9\-_.~]+)=([a-z0-9\-_.~=]+)/ui";	// URL variable
 const ABCMS_REGEX_FORM	= "/(<form(?=[\s>])[^>]*>)(.+?)(<\/form>)/uis";			// form security injection
 // session - move these to overridable $settings
-const ABCMS_SES			= ABCMS_EXT_SELF;	// unique session key for ABCMS
 const ABCMS_SES_ROTA	= 60*15;			// rotate session after 15 minutes
 const ABCMS_SES_IDLE	= 60*60*24*1;		// destroy session after 1 day idle
 const ABCMS_SES_LIFE	= 60*60*24*3;		// destroy session after 3 days total
@@ -138,6 +137,8 @@ EOF;
 	$code = 1; // return failure
 }
 finally { // clean up
+	session_commit(); // prevent deferred access to session 
+	$_SESSION = [];
 }
 exit($code);
  ; })(); // done, function definitions follow
@@ -161,6 +162,7 @@ readonly	array	$input;					// sanitized input after session
 readonly	array	$settings;				// application settings
 private		?array	$compiles	= NULL;		// compile settings
 private		?array	$database	= NULL;		// database
+private		array	$ss			= [];		// session extension reference
 private		array	$errors		= [];		// errors
 private		array	$debugs		= [];		// debugs
 private		array	$stackwho	= [];		// stack who
@@ -223,12 +225,10 @@ function __construct() {
 
 	// sanitize inputs given user role
 	$this->input = array(
-		// session result
-		'session' => $session,
 		// my user
-		'user' => $_SESSION[ABCMS_SES]['user']??NULL,
+		'user' => $this->ss['user']??NULL,
 		// my role
-		'role' => ($role = ($cli ? ABCMS_ROLE_CLI : $_SESSION[ABCMS_SES]['user']['role']??ABCMS_ROLE_PUBLIC)),
+		'role' => ($role = ($cli ? ABCMS_ROLE_CLI : $this->ss['user']['role']??ABCMS_ROLE_PUBLIC)),
 		// URL validate path vars 'v'
 		'urlvars' => (!preg_match_all(ABCMS_REGEX_URLV, $urldecoded, $matches, PREG_PATTERN_ORDER) ? array() :
 			$this->input_valid('v', array_combine($matches[1], $matches[2]), $role)),
@@ -427,7 +427,7 @@ public function settings_extend(
 		'rol'	=> $rol,
 		'ord'	=> $ord,
 		'ctl'	=> $ctl,
-		'who'	=> $this->extension(),
+		'who'	=> $this->extension(FALSE),
 		'arg'	=> $arg,
 	);
 	return TRUE;
@@ -508,17 +508,17 @@ private function settings_variable(
 /*************************************************************************************************
 SECTION SESSION: Secure sessions with opt-in/out, validation, CSRF, CAPTCHA, tricks, and login.
 */
-// start the session conditionally
+// start conditionally
 public function session_start(
-	int $cmd,	// 1=unconditional, -1=destroy, 0=conditional
+	int $cmd,	// 1=unconditional, -1=destroy, 0=me-1st-conditional
 ) : bool {		// TRUE=started, FALSE=destroyed
 
-	// initialize variables
+	// initialize
 	$active = (session_status() === PHP_SESSION_ACTIVE ? TRUE : FALSE);
 	$slap = 0;
 	static $now = NULL;
-	static $posthandled = FALSE;
-	static $alreadydenied = FALSE;
+	static $posthandled = FALSE; // post already handled
+	static $deny = FALSE; // deny further session whether bad actor or failed session_destroy()
 	static $options = NULL;
 	if (NULL === $options) {
 		$now = $this->boots['time'];
@@ -542,63 +542,59 @@ public function session_start(
 			];
 	}
 
-	// early exits
-	if ($alreadydenied) { return FALSE; } // already denied
+	// early exit
+	if ($deny || isset($_COOKIE[$this->settings['core']['session_badact']])) { if (!($deny)) { $this->set_errors('Session denied to suspected bad actor.'); } $deny = TRUE; return FALSE; } // bad actor
 	if ($cmd < 0) { $error = 'You are logged out.'; goto KILL; } // destroy session
-	if ($active) {
-		if (0 === $cmd) { $this->error_wsod("Session started to early.");	} // abcms must start the session
-		return TRUE; // already started
-	}
+	if ($active) { if (0 === $cmd) { $this->error_wsod("Session started to early."); } return TRUE; } // already started, but ABCMS must start
 	if (headers_sent()) { $this->error_wsod("Session start failed, headers already sent.");	} // already headers
 	if (!isset($_COOKIE[$this->settings['core']['session_allows']])) { $this->set_cookie($this->settings['core']['session_allows'], ABCMS_COOK_NAVS, $now + ABCMS_COOK_LIFE, FALSE); }	// TODO TEMP CODE TO ALLOW COOKIES
 	if (empty($_COOKIE[$this->settings['core']['session_allows']])) {	$this->set_errors('Session denied without your cookie approval.'); return FALSE; } // cookies not approved
-	if (isset($_COOKIE[$this->settings['core']['session_badact']])) {	$this->set_errors('Session denied to suspected bad actor.'); $alreadydenied = TRUE; return FALSE; } // bad actor
 	$post = ('POST' === $this->boots['urlmethod'] && !$posthandled ? TRUE : FALSE); // is this a POST?
 	if (0 === $cmd && !isset($_COOKIE[$this->settings['core']['session_logins']]) && !$post) { return FALSE; } // conditional start
 
-	// start the session and assign more variables
+	// start session, more variables
 	if (!session_start($options) || !($_COOKIE[$options['name']] = session_id())) { $this->error_wsod("Session start failed, unknown reason.");	}
 	$active = $posthandled = TRUE;
 	$error = $gauntlet = NULL;
 	$csrf = ($post && !empty($_POST['csrf']) ? $_POST['csrf'] : '');
-	if (empty($_SESSION[ABCMS_SES]['create'])) { $sess = NULL; } else { $sess = &$_SESSION[ABCMS_SES]; }
+	$this->ss = &$this->s_self();
 
 	// validate session
-	if (!$sess) {
+	if (!$this->ss) {
 		// cannot POST without session
 		if ($post) {																									$error = 'Session ended, POST requires session.';	$slap = 400; }
 	}
 	else {
 		// hit counter
-		$gothits = FALSE; $sess['counts'][] = $now; if (count($sess['counts']) > ABCMS_SES_HITS) { array_shift($sess['counts']); $gothits = TRUE; }
+		$gothits = FALSE; $this->ss['counts'][] = $now; if (count($this->ss['counts']) > ABCMS_SES_HITS) { array_shift($this->ss['counts']); $gothits = TRUE; }
 		// uagent inconsistent
-		if ($sess['uagent'] !== $this->boots['uagent']) {																$error = 'Session ended, IP/Agent or core reset.';	$slap = 400; }
+		if ($this->ss['uagent'] !== $this->boots['uagent']) {															$error = 'Session ended, IP/Agent or core reset.';	$slap = 400; }
 		// secrets differ
-		else if (!hash_equals($sess['secret'], ($_COOKIE[$sess['cookie']]??'x'))) {										$error = 'Session ended, secrets differ.';			$slap = 400; }
+		else if (!hash_equals($this->ss['secret'], ($_COOKIE[$this->ss['cookie']]??'x'))) {								$error = 'Session ended, secrets differ.';			$slap = 400; }
 		// rapid hits
-		else if ($gothits && $sess['counts'][ABCMS_SES_HITS-1] - $sess['counts'][0] < ABCMS_SES_TIME) {					$error = 'Session ended, rapid hits.';				$slap = 429; }
+		else if ($gothits && $this->ss['counts'][ABCMS_SES_HITS-1] - $this->ss['counts'][0] < ABCMS_SES_TIME) {			$error = 'Session ended, rapid hits.';				$slap = 429; }
 		// POST CSRF1
-		else if ($post && (!$csrf || !hash_equals($sess['csrf_valu'], $csrf))) {										$error = 'Session ended, CSRF1 error.';				$slap = 400; }
+		else if ($post && (!$csrf || !hash_equals($this->ss['csrf_valu'], $csrf))) {									$error = 'Session ended, CSRF1 error.';				$slap = 400; }
 		// POST CSRF2
-		else if ($csrf && !hash_equals($sess['csrf_valu'], (($_POST[$sess['csrf_name']]??'x')?:'x'))) {					$error = 'Session ended, CSRF2 error.';				$slap = 400; }
+		else if ($csrf && !hash_equals($this->ss['csrf_valu'], (($_POST[$this->ss['csrf_name']]??'x')?:'x'))) {			$error = 'Session ended, CSRF2 error.';				$slap = 400; }
 		// POST !HONEY populated
-		else if ($csrf && !empty($_POST[$sess['void_name']])) {															$error = "Session ended, CAPTCHA1 error.";			$slap = 400; }
+		else if ($csrf && !empty($_POST[$this->ss['void_name']])) {														$error = "Session ended, CAPTCHA1 error.";			$slap = 400; }
 		// POST HONEY differs
-		else if ($csrf && !hash_equals($sess['full_valu'], (($_POST[$sess['full_name']]??'x')?:'x'))) {					$error = 'Session ended, CAPTCHA2 error.';			$slap = 400; }
+		else if ($csrf && !hash_equals($this->ss['full_valu'], (($_POST[$this->ss['full_name']]??'x')?:'x'))) {			$error = 'Session ended, CAPTCHA2 error.';			$slap = 400; }
 		// POST rapid
-		else if ($csrf && ($now - $sess['active']) < ABCMS_SES_WAIT) {													$error = "Session ended, rapid submission.";		$slap = 400; }
+		else if ($csrf && ($now - $this->ss['active']) < ABCMS_SES_WAIT) {												$error = "Session ended, rapid submission.";		$slap = 400; }
 		// fail resume login, cookies or session expired, always reload user to confirm permissions
 		else if (isset($_COOKIE[$this->settings['core']['session_logins']]) &&
-			(($_COOKIE[$this->settings['core']['session_logins']]?:'x') !== $sess['logins'] || empty($sess['user']) ||
-			!($sess['user'] = $this->get_database(array('user',$sess['user']['email']))))) {							$error = 'Session ended, resume login failed.'; }
+			(($_COOKIE[$this->settings['core']['session_logins']]?:'x') !== $this->ss['logins'] || empty($this->ss['user']) ||
+			!($this->ss['user'] = $this->get_database(array('user',$this->ss['user']['email']))))) {					$error = 'Session ended, resume login failed.'; }
 		// login expired
-		else if (!isset($_COOKIE[$this->settings['core']['session_logins']]) && !empty($sess['user'])) {				$error = 'Session ended, login expired.'; }
+		else if (!isset($_COOKIE[$this->settings['core']['session_logins']]) && !empty($this->ss['user'])) {			$error = 'Session ended, login expired.'; }
 		// idle time exceeded
-		else if ($now > ($sess['active'] + ABCMS_SES_IDLE)) {															$error = 'Session ended, inactivity threshold.'; }
+		else if ($now > ($this->ss['active'] + ABCMS_SES_IDLE)) {														$error = 'Session ended, inactivity threshold.'; }
 		// time exceeded
-		else if ($now > ($sess['create'] + ABCMS_SES_LIFE)) {															$error = 'Session ended, maxtime threshold.'; }
+		else if ($now > ($this->ss['create'] + ABCMS_SES_LIFE)) {														$error = 'Session ended, maxtime threshold.'; }
 		// POST image mismatch
-		else if ($csrf && empty($sess['user']) && ($sess['test_valu'] !== (($_POST[$sess['test_name']]??'x')?:'x'))) {	$this->set_errors('CAPTCHA failure, please try again.'); }
+		else if ($csrf && empty($this->ss['user']) && ($this->ss['test_valu'] !== (($_POST[$this->ss['test_name']]??'x')?:'x'))) {	$this->set_errors('CAPTCHA failure, please try again.'); }
 		// Passed gauntlet so maybe human
 		else {																											$gauntlet = TRUE; }
 	}
@@ -611,13 +607,14 @@ KILL:	// set errors
 		if (!$active) { $active = session_start($options); }
 		// remove cookies
 		$this->set_cookie($options['name'], '', 1); // session
-		if (isset($_SESSION[ABCMS_SES]['cookie'])) { $this->set_cookie($_SESSION[ABCMS_SES]['cookie'], '', 1); } // secret
+		if ($this->ss['cookie']??0) { $this->set_cookie($this->ss['cookie'], '', 1); } // secret
 		$this->set_cookie($this->settings['core']['session_logins'], '', 1); // login
 		// PHP says mark for garbage collection, but I don't want garbage laying around
-		$_SESSION = [];
-		if ($active && !session_destroy()) { $this->error_log("Session destroy failed.");	}
+		$_SESSION = $this->ss = []; // access directly exception to clear entire session
+		if ($active && !session_destroy()) { $deny = TRUE; $this->error_log("Session destroy failed.");	}
 		// slap evil and assign bad actor cookie
 		if ($slap) {
+			$deny = TRUE;
 			$this->set_cookie($this->settings['core']['session_badact'], $this->get_uniq(), $now + ABCMS_SES_BADA, FALSE);
 			http_response_code($slap);
 			header('Retry-After: ' . ABCMS_SES_BADA);
@@ -627,38 +624,39 @@ KILL:	// set errors
 	}
 
 	// update valid session
-	if ($sess) {
+	if ($this->ss) {
 		// valid POST, though POST data validated in form handler
 		if ($post) {
 			$this->formvalid = TRUE;
 			$this->formhuman = ($gauntlet ? TRUE :FALSE);
 		}
 		// rotate session and CSRF if exceed rotate time or $user role changed
-		if ($now > ($sess['rotate'] + ABCMS_SES_ROTA) || $sess['role'] !== ($sess['user']['role']??NULL)) {
+		if ($now > ($this->ss['rotate'] + ABCMS_SES_ROTA) || $this->ss['role'] !== ($this->ss['user']['role']??NULL)) {
 			// session cookie
 			if (!session_regenerate_id(TRUE) || !($_COOKIE[$options['name']] = session_id())) { $this->error_wsod("Session regeneration failed."); }
 			// secret cookie
-			$sess['cookie'] = $this->get_uniq();
-			$sess['secret'] = $this->get_uniq();
-			$this->set_cookie($sess['cookie'], $sess['secret'], $sess['create'] + ABCMS_SES_LIFE);
+			$this->ss['cookie'] = $this->get_uniq();
+			$this->ss['secret'] = $this->get_uniq();
+			$this->set_cookie($this->ss['cookie'], $this->ss['secret'], $this->ss['create'] + ABCMS_SES_LIFE);
 			// CSRF token
-			$sess['csrf_valu'] = $this->get_uniq();
+			$this->ss['csrf_valu'] = $this->get_uniq();
 			// login cookie
-			if (!empty($sess['logins'])) {
-				$sess['logins'] = $this->get_uniq();
-				$this->set_cookie($this->settings['core']['session_logins'], $sess['logins'], $sess['create'] + ABCMS_SES_LIFE);
+			if (!empty($this->ss['logins'])) {
+				$this->ss['logins'] = $this->get_uniq();
+				$this->set_cookie($this->settings['core']['session_logins'], $this->ss['logins'], $this->ss['create'] + ABCMS_SES_LIFE);
 			}
 			// rotated time
-			$sess['rotate'] = $now;
+			$this->ss['rotate'] = $now;
 		}
 		// active time
-		$sess['active'] = $now;
-		$sess['role'] = $sess['user']['role']??NULL;
+		$this->ss['active'] = $now;
+		$this->ss['role'] = $this->ss['user']['role']??NULL;
 	}
 
 	// validate new session
 	else {
-		$_SESSION[ABCMS_SES] = [
+		$this->ss = &$this->s_self(TRUE);
+		$this->ss = [
 			'create'	=> $now,
 			'active'	=> $now,
 			'rotate'	=> $now,
@@ -678,18 +676,21 @@ KILL:	// set errors
 			'test_name' => $this->get_uniq(),
 			'test_valu' => 'abc',
 		];
-		$this->set_cookie($_SESSION[ABCMS_SES]['cookie'], $_SESSION[ABCMS_SES]['secret'], $now + ABCMS_SES_LIFE);
+		$this->set_cookie($this->ss['cookie'], $this->ss['secret'], $now + ABCMS_SES_LIFE);
 	}
 	return TRUE;
 }
 
-// Please only use $this->s() to access $_SESSION;
 // Extensions safely segregated with $_SESSION[extension].
-// Read session extension element: $value = $this->s()['valid'];
-// Only create $_SESSION[extension] when $assign = TRUE for assignments.
-// Assign extension element: $this->s(TRUE)['valid'] = FALSE;
-// Assign whole extension: $sess = &$this->s(TRUE); $sess = array('valid' => TRUE);
-public function &s(bool $assign = FALSE) : array {
+// Use $copysess = $this->s() to copy $_SESSION[extension].
+// Use $writesess = &$this->s(TRUE) to read/write $_SESSION[extension].
+// Copy session extension element: $value = $copysess['element'];
+// Assign extension element: $writesess['element'] = FALSE;
+// Assign whole extension: $writesess = array('element' => TRUE);
+public function &s(
+	bool $assign = FALSE, // TRUE to initialize $_SESSION[extension]
+) : array {
+	// ABCMS Finally { session_commit(); } prevents deferred extension access to s() ABCMS_EXT_SELF outside of output()
 	$ext = $this->extension(); // segregation key
 	$bad = TRUE; // allow only one call to session_status()
 	if ($assign) {
@@ -697,11 +698,21 @@ public function &s(bool $assign = FALSE) : array {
 		if (!isset($_SESSION[$ext])) { $_SESSION[$ext] = []; } // assignment expected
 	}
 	if ((!$bad || (session_status() === PHP_SESSION_ACTIVE)) && isset($_SESSION[$ext])) {
+		if (!is_array($_SESSION[$ext])) { $this->error_wsod("Session extension corrupted: {$ext}."); }
 		return $_SESSION[$ext]; // return extension element
 	}
 	$empty = []; return $empty; // return fail-safe emptiness
 }
-
+// session extension for core space only, session MUST be started
+private function &s_self(
+	bool $assign = FALSE, // TRUE to initialize $_SESSION[ABCMS_EXT_SELF]
+) : array {
+	if ($assign && !isset($_SESSION[ABCMS_EXT_SELF])) { $_SESSION[ABCMS_EXT_SELF] = []; } // assignment expected
+	if (isset($_SESSION[ABCMS_EXT_SELF])) {
+		if (!is_array($_SESSION[ABCMS_EXT_SELF])) { $this->error_wsod("Session extension corrupted: ".ABCMS_EXT_SELF); }
+		return $_SESSION[ABCMS_EXT_SELF]; } // return extension element
+	$empty = []; return $empty; // return fail-safe emptiness
+}
 // set cookie
 public function set_cookie(
 	string	$cookie,		// name
@@ -882,7 +893,7 @@ public function output(
 	mixed	&...$args,	// Default arguments
 ) : array {
 	// Initialize
-	$whoami = $this->extension(TRUE); // Which extension am I?
+	$whoami = $this->extension(); // Which extension am I?
 	$hook = $whoami . $hook; // Full hook name
 	$ext = array( // Default
 		'I' => (empty($default) ? array() : array( array( // Empty default allowed
@@ -925,12 +936,12 @@ public function output(
 		if (empty($extin['fun'])) { continue; } // Extension only grabs exclusivity or set args
 		do { // Repeat hook extension until FALSE -OR- NULL
 			if (FALSE === ob_start()) { $this->error_wsod("Buffer start failure."); } // Buffer output
-			$more = $this->output_call($whoami, $extin['who'], $extin['fun'], ...$args); // Execute hook extension
+			$more = $this->output_call($extin['who'], $extin['fun'], ...$args); // Execute hook extension
 			if (FALSE === ($out = ob_get_clean())) { $this->error_wsod("Buffer clean failure."); } // Retrieve buffer
 			// Output filter extensions by priority
 			foreach($ext['O'] as $extout) {
 				if (!$this->output_doit($extout, $whoami, $flag, TRUE, $exout)) { continue; } // Skip for reasons
-				$this->output_call($whoami, $extout['who'], $extout['fun'], $out, ...$args); // Execute output filter
+				$this->output_call($extout['who'], $extout['fun'], $out, ...$args); // Execute output filter
 			}
 			// ABCMS security output filter and injection, <FORM> security, and XSS checks, etc.
 			if (ABCMS_EXT_INITX == $hook) {
@@ -945,10 +956,13 @@ public function output(
 	return $args;
 }
 // which extension called the function that called me?
-private function extension(bool $output = FALSE) : string {
+private function extension(bool $abcms = TRUE) : string {
 	// output() context fast answer
 	if (!empty($this->stackwho)) { return end($this->stackwho); }
-	if ($output) { return ABCMS_EXT_SELF; }
+	// extension(TRUE) from output() assume ABCMS because all extensions must have stackwho[]
+	// extension(TRUE) from s() assume ABCMS because extensions are restricted outside of stackwho[]
+	// extension(FALSE) from settings_extend() because must call debug_backtrace()
+	if ($abcms) { return ABCMS_EXT_SELF; }
 	// omit object and args, 2 levels back
 	$trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2);
 	// no trace
@@ -985,7 +999,6 @@ private function output_doit(
 }
 // Call extension function
 private function output_call(
-	string	$whoami,	// Am I ABCMS?
 	string	$who,		// extension stack
 	string	$filefunc,	// Includefile?function
 	mixed	&...$args,	// Arguments passed
@@ -1022,7 +1035,7 @@ private function output_call(
 				else { $this->error_wsod("Calling invalid operator."); }
 				// Execute function/method
 				if (!method_exists($newobject, $funcmeth)) { $this->error_wsod("Calling invalid object method: {$funcmeth}"); }
-				if (ABCMS_EXT_SELF != $whoami && $newobject === $this) { // Disallow abcms() privates unless extension is ABCMS
+				if (ABCMS_EXT_SELF != $who && $newobject === $this) { // Disallow abcms() privates unless extension is ABCMS
 					$reflection = new ReflectionClass($this);
 					if (!$reflection->getMethod($funcmeth)->isPublic()) { $this->error_wsod("Calling private/protected method disallowed."); }
 				}
@@ -1046,7 +1059,7 @@ private function output_security(string &$html) : void {
 	if (!$num) { return; }
 
 	// start session
-	if (!$this->session_start(1) || empty($_SESSION[ABCMS_SES]['csrf_valu'])) {
+	if (!$this->session_start(1)) {
 		// session failed, disable forms with <fieldset> and CSS with missing CSRF as safety net
 		$this->set_errors("Forms disabled, security failed.");
 		if (!($html = preg_replace(ABCMS_REGEX_FORM, '$1<fieldset disabled class="disable">$2</fieldset>$3', $html, -1, $count)) || $count !== $num) {
@@ -1059,9 +1072,7 @@ private function output_security(string &$html) : void {
 	}
 
 	// session shortcut and click delay
-	$sess = &$_SESSION[ABCMS_SES];
 	$delay = ABCMS_SES_WAIT * 1000;
-
 	// secure button click instead of enter submission
 	$inject_script = <<<EOF
 
@@ -1082,8 +1093,8 @@ document.addEventListener('click', function (event) {
 	var buttontext = button.innerText;
 	button.innerText = 'Sending...';
 	setTimeout(() => {
-		button.form['{$sess['void_name']}'].value = '';
-		button.form['{$sess['full_name']}'].value = '{$sess['full_valu']}';
+		button.form['{$this->ss['void_name']}'].value = '';
+		button.form['{$this->ss['full_name']}'].value = '{$this->ss['full_valu']}';
 		button.form['clicked'].value = buttonvalue;
 		button.value = buttonvalue;
 		button.innerText = buttontext;
@@ -1104,15 +1115,15 @@ EOF;
 	// form security tokens
 	$inject_tokens = <<<EOF
 <input type='hidden' name='clicked'					value=''>
-<input type='hidden' name='csrf'					value='{$sess['csrf_valu']}'>
-<input type='hidden' name='{$sess['csrf_name']}'	value='{$sess['csrf_valu']}'>
-<input type='hidden' name='{$sess['void_name']}'	value='{$sess['full_valu']}'>
-<input type='hidden' name='{$sess['full_name']}'	value=''>
+<input type='hidden' name='csrf'					value='{$this->ss['csrf_valu']}'>
+<input type='hidden' name='{$this->ss['csrf_name']}'	value='{$this->ss['csrf_valu']}'>
+<input type='hidden' name='{$this->ss['void_name']}'	value='{$this->ss['full_valu']}'>
+<input type='hidden' name='{$this->ss['full_name']}'	value=''>
 EOF;
 	// form CAPTCHA
-	$inject_captcha = (!empty($sess['user']['valid']) ? NULL : <<<EOF
+	$inject_captcha = (!empty($this->ss['user']['valid']) ? NULL : <<<EOF
 <div class='captcha'>
-CAPTCHA <input name='{$sess['test_name']}' value=''> \$1 \$3
+CAPTCHA <input name='{$this->ss['test_name']}' value=''> \$1 \$3
 </div>
 EOF
 	);
@@ -1297,12 +1308,11 @@ public function home_account(mixed &...$unused) : ?bool {
 	// initialize
 	echo "<h2>Account</h2>";
 	$switch =
-		(!$this->session_start(1) || !isset($_SESSION[ABCMS_SES]) ? 'nosession' :
+		(!$this->session_start(1) ? 'nosession' :
 		('POST' !== $this->boots['urlmethod'] ? 'form' :
 		(!$this->formvalid ? 'invalid' :
 		(!$this->formhuman ? 'inhuman' :
-		(!empty($_POST['clicked']) ? $_POST['clicked'] : 'unknown')))));		
-	if (empty($_SESSION[ABCMS_SES]['create'])) { $sess = NULL; } else { $sess = &$_SESSION[ABCMS_SES]; }
+		(!empty($_POST['clicked']) ? $_POST['clicked'] : 'unknown')))));
 	$mess = $email = $email2 = $subject = $body = NULL;
 
 	// switch
@@ -1312,17 +1322,17 @@ public function home_account(mixed &...$unused) : ?bool {
 		case 'inhuman':		$mess = "CAPTCHA or form security alert. Try again."; break;
 		case 'login':		if (!empty($_POST['Account_Email']) && !empty($_POST['Account_Email2']) &&
 								password_verify($_POST['Account_Password'], $this->settings['core']['password']) &&
-								($sess['user'] = $this->get_database(array('user', $_POST['Account_Email'])))) {
-								$sess['trys'] = 0;
-								$sess['logins'] = $this->get_uniq();
-								$this->set_cookie($this->settings['core']['session_logins'], $sess['logins'], $sess['create'] + ABCMS_SES_LIFE);
+								($this->ss['user'] = $this->get_database(array('user', $_POST['Account_Email'])))) {
+								$this->ss['trys'] = 0;
+								$this->ss['logins'] = $this->get_uniq();
+								$this->set_cookie($this->settings['core']['session_logins'], $this->ss['logins'], $this->ss['create'] + ABCMS_SES_LIFE);
 								$mess = "Login success.";
 								$email = $this->hsc($_POST['Account_Email']);
 								$email2 = $this->hsc($_POST['Account_Email2']);
 								$subject = "ABCMS Login Success by {$_POST['Account_Email']}";
 								$body = "<h4>Hello</h4>You are logged into " . $this->boots['urldomain'];
 							}
-							else if (++$sess['trys'] > ABCMS_SES_LOGI) {
+							else if (++$this->ss['trys'] > ABCMS_SES_LOGI) {
 								$this->session_start(-1);
 								$this->error_wsod("Too many failed logins, good bye.");
 							}
@@ -1336,10 +1346,10 @@ public function home_account(mixed &...$unused) : ?bool {
 							if (!empty($_POST['Account_Email']) && !empty($_POST['Account_Email2']) &&
 								password_verify($_POST['Account_Password'], $this->settings['core']['password']) &&
 								($okay = $this->set_database(array('user', $_POST['Account_Email']), $user, TRUE))) {
-								$sess['trys'] = 0;
-								$sess['logins'] = $this->get_uniq();
-								$this->set_cookie($this->settings['core']['session_logins'], $sess['logins'], $sess['create'] + ABCMS_SES_LIFE);
-								$sess['user'] = $user;
+								$this->ss['trys'] = 0;
+								$this->ss['logins'] = $this->get_uniq();
+								$this->set_cookie($this->settings['core']['session_logins'], $this->ss['logins'], $this->ss['create'] + ABCMS_SES_LIFE);
+								$this->ss['user'] = $user;
 								$mess = "Registration success.";
 								$email = $this->hsc($_POST['Account_Email']);
 								$email2 = $this->hsc($_POST['Account_Email2']);
@@ -1350,10 +1360,10 @@ public function home_account(mixed &...$unused) : ?bool {
 							else {				$mess = "Registration failure, please try again."; }
 							break;
 
-		case 'delete':		if (empty($sess['user']['email']) ||
+		case 'delete':		if (empty($this->ss['user']['email']) ||
 								empty($_POST['Account_Email']) ||
-								$_POST['Account_Email'] !== $sess['user']['email'] ||
-								!$this->set_database(array('user', $sess['user']['email']), NULL, FALSE)) {
+								$_POST['Account_Email'] !== $this->ss['user']['email'] ||
+								!$this->set_database(array('user', $this->ss['user']['email']), NULL, FALSE)) {
 								$mess = "Delete failure, please try again.";
 								break;
 							}
@@ -1362,7 +1372,6 @@ public function home_account(mixed &...$unused) : ?bool {
 							$body = "<h4>Hello</h4>Your account is deleted at " . $this->boots['urldomain'];
 
 		case 'logout':		$this->session_start(-1);
-							$sess = NULL;
 							$mess = ($mess??"You are logged out.");
 							break;
 
@@ -1370,9 +1379,9 @@ public function home_account(mixed &...$unused) : ?bool {
 		case 'update':
 		case 'form':
 		case 'unknown':
-		default:			if (!empty($sess['user']['valid'])) {
-								$email = $this->hsc($sess['user']['email']);
-								$email2 = $this->hsc($sess['user']['email2']);
+		default:			if (!empty($this->ss['user']['valid'])) {
+								$email = $this->hsc($this->ss['user']['email']);
+								$email2 = $this->hsc($this->ss['user']['email2']);
 							}
 							$mess = "Login or register below.";
 							break;
@@ -1402,7 +1411,7 @@ public function home_account(mixed &...$unused) : ?bool {
 	}
 
 	// display account
-	$stat = (empty($sess['user']) ? "Logged out" : (empty($sess['user']['valid']) ? "Logged in validating" : "Logged in validated"));
+	$stat = (empty($this->ss['user']) ? "Logged out" : (empty($this->ss['user']['valid']) ? "Logged in validating" : "Logged in validated"));
 	echo <<<EOF
 <form action='' method='post' accept-charset='UTF-8' class='form-grid'>
 <label							>Status:</label>		<span>{$stat}</span>
@@ -1414,7 +1423,7 @@ public function home_account(mixed &...$unused) : ?bool {
 <label></label>
 <div>
 EOF;
-if (empty($sess['user']['valid'])) {
+if (empty($this->ss['user']['valid'])) {
 echo <<<EOF
 <button type='submit' name='register'	value='register'>Register</button>
 <button type='submit' name='login'		value='login'	>Login</button>
@@ -1690,22 +1699,20 @@ public function get_json(string $filename, mixed &$data) : bool {
 }
 // Include always
 public function include(string $filename, ...$args) : mixed {
-	if (!file_exists($filename)) {
-		$this->error_wsod("Include does not exist.");
-	}
-	// Indistinguishable between FALSE from failed include() and FALSE from successful include() returning FALSE
-	return include($filename);
+	if (!file_exists($filename)) { $this->error_wsod("Include does not exist."); }
+	// indistinguishable between FALSE from failed include() or FALSE from successful include(), returning FALSE
+	// anonymous scopes $args within include and protects abmcs() privates
+	$anonymous = Closure::bind(function($filename, ...$args) { return include($filename); }, null, null);
+	return $anonymous($filename, ...$args);
 }
 // Include once, PHP should provide a native no fault include_once() function
 public function include_once(string $filename, ...$args) : mixed {
 	static $included = array();
-	if (!($filename = realpath($filename)) || !file_exists($filename)) {
-		$this->error_wsod("Include once does not exist.");
-	}
+	if (!($filename = realpath($filename)) || !file_exists($filename)) { $this->error_wsod("Include once does not exist."); }
 	else if (!isset($included[$filename])) {
 		$included[$filename] = TRUE;
-		// Anonymous function scopes $args within include
-		$anonymous =  function($filename, ...$args) { return include($filename); };
+		// anonymous scopes $args within include and protects abmcs() privates
+		$anonymous = Closure::bind(function($filename, ...$args) { return include($filename); }, null, null);
 		return $anonymous($filename, ...$args);
 	}
 	return FALSE;
