@@ -152,27 +152,30 @@ exit($code);
 /*************************************************************************************************
 SECTION CONSTRUCT: Instantiate object and validate inputs.
 */
-function abcms() : ?object {				// abcms() function
-static $_abcms = FALSE;						// construct once
-if (FALSE === $_abcms) {					// fail once
-$_abcms = NULL;								// return FALSE, NULL, or object
-$_abcms = new class {						// object assigned
-readonly	array	$boots;					// bootstrap input before session
-readonly	array	$input;					// sanitized input after session
-readonly	array	$settings;				// application settings
-private		?array	$compiles	= NULL;		// compile settings
-private		?array	$database	= NULL;		// database
-private		array	$ss			= [];		// session extension reference
-private		array	$errors		= [];		// errors
-private		array	$debugs		= [];		// debugs
-private		array	$stackwho	= [];		// stack who
-private		array	$stackarg	= [];		// stack args
-private		bool	$formvalid	= FALSE;	// form valid
-private		bool	$formhuman	= FALSE;	// form human
-// construct object
-function __construct() {
-	// read settings, log location, dump buffers
-	if (FALSE === $this->settings(TRUE)) { $this->error_wsod("Application settings not found."); }
+function abcms() : ?object {						// abcms() only global
+static $_abcms = FALSE;								// construct once
+if (FALSE === $_abcms) {							// fail once
+$_abcms = NULL;										// return NULL or object
+$_abcms = new class {								// object assigned
+public				?Closure $oneshot	= NULL;		// oneshot construction token
+readonly			array	$boots;					// bootstrap input before session
+readonly			array	$input;					// sanitize input with session
+private readonly	array	$settings;				// application settings
+private				?array	$compiles	= NULL;		// compile settings
+private				?array	$database	= NULL;		// database
+private				array	$ss			= [];		// session extension
+private				array	$errors		= [];		// errors
+private				array	$debugs		= [];		// debugs
+private				array	$stackwho	= [];		// stack who
+private				array	$stackarg	= [];		// stack args
+private				bool	$formvalid	= FALSE;	// form valid
+private				bool	$formhuman	= FALSE;	// form human
+// construct object methods
+function __construct() { $this->oneshot = function() { $this->construct(); }; }
+// two-step constructor, allows extensions to reference abmcs()
+private function construct() {
+	// settings, log location, dump buffers
+	$this->settings(TRUE);
 	if (FALSE === ini_set('error_log', $this->settings['core']['translog'])) { $this->error_log("Set error_log location failed."); }
 	while(ob_get_level() > 0) { if (FALSE !== ($buf = ob_get_clean()) && '' !== $buf) { $this->error_log("I got stuff in my buffers."); } }
 
@@ -305,17 +308,17 @@ private function input_valid(
 /*************************************************************************************************
 SECTION SETTINGS: Compile core and extension boot settings.
 */
-// Read or create the core settings JSON file. 
+// Read or create core settings, executed by Composer, construct(), and command_settings()
 private function settings(
 	bool	$boot = FALSE,	// Bootstrap load existing
-) : bool {
+) : void {
 	// read settings
 	$storage = __DIR__ . "/../private/nainoiainc/abcms/ABCMS.settings";
 	if ($boot && file_exists($storage)) {
 		if (NULL === ($this->settings = json_decode(file_get_contents($storage), TRUE))) {
 			$this->error_wsod("System, ".json_last_error_msg().", ".$this->error_get_last());
 		}
-		return TRUE;
+		return;
 	}
 	$this->compiles = array();
 	// recreate settings
@@ -329,11 +332,11 @@ private function settings(
 	$this->compiles['core']['getlastmod']		= getlastmod(); // My modified date
 	$password									= $this->get_uniq(); // My clear password
 	$this->compiles['core']['password']			= password_hash($password, PASSWORD_DEFAULT); // Reset when rebuild settings
-	if (FALSE===$this->set_json(__DIR__ . "/../private/nainoiainc/abcms/ABCMS.deleteme", 'DELETE ASAP: '.$password)) { $this->error_wsod("Settings password failure."); } // Temporary storage
+	if (FALSE===$this->set_json($this->compiles['core']['projectroot'].'/private/nainoiainc/abcms/ABCMS.deleteme', 'DELETE ASAP: '.$password)) { $this->error_wsod("Settings password failure."); } // Temporary storage
 	$password = NULL;
 	$this->error_log("Retrieve new password and delete the file please.");
 	$this->compiles['core']['secret']			= $this->get_uniq(); // My hashing secret
-	if (!is_dir(($dir = __DIR__ . "/../private/nainoiainc/abcms/ABCMS.sessions")) && (!mkdir($dir, 0755, true) || !($dir=realpath($dir)))) { $this->error_wsod("Session folder does not exist."); }
+	if (!is_dir(($dir = ($this->compiles['core']['projectroot'].'/private/nainoiainc/abcms/ABCMS.sessions'))) && (!mkdir($dir, 0755, true))) { $this->error_wsod("Session folder does not exist."); }
 	$this->compiles['core']['session_folder']	= $dir; // session folder
 	$this->compiles['core']['session_cookie']	= $this->get_hash('session_cookie'); // session cookie name
 	$this->compiles['core']['session_logins']	= $this->get_hash('session_logins'); // login cookie name
@@ -346,14 +349,14 @@ private function settings(
 	$this->compiles['core']['smtp_user']		= NULL; // SMTP username
 	$this->compiles['core']['smtp_pass']		= NULL; // SMTP password
 	$this->compiles['core']['smtp_ehlo']		= NULL; // SMTP EHLO
-	if (!file_exists(($log=__DIR__."/../private/nainoiainc/abcms/ABCMS.translog")) && (!touch($log) || !($log=realpath($log)))) { $this->error_wsod("Transaction log does not exist."); }
-	$this->compiles['core']['translog']			= $log;	// transaction log
-	if (!file_exists(($dat=__DIR__."/../private/nainoiainc/abcms/ABCMS.database")) && (!touch($dat) || !($dat=realpath($dat)))) { $this->error_wsod("Database does not exist."); }
-	$this->compiles['core']['database']			= $dat;	// database
-	if (!file_exists(($lok=__DIR__."/../private/nainoiainc/abcms/ABCMS.lockfile")) && (!touch($lok) || !($lok=realpath($lok)))) { $this->error_wsod("Lockfile does not exist."); }
-	$this->compiles['core']['lockfile']			= $lok;	// lockfile
-	if (!file_exists(($ove=__DIR__."/../private/nainoiainc/abcms/ABCMS.override")) && (!touch($ove) || !($ove=realpath($ove)))) { $this->error_wsod("Settings override does not exist."); }
-	$this->compiles['core']['override']			= $ove;	// overrides
+	if (!touch(($file=($this->compiles['core']['projectroot'].'/private/nainoiainc/abcms/ABCMS.translog')))) { $this->error_wsod("Transaction log does not exist."); }
+	$this->compiles['core']['translog']			= $file;// transaction log
+	if (!touch(($file=($this->compiles['core']['projectroot'].'/private/nainoiainc/abcms/ABCMS.database')))) { $this->error_wsod("Database does not exist."); }
+	$this->compiles['core']['database']			= $file;	// database
+	if (!touch(($file=($this->compiles['core']['projectroot'].'/private/nainoiainc/abcms/ABCMS.lockfile')))) { $this->error_wsod("Lockfile does not exist."); }
+	$this->compiles['core']['lockfile']			= $file;	// lockfile
+	if (!touch(($file=($this->compiles['core']['projectroot'].'/private/nainoiainc/abcms/ABCMS.override')))) { $this->error_wsod("Settings override does not exist."); }
+	$this->compiles['core']['override']			= $file;	// overrides
 	// register URL PATH variables
 	$this->settings_varpath('debug', 'bool', ABCMS_ROLE_ADMINS);
 	// register $_GET variables
@@ -379,17 +382,45 @@ private function settings(
 	$this->settings_extend(ABCMS_EXT_MAINX,	'console',	'CLI-GET-POST',	'IE',	'abcms()->console_router',	ABCMS_ROLE_ADMINS,	-10);
 	$this->settings_equate(ABCMS_EXT_MAINX,	'console',	'/console');
 	$this->settings_equate(ABCMS_EXT_MAINX,	'console',	'/console/');
-	// SETTINGS.php run by composer or at will if ABCMS or plugin changes to rebuild the settings extension array
+
+	// run SETTINGS.php for each extension
+	$sibs = glob("{$this->compiles['core']['projectroot']}/private/*/*/SETTINGS.php");
+	foreach ($sibs?:[] as $sets) {
+		// reject symlinked extensions
+		if (realpath($sets) !== $sets) {
+			$this->error_log("Extension symlink rejected: {$sets}");
+			continue;
+		}
+		// calculate extension name
+		if (!preg_match("|^".preg_quote($this->compiles['core']['projectroot'],'|')."/private(/[^/]+/[^/]+)|u", $sets, $match) || empty($match[1])) {
+			$this->error_log("Extension not found: {$sets}");
+			continue;
+		}
+		// push stackwho so extension abcms()->s() returns valid $_SESSION space
+		$this->stackwho[] = $match[1];
+		try {
+			$this->include($sets);
+			$this->error_log("Extension settings setup succeeded: {$sets}");
+		}
+		// handle failed extension setup
+		catch (Throwable $e) {
+			$exception = (htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8') ?: 'Unknown exception.'); // thrown error
+			$this->error_log("Extension settings setup failed: {$sets} {$exception}");
+		}
+		// pop stackwho
+		finally {
+			array_pop($this->stackwho);
+		}
+	}
 	// TODO remove mixed non-exclusive or exclusive routes.
-	while(0) { ; } // TODO loop through extension SETTINGS.php
 	// override settings
 	if (($override = json_decode(file_get_contents($this->compiles['core']['override']), TRUE))) { $this->array_walk_merge($this->compiles, $override); }
 	// save settings atomically with rename()
 	$temp = "{$storage}.".getmypid();
 	if (FALSE === $this->set_json($temp, $this->compiles) || !rename($temp, $storage)) {	$this->error_wsod("Settings write failure."); }
 	if ($boot) { $this->settings = $this->compiles; }
-	$this->compiles = [];
-	return TRUE;
+	$this->compiles = NULL;
+	return;
 }
 // Register hook extension
 public function settings_extend(
@@ -406,17 +437,19 @@ public function settings_extend(
 	int		$ord = 0,					// Order considered, PHP_INT_MIN >= $ord <= PHP_INT_MAX 
 	mixed	...$arg,					// Argument alternatives
 ) : bool {
+	// wrong context
+	if (NULL === $this->compiles) { $this->error_log("wrong context for settings_extend(): {$hok} {$ext} {$fun}."); return FALSE; }
 	// Control string to array indices
 	$ctl = array_flip(($key=str_split(strtoupper($str))));
 	$key = array_diff_key($key, array('I','O','E','U','D'));
 
 	// Error checks
-	if (!preg_match(ABCMS_REGEX_HOOK, $hok) || // Hook valid
+	if ((!preg_match(ABCMS_REGEX_HOOK, $hok)) || // Hook valid
 		(!empty($met) && array_diff(explode('-', $met), array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE'))) || // method validation
 		(isset($ctl['I']) && isset($ctl['O'])) || // Input Output exclusive
-		!empty($key) || // Control flags valid
+		(!empty($key)) || // Control flags valid
 		(!empty($fun) && !preg_match(ABCMS_REGEX_FUNC, $fun))) { // Function valid
-		$this->error_log("Invalid extension.");
+		$this->error_log("Invalid extension: {$hok} {$ext} {$fun}.");
 		return FALSE;
 	}
 	// Extension assigned
@@ -427,7 +460,7 @@ public function settings_extend(
 		'rol'	=> $rol,
 		'ord'	=> $ord,
 		'ctl'	=> $ctl,
-		'who'	=> $this->extension(FALSE),
+		'who'	=> (empty($this->stackwho) ? ABCMS_EXT_SELF : end($this->stackwho)), // which extension?
 		'arg'	=> $arg,
 	);
 	return TRUE;
@@ -438,6 +471,8 @@ public function settings_equate(
 	string	$ext,	// Extension name or '' for all
 	string	$path,	// Unique URL path, trailing '/' for 1st segment only, otherwise no trailing slash
 ) : bool {
+	// wrong context
+	if (NULL === $this->compiles) { $this->error_log("wrong context for settings_equate(): {$hook} {$ext} {$path}."); return FALSE; }
 	// Error checks
 	if (!preg_match(ABCMS_REGEX_HOOK, $hook) || // Valid hook
 		(substr_count($path, '/')>2 && '/' == $path[-1]) || // Trailing slash matches 1st path segment only
@@ -488,6 +523,8 @@ private function settings_variable(
 	int		$role,			// Minimum role
 	?array	$reg = NULL,	// Regex validation
 ) : void {
+	// wrong context
+	if (NULL === $this->compiles) { $this->error_log("wrong context for settings_variable(): {$cat} {$var} {$type}."); return; }
 	if (!preg_match("/^[a-z0-9\-_.~]+$/ui", $var) ||
 		!empty($this->compiles[$cat][$var]) ||
 		!in_array($type, array('mixed','string','array','integer','float','bool','boolean','email','domain','uri','url','ip','mac','uuid','path')) ||
@@ -557,7 +594,7 @@ public function session_start(
 	$active = $posthandled = TRUE;
 	$error = $gauntlet = NULL;
 	$csrf = ($post && !empty($_POST['csrf']) ? $_POST['csrf'] : '');
-	$this->ss = &$this->s_self();
+	if (empty($_SESSION[ABCMS_EXT_SELF]['create'])) { $this->ss = []; } else { $this->ss = &$_SESSION[ABCMS_EXT_SELF]; }
 
 	// validate session
 	if (!$this->ss) {
@@ -655,8 +692,7 @@ KILL:	// set errors
 
 	// validate new session
 	else {
-		$this->ss = &$this->s_self(TRUE);
-		$this->ss = [
+		$_SESSION[ABCMS_EXT_SELF] = [
 			'create'	=> $now,
 			'active'	=> $now,
 			'rotate'	=> $now,
@@ -676,6 +712,7 @@ KILL:	// set errors
 			'test_name' => $this->get_uniq(),
 			'test_valu' => 'abc',
 		];
+		$this->ss = &$_SESSION[ABCMS_EXT_SELF];
 		$this->set_cookie($this->ss['cookie'], $this->ss['secret'], $now + ABCMS_SES_LIFE);
 	}
 	return TRUE;
@@ -690,8 +727,9 @@ KILL:	// set errors
 public function &s(
 	bool $assign = FALSE, // TRUE to initialize $_SESSION[extension]
 ) : array {
-	// ABCMS Finally { session_commit(); } prevents deferred extension access to s() ABCMS_EXT_SELF outside of output()
-	$ext = $this->extension(); // segregation key
+	// s() never used by core, so extension stackwho must be populated
+	if (empty($this->stackwho)) { $this->error_wsod("Session extension stack missing."); }
+	$ext = end($this->stackwho); // segregation key
 	$bad = TRUE; // allow only one call to session_status()
 	if ($assign) {
 		if (($bad = (session_status() !== PHP_SESSION_ACTIVE))) { $this->error_wsod("Session assignment but session doesn't exist."); }
@@ -701,16 +739,6 @@ public function &s(
 		if (!is_array($_SESSION[$ext])) { $this->error_wsod("Session extension corrupted: {$ext}."); }
 		return $_SESSION[$ext]; // return extension element
 	}
-	$empty = []; return $empty; // return fail-safe emptiness
-}
-// session extension for core space only, session MUST be started
-private function &s_self(
-	bool $assign = FALSE, // TRUE to initialize $_SESSION[ABCMS_EXT_SELF]
-) : array {
-	if ($assign && !isset($_SESSION[ABCMS_EXT_SELF])) { $_SESSION[ABCMS_EXT_SELF] = []; } // assignment expected
-	if (isset($_SESSION[ABCMS_EXT_SELF])) {
-		if (!is_array($_SESSION[ABCMS_EXT_SELF])) { $this->error_wsod("Session extension corrupted: ".ABCMS_EXT_SELF); }
-		return $_SESSION[ABCMS_EXT_SELF]; } // return extension element
 	$empty = []; return $empty; // return fail-safe emptiness
 }
 // set cookie
@@ -810,12 +838,13 @@ public function set_database(
 		// search to find or not find element
 		$element = &$this->database;
 		$previous = $key = NULL;
+		$found = TRUE;
 		foreach ($keys as $key) {
 			$previous = &$element;
-			if (!isset($element[$key])) { $element = NULL; break; }
+			if (!isset($element[$key])) { $found = FALSE; break; }
 			$element = &$element[$key];
 		}
-		if (($new && $element) || (!$new && !$element)) {
+		if (($new && $found) || (!$new && !$found)) {
 			flock($lockfd, LOCK_UN); fclose($lockfd);
 			return FALSE;
 		}
@@ -893,7 +922,7 @@ public function output(
 	mixed	&...$args,	// Default arguments
 ) : array {
 	// Initialize
-	$whoami = $this->extension(); // Which extension am I?
+	$whoami = (empty($this->stackwho) ? ABCMS_EXT_SELF : end($this->stackwho)); // which extension?
 	$hook = $whoami . $hook; // Full hook name
 	$ext = array( // Default
 		'I' => (empty($default) ? array() : array( array( // Empty default allowed
@@ -955,25 +984,6 @@ public function output(
 	//return $arguments;
 	return $args;
 }
-// which extension called the function that called me?
-private function extension(bool $abcms = TRUE) : string {
-	// output() context fast answer
-	if (!empty($this->stackwho)) { return end($this->stackwho); }
-	// extension(TRUE) from output() assume ABCMS because all extensions must have stackwho[]
-	// extension(TRUE) from s() assume ABCMS because extensions are restricted outside of stackwho[]
-	// extension(FALSE) from settings_extend() because must call debug_backtrace()
-	if ($abcms) { return ABCMS_EXT_SELF; }
-	// omit object and args, 2 levels back
-	$trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2);
-	// no trace
-	if (empty($trace[1]['file'])) { $this->error_wsod("Backtrace result unavailable."); }
-	// called myself
-	else if ($trace[1]['file'] === (__FILE__)) { return ABCMS_EXT_SELF; }
-	// valid extension
-	else if (preg_match("|^".preg_quote(dirname(__DIR__),'|')."/private(/[^/]+/[^/]+)|u", $trace[1]['file'], $match) && !empty($match[1])) { return $match[1]; }
-	// invalid extension
-	$this->error_wsod("Extension not found.");
-}
 // Execute hook extension?
 private function output_doit(
 	array	$ext,	// Extension definition
@@ -1011,8 +1021,11 @@ private function output_call(
 	$funcmeth	= $match[7]; // function / method
 	// include the file
 	$result = FALSE; // Default failure
-	$this->stackwho[] = $who; // load who stack
+	// push who stack
+	$this->stackwho[] = $who; try {
+	// includes
 	if ($filepath) {
+		$filepath = '../private'.$who.$filepath; // TODO settle this!!!
 		if ($funcmeth) {	$result = (bool)$this->include_once($filepath, ...$args); } // failsafe include once for definition
 		else {				$result = (bool)$this->include($filepath, ...$args); } // or multiple executions allowed
 	}
@@ -1047,7 +1060,8 @@ private function output_call(
 			$result = (bool)$funcmeth(...$args); // Execute
 		}
 	}
-	array_pop($this->stackwho); // pop who stack
+	// pop who stack
+	} finally { array_pop($this->stackwho); }
 	return $result;
 }
 
@@ -1152,7 +1166,7 @@ EOF
 // inject debug information for administrator only
 private function output_debug(string &$html) : void {
 	if (!$html || $this->input['role'] !== ABCMS_ROLE_ADMINS) { return; }
-	$injection = "<pre class='debug'><h2>Debug Stuff</h2>".print_r(array('ABCMS_OBJECT'=>$this, 'ABCMS_GLOBALS'=>$GLOBALS),TRUE)."</pre></body>";
+	$injection = "<pre class='debug'><h2>Coredump</h2>".print_r(array('ABCMS_OBJECT'=>$this, 'ABCMS_GLOBALS'=>$GLOBALS),TRUE)."</pre></body>";
 	if (!($html = preg_replace("/<\/body>/ui", $injection, $html, 1))) { $this->error_wsod("Debug injection for admin failed."); }
 	return;
 }
@@ -1221,10 +1235,6 @@ public function see_errors() : ?string {	// Format private errors for public
 	if (!empty($this->errors)) { return '<br><br>Errors:<br>'.implode('<br>',$this->errors); }
 	return NULL;
 }	
-	
-public function get_settings() : array {	// Get private settings for public
-	return $this->settings;
-}
 
 
 
@@ -1626,8 +1636,8 @@ private function command_phpinfo(mixed &...$unused) : ?bool {
 	return NULL;
 }
 private function command_settings(mixed &...$unused) : ?bool {
-	$result = $this->settings(); // recreate settings
-	echo "ABCMS settings: {$result}\n";
+	$this->settings(); // recreate settings
+	echo "ABCMS settings: DONE\n";
 	return NULL;
 }
 private function command_updater(mixed &...$unused) : ?bool {
@@ -1645,13 +1655,12 @@ private function command_updater(mixed &...$unused) : ?bool {
 SECTION UTILITIES: Essential utility methods.
 */
 // Wrap the echo() construct to use as extension function.
-public function echo(?string &...$args) : void {
-	echo implode('',$args);
-	return;
+public function echo(?string ...$args) : void {
+	if (NULL !== $args) { echo implode('',$args); } return;
 }
 // Wrap the print() construct to use as extension function.
 public function print(?string $string = NULL) : bool {
-	return print($string);
+	return (NULL === $string ? TRUE : print($string));
 }
 // Set path
 public function set_path(?string $path = NULL) : ?string {
@@ -1700,8 +1709,8 @@ public function get_json(string $filename, mixed &$data) : bool {
 // Include always
 public function include(string $filename, ...$args) : mixed {
 	if (!file_exists($filename)) { $this->error_wsod("Include does not exist."); }
-	// indistinguishable between FALSE from failed include() or FALSE from successful include(), returning FALSE
-	// anonymous scopes $args within include and protects abmcs() privates
+	// beware, failed include() = FALSE = successful include() returning FALSE
+	// anonymous scopes $args within include, hides $this, and protects abmcs() privates
 	$anonymous = Closure::bind(function($filename, ...$args) { return include($filename); }, null, null);
 	return $anonymous($filename, ...$args);
 }
@@ -1711,7 +1720,7 @@ public function include_once(string $filename, ...$args) : mixed {
 	if (!($filename = realpath($filename)) || !file_exists($filename)) { $this->error_wsod("Include once does not exist."); }
 	else if (!isset($included[$filename])) {
 		$included[$filename] = TRUE;
-		// anonymous scopes $args within include and protects abmcs() privates
+		// anonymous scopes $args within include, hides $this, and protects abmcs() privates
 		$anonymous = Closure::bind(function($filename, ...$args) { return include($filename); }, null, null);
 		return $anonymous($filename, ...$args);
 	}
@@ -2133,10 +2142,21 @@ echo $this->see_errors();
 <?php
 return NULL; // done
 }
-
-
-
 // end object
-}; }
+};
+
+
+
+
+
+
+
+// methods constructed, now properties
+$oneshot = $_abcms->oneshot;
+$_abcms->oneshot = NULL;
+try { if ($oneshot) { $oneshot(); } }
+catch (Throwable $e) { $_abcms = NULL; throw $e; }
+}
+// return fully constructed object or NULL
 return $_abcms;
 }
