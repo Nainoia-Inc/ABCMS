@@ -320,23 +320,24 @@ SECTION SETUP: Compile core and extension boot settings.
 private function setup(
 	bool	$boot = FALSE,	// TRUE = load existing, else recreate
 ) : void {
-	// load existing settings reading a php file for speed, but beware of injection
+	// load settings from var_dump() file for speed, beware of injection
 	$this->error_log('SETUP: Begin');
 	$storage = $this->rp(dirname(__DIR__)).ABCMS_EXT_PRIVATE.'ABCMS.settings.php';
-	if ($boot && file_exists($storage)) {
-		$fn = Closure::bind(static function($f) { return include($f); }, NULL, NULL);
-		$data = $fn($storage);
+	$this->compiles = array(); // initialize
+	$this->compiles['core']['projectroot'] = $this->rp(dirname(__DIR__)); // my project folder, needed early for chk_file()
+	$data = [];
+	if ($boot && $this->get_dump($storage, $data)) {
 		if (!is_array($data) || empty($data['core']['projectroot'])) { $this->error_wsod("Settings file corrupted."); }
 		$this->settings = $data;
+		$this->compiles = NULL;
 		return;
 	}
+
 	// register core settings
 	$this->error_log('SETUP: Core settings');
 	touch(__FILE__); // cycle session secret to anull all sessions, touch() because $this->touch() needs $settings
-	$this->compiles = array(); // initialize
 	$this->compiles['core']['filename']			= $this->rp(__FILE__); // my filename
 	$this->compiles['core']['documentroot']		= $this->rp(__DIR__); // my documentroot
-	$this->compiles['core']['projectroot']		= $this->rp(dirname(__DIR__)); // my project folder
 	$corefold = $this->compiles['core']['projectroot'].ABCMS_EXT_PRIVATE;
 	$this->compiles['core']['project']			= (basename(dirname(__DIR__))); // my project name
 	$this->compiles['core']['auto']				= $this->rp(realpath(__DIR__ . '/../vendor/autoload.php')); // auto-loader location
@@ -365,7 +366,7 @@ private function setup(
 	$this->compiles['core']['translog']			= $corefold.'ABCMS.translog'; // transaction log
 	$this->touch($this->compiles['core']['translog']);
 	$this->compiles['core']['override']			= $corefold.'ABCMS.override.php'; // overrides
-	if (!file_exists($this->compiles['core']['override'])) { $this->set_file($this->compiles['core']['override'], "<?php return " . var_export(array(), TRUE) . ";\n"); } // blank override
+	if (!file_exists($this->compiles['core']['override'])) { $this->set_dump($this->compiles['core']['override'], []); }
 
 	// register variables
 	$this->error_log('SETUP: Core variables');
@@ -434,17 +435,15 @@ private function setup(
 
 	// load custom settings reading a php file for speed, but beware of injection
 	$this->error_log('SETUP: Custom overrides');
-	$fn = Closure::bind(static function($f) { return include($f); }, NULL, NULL);
 	if (function_exists('opcache_invalidate')) { opcache_invalidate($this->compiles['core']['override'], TRUE); }
-	$override = $fn($this->compiles['core']['override']);
-	if (!is_array($override)) { $this->error_wsod("Custom settings file corrupted."); }
+	$override = [];
+	if (!$this->get_dump($this->compiles['core']['override'], $override) || !is_array($override)) { $this->error_wsod("Custom settings file missing or corrupted."); }
 	$this->array_walk_merge($this->compiles, $override);
 
 	// save settings as fast op cachable php include file with atomic with rename()
 	// write settings into a php file for speed, but beware of injection
 	$this->error_log('SETUP: Save settings');
-	$this->set_file($storage, "<?php return " . var_export($this->compiles, TRUE) . ";\n");
-	if (function_exists('opcache_invalidate')) { opcache_invalidate($storage, TRUE); }
+	$this->set_dump($storage, $this->compiles);
 	if ($boot) { $this->settings = $this->compiles; }
 	$this->compiles = NULL;
 
@@ -1777,12 +1776,27 @@ public function get_json(string $filename, mixed &$data) : void {
 	if (NULL === ($data = json_decode(file_get_contents($filename), TRUE))) { $this->error_wsod("System, ".json_last_error_msg().", ".$this->error_get_last()); }
 	return;
 }
+// set var_dump
+public function set_dump(string $filename, mixed $data) : void {
+	// partial validity check at top level, nested elements unvalidated
+	if (is_object($data) || is_resource($data)) { $this->error_wsod("set_dump() supports scalars, arrays, and NULL only."); }
+	$this->set_file($filename, "<?php return " . var_export($data, TRUE) . ";\n");
+	if (function_exists('opcache_invalidate')) { opcache_invalidate($filename, TRUE); }
+}
+// get var_dump
+public function get_dump(string $filename, mixed &$data) : bool {
+	if (!$this->chk_file($filename, TRUE)) { return FALSE; }
+	// beware, failed include() = FALSE = successful include() returning FALSE
+	$fn = Closure::bind(static function($f) { return include($f); }, NULL, NULL);
+	$data = $fn($filename);
+	return TRUE;
+}
 // Include always
 public function include(string $filename, ...$args) : mixed {
 	if (!$this->chk_file($filename, TRUE)) { $this->error_wsod("Filename does not exist or not readable: {$filename}"); }
 	// beware, failed include() = FALSE = successful include() returning FALSE
 	// anonymous scopes $args within include, hides $this, and protects abmcs() privates
-	$anonymous = Closure::bind(function($filename, ...$args) { return include($filename); }, null, null);
+	$anonymous = Closure::bind(function($filename, ...$args) { return include($filename); }, NULL, NULL);
 	return $anonymous($filename, ...$args);
 }
 // Include once, PHP should provide a native no fault include_once() function
@@ -1792,7 +1806,7 @@ public function include_once(string $filename, ...$args) : mixed {
 		if (!$this->chk_file($filename, TRUE)) { $this->error_wsod("Filename does not exist or not readable: {$filename}"); }
 		$included[$filename] = TRUE;
 		// anonymous scopes $args within include, hides $this, and protects abmcs() privates
-		$anonymous = Closure::bind(function($filename, ...$args) { return include($filename); }, null, null);
+		$anonymous = Closure::bind(function($filename, ...$args) { return include($filename); }, NULL, NULL);
 		return $anonymous($filename, ...$args);
 	}
 	return FALSE;
