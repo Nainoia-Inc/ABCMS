@@ -1666,11 +1666,11 @@ private function command_router(mixed &...$unused) : ?bool {
 	switch ($this->boots['urlpathall']) {
 		case '/command/code':		$this->command_code();		break;
 		case '/command/cron':		$this->command_cron();		break;
-		case '/command/help':		$this->command_help();		break;
 		case '/command/phpinfo':	$this->command_phpinfo();	break;
 		case '/command/setup':		$this->command_setup();		break;
 		case '/command/updater':	$this->command_updater();	break;
-		default:					echo "Invalid command";		break;
+		case '/command/help':
+		default:					$this->command_help();		break;
 	}
 	return NULL;
 }
@@ -1680,12 +1680,12 @@ private function command_code(mixed &...$unused) : ?bool {
 }
 private function command_cron(mixed &...$unused) : ?bool {
 	if (!headers_sent()) { header('Content-Type: text/plain; charset=utf-8'); }
-	echo "ABCMS cron\n\nDone.";
+	echo "ABCMS cron\n\nDone.\n\n";
 	return NULL;
 }
 private function command_help(mixed &...$unused) : ?bool {
 	if (!headers_sent()) { header('Content-Type: text/plain; charset=utf-8'); }
-	echo "ABCMS help\n\nDone.";
+	echo "ABCMS help\n\nDone.\n\n";
 	return NULL;
 }
 private function command_phpinfo(mixed &...$unused) : ?bool {
@@ -1698,17 +1698,17 @@ private function command_setup(mixed &...$unused) : ?bool {
 	// if validate_timestamps = 0;
 	$this->setup(); // recreate settings
 	// op cache warning
+	$mess = NULL;
 	if (function_exists('opcache_get_configuration') && !ini_get('opcache.validate_timestamps')) {
-		$mess = "WARNING: opcache.validate_timestamps=0 — reload PHP-FPM or call from browser for settings to take effect on the web.";
+		$mess = "WARNING: opcache.validate_timestamps=0, manually reload PHP/FPM to realize changes.\n\n";
 		$this->error_log($mess);
-		echo $mess;
 	}
-	echo "ABCMS settings:\n\nrefresh screen to see updated settings changes\n\nDone.";
+	echo "ABCMS settings:\n\nrefresh screen to see updated settings changes\n\n{$mess}Done.\n\n";
 	return NULL;
 }
 private function command_updater(mixed &...$unused) : ?bool {
 	if (!headers_sent()) { header('Content-Type: text/plain; charset=utf-8'); }
-	echo "ABCMS updater\n\nDone.";
+	echo "ABCMS updater\n\nDone.\n\n";
 	return NULL;
 }
 
