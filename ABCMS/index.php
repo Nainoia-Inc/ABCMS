@@ -36,7 +36,7 @@ const ABCMS_ROLE_SET	= array(0,1,2,3,4,5,6,7);
 // regex
 // includefile?function #^(|/vendor/package/filepath)(|?(|classobject(::|->|()->))funcmeth)#
 const ABCMS_REGEX_FUNC	= '/^(((?:\/(?!\.\.?(?:\/|$))[^?\/\\\\\x00\r\n]+)+)\?)?((([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*))?$/uiD';
-// extension name patterns
+// extension name patterns, lower case required
 const ABCMS_REGEX_HOOK	= '/^\/[a-z0-9]([_.-]?[a-z0-9]+)*\/[a-z0-9]([_.-]?[a-z0-9]+)*\/[a-z0-9]([_.-]?[a-z0-9]+)*$/uD';	// extension /vendor/extension/hookname
 const ABCMS_REGEX_FOLD	= '(/[a-z0-9]([_.-]?[a-z0-9]+)*/[a-z0-9]([_.-]?[a-z0-9]+)*)';	// extension /vendor/extension (used with '|' regex delimiters validating extension path)
 const ABCMS_REGEX_NICK	= '/^[a-z0-9]([_.-]?[a-z0-9]+)*$/uD'; // extension nickname
@@ -401,16 +401,22 @@ private function setup(
 
 	// run SETUP.php for each extension
 	$this->error_log('SETUP: Contrib extensions');
-	$sibs = glob("{$this->compiles['core']['projectroot']}/private/*/*/SETUP.php");
-	foreach ($sibs?:[] as $sets) {
-		// reject symlinks
-		if (($file = $this->rp(realpath($sets))) !== $sets) {
-			$this->error_log("SETUP: Extension symlink rejected, {$sets}");
+	$exts = glob("{$this->compiles['core']['projectroot']}/private/*/*/");
+	foreach ($exts?:[] as $fold) {
+		// extension name
+		if (!preg_match('|^'.preg_quote($this->compiles['core']['projectroot'],'|').'/private'.ABCMS_REGEX_FOLD.'/$|uD', $fold, $match) || empty($match[1])) {
+			$this->error_log("SETUP: Extension name invalid, {$fold}");
 			continue;
 		}
-		// extension name
-		if (!preg_match('|^'.preg_quote($this->compiles['core']['projectroot'],'|').'/private'.ABCMS_REGEX_FOLD.'/SETUP\.php$|uD', $file, $match) || empty($match[1])) {
-			$this->error_log("SETUP: Extension not found, {$file}");
+		// must be a file
+		$temp = $fold . "SETUP.php";
+		if (!is_file($temp)) {
+			$this->error_log("SETUP: Invalid extensions, SETUP.php is not a file, {$temp}");
+			continue;
+		}
+		// reject symlinks
+		if (($file = $this->rp(realpath($temp))) !== $this->rp($temp)) {
+			$this->error_log("SETUP: Extension symlinks rejected, {$temp}");
 			continue;
 		}
 		// push stackwho so abcms()->s() returns valid $_SESSION extension storage
@@ -421,7 +427,7 @@ private function setup(
 		}
 		// failed extension setup
 		catch (Throwable $e) {
-			$exception = (htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8') ?: 'Unknown exception.');
+			$exception = ($e->getMessage() ?: 'Unknown exception.');
 			$this->error_log("SETUP: Extension setup failed: {$file} {$exception}");
 		}
 		// pop stackwho
@@ -820,7 +826,7 @@ SECTION DATABASE: Store data in JSON, CSV, SQLite, or MySQL.
 public function new_database(string $file) : void {
 	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->error_wsod("Database name invalid: {$file}"); } // invalid file
 	$fold = ($this->compiles['core']['projectroot']??$this->settings['core']['projectroot']).'/private'.$this->output_extension().'/ABCMS.database';
-	if (!is_dir($fold) && !mkdir($fold, 0750, true)) { $this->error_wsod("Database folder does not exist: {$file}"); }
+	if (!is_dir($fold) && !mkdir($fold, 0750, true)) { $this->error_wsod("Database folder does not exist: {$fold}"); }
 	$file = $fold.'/'.$file;
 	$this->touch($file);
 	$this->touch($file.'.lock');
@@ -1737,7 +1743,7 @@ private function chk_file(string $filename, bool $must = FALSE) : bool {
 	if (!str_starts_with($filename, $starts)) { $this->error_wsod("Access outside of extension folder disallowed: {$filename}"); }
 	if (preg_match('/(^|[\/\\\\])\.\.([\/\\\\]|$)/', $filename)) { $this->error_wsod("Relative filenames disallowed: {$filename}"); }
 	if (is_link($filename)) { $this->error_wsod("Symbolic link filenames disallowed: {$filename}"); }
-	if ($must && ($this->rp(realpath($filename)) !== $filename || !is_readable($filename))) { return FALSE; }
+	if ($must && ($this->rp(realpath($filename)) !== $filename || !is_file($filename) || !is_readable($filename))) { return FALSE; }
 	return TRUE;
 }
 // Set file
