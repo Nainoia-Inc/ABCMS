@@ -35,11 +35,15 @@ const ABCMS_ROLE_CLI	= 7;
 const ABCMS_ROLE_SET	= array(0,1,2,3,4,5,6,7);
 // regex
 // includefile?function #^(|/vendor/package/filepath)(|?(|classobject(::|->|()->))funcmeth)#
-const ABCMS_REGEX_FUNC	= '/^(((?:\/(?!\.\.?(?:\/|$))[^?\/\\\\\x00]+)+)\?)?((([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*))?$/ui';
-const ABCMS_REGEX_HOOK	= '/^\/[^.\/]+\/[^.\/]+\/[^.\/]+$/u';			// hook name, path-like, but not a filepath
+const ABCMS_REGEX_FUNC	= '/^(((?:\/(?!\.\.?(?:\/|$))[^?\/\\\\\x00\r\n]+)+)\?)?((([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*))?$/uiD';
+// extension name patterns
+const ABCMS_REGEX_HOOK	= '/^\/[a-z0-9]([_.-]?[a-z0-9]+)*\/[a-z0-9]([_.-]?[a-z0-9]+)*\/[a-z0-9]([_.-]?[a-z0-9]+)*$/uD';	// extension /vendor/extension/hookname
+const ABCMS_REGEX_FOLD	= '(/[a-z0-9]([_.-]?[a-z0-9]+)*/[a-z0-9]([_.-]?[a-z0-9]+)*)';	// extension /vendor/extension (used with '|' regex delimiters validating extension path)
+const ABCMS_REGEX_NICK	= '/^[a-z0-9]([_.-]?[a-z0-9]+)*$/uD'; // extension nickname
+// other
 const ABCMS_REGEX_URLV	= '/\/([a-z0-9\-_.~]+)=([a-z0-9\-_.~=]+)/ui';	// URL variable
 const ABCMS_REGEX_FORM	= '/(<form(?=[\s>])[^>]*>)(.+?)(<\/form>)/uis';	// form security injection
-const ABCMS_REGEX_DATA	= '/^[a-z0-9\-_]+\.[a-z0-9\-_]+$/ui';			// Database filename
+const ABCMS_REGEX_DATA	= '/^[a-z0-9\-_]+\.[a-z0-9\-_]+$/uiD';			// Database filename
 // session - move these to overridable $settings
 const ABCMS_SES_ROTA	= 60*15;			// rotate session after 15 minutes
 const ABCMS_SES_IDLE	= 60*60*24*1;		// destroy session after 1 day idle
@@ -220,7 +224,7 @@ private function construct() {
 		// URL no variables, no trailing slash, and urldecoded
 		'urlpathall' => ($urlpathall = ('/'.(trim(preg_replace(ABCMS_REGEX_URLV, '/', ($urldecoded = urldecode(($urlparsed['path']??'')))), '/')))),
 		// URL first segment for primary router
-		'urlpathone' => (!($ret = preg_match("/^(\/[^\/]*)(\/.+)?$/u", $urlpathall, $matches)) ? '/' : $matches[1]),
+		'urlpathone' => (!($ret = preg_match('/^(\/[^\/\x00-\x1f]*)(\/[^\x00-\x1f]+)?$/uD', $urlpathall, $matches)) ? '/' : $matches[1]),
 		// URL second+ segments for secondary router
 		'urlpathext' => (!$ret || empty($matches[2]) ? '/' : $matches[2]),
 	);
@@ -291,7 +295,7 @@ private function input_valid(
 			case 'path'		:	if ('/' !== $val[0] || FALSE === filter_var('http://localhost'.$val, FILTER_VALIDATE_URL)) {					break; }			continue 2;
 			case 'uri'		:	if (!mb_check_encoding($val, 'ASCII') || FALSE === filter_var('http://localhost'.$val, FILTER_VALIDATE_URL)) {	break; }			continue 2;
 			case 'url'		:	if (!mb_check_encoding($val, 'ASCII') || FALSE === filter_var($val, FILTER_VALIDATE_URL)) {						break; }			continue 2;
-			case 'uuid'		:	if (!preg_match("/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i", $val)) {		break; }			continue 2;			
+			case 'uuid'		:	if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iD', $val)) {		break; }			continue 2;			
 			// Variable found, but undefined type registered by setup_variable()
 			default:			$this->error_wsod("Undefined URL variable type, '{$this->settings[$cat][$var]['type']}'");
 		}
@@ -404,7 +408,7 @@ private function setup(
 			continue;
 		}
 		// extension name
-		if (!preg_match("|^".preg_quote($this->compiles['core']['projectroot'],'|')."/private(/[^/]+/[^/]+)|u", $file, $match) || empty($match[1])) {
+		if (!preg_match('|^'.preg_quote($this->compiles['core']['projectroot'],'|').'/private'.ABCMS_REGEX_FOLD.'/SETUP\.php$|uD', $file, $match) || empty($match[1])) {
 			$this->error_log("SETUP: Extension not found, {$file}");
 			continue;
 		}
@@ -472,13 +476,14 @@ public function setup_extend(
 	$key = array_diff_key($key, array('I','O','E','U','D'));
 
 	// Error checks
-	$a = $b = $c = $d = $e = FALSE;
-	if (($a=(!preg_match(ABCMS_REGEX_HOOK, $hok))) || // Hook valid
-		($b=(!empty($met) && array_diff(explode('-', $met), array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE')))) || // method validation
-		($c=(isset($ctl['I']) && isset($ctl['O']))) || // Input Output exclusive
-		($d=(!empty($key))) || // Control flags valid
-		($e=(!empty($fun) && !preg_match(ABCMS_REGEX_FUNC, $fun)))) { // Function valid
-		$this->error_log("Invalid extension: {$hok} {$ext} {$fun}, errors hok={$a} met={$b} exc={$c} con={$d} fun={$e}");
+	$a = $b = $c = $d = $e = $f = FALSE;
+	if (($a=(!preg_match(ABCMS_REGEX_HOOK, $hok))) || // hook valid
+		($b=('' !== $ext && !preg_match(ABCMS_REGEX_NICK, $ext))) || // target extension valid
+		($c=(!empty($met) && array_diff(explode('-', $met), array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE')))) || // method validation
+		($d=(isset($ctl['I']) && isset($ctl['O']))) || // input output exclusive
+		($e=(!empty($key))) || // control flags valid
+		($f=(!empty($fun) && !preg_match(ABCMS_REGEX_FUNC, $fun)))) { // function valid
+		$this->error_log("Invalid extension: {$hok} {$ext} {$fun}, err: hok={$a} ext={$b} met={$c} exc={$d} con={$e} fun={$f}");
 		return FALSE;
 	}
 	// Extension assigned
@@ -496,22 +501,24 @@ public function setup_extend(
 }
 // Equate path to hook extension name
 public function setup_equate(
-	string	$hook,	// Hook name
-	string	$ext,	// Extension name or '' for all
-	string	$path,	// Unique URL path, trailing '/' for 1st segment only, otherwise no trailing slash
+	string	$hok,	// hook name
+	string	$ext,	// extension name or '' for all
+	string	$pat,	// Unique URL path, trailing '/' for 1st segment only, otherwise no trailing slash
 ) : bool {
 	// wrong context
-	if (NULL === $this->compiles) { $this->error_log("wrong context for setup_equate(): {$hook} {$ext} {$path}."); return FALSE; }
+	if (NULL === $this->compiles) { $this->error_log("wrong context for setup_equate(): {$hok} {$ext} {$pat}."); return FALSE; }
 	// Error checks
-	if (!preg_match(ABCMS_REGEX_HOOK, $hook) || // Valid hook
-		(substr_count($path, '/')>2 && '/' == $path[-1]) || // Trailing slash matches 1st path segment only
-		('' !== $path && ('/' !== $path[0] || FALSE === filter_var('http://localhost'.$path, FILTER_VALIDATE_URL))) || // Valid path
-		isset($this->compiles['route'][$hook]['eq'][$path])) { // Not duplicate
-		$this->error_log("Invalid or duplicate hook extension path.");
+	$a = $b = $c = $d = $e = FALSE;
+	if (($a=(!preg_match(ABCMS_REGEX_HOOK, $hok))) || // Valid hook
+		($b=('' !== $ext && !preg_match(ABCMS_REGEX_NICK, $ext))) || // target extension valid
+		($c=(substr_count($pat, '/')>2 && '/' == $pat[-1])) || // trailing slash matches 1st path segment only
+		($d=('' !== $pat && ('/' !== $pat[0] || FALSE === filter_var('http://localhost'.$pat, FILTER_VALIDATE_URL)))) || // valid path
+		($e=isset($this->compiles['route'][$hok]['eq'][$pat]))) { // duplicate
+		$this->error_log("Invalid extension path: {$hok} {$ext} {$pat} err: hok={$a} ext={$b} p//={$c} pat={$d} dup={$e}");
 		return FALSE;
 	}
 	// Equate path assigned
-	$this->compiles['route'][$hook]['eq'][$path] = $ext;
+	$this->compiles['route'][$hok]['eq'][$pat] = $ext;
 	return TRUE;
 }
 // Define path variable
@@ -554,7 +561,7 @@ private function setup_variable(
 ) : void {
 	// wrong context
 	if (NULL === $this->compiles) { $this->error_log("wrong context for setup_variable(): {$cat} {$var} {$type}."); return; }
-	if (!preg_match("/^[a-z0-9\-_.~]+$/ui", $var) ||
+	if (!preg_match('/^[a-z0-9\-_.~]+$/uiD', $var) ||
 		!empty($this->compiles[$cat][$var]) ||
 		!in_array($type, array('mixed','string','array','integer','float','bool','boolean','email','domain','uri','url','ip','mac','uuid','path')) ||
 		!in_array($role, ABCMS_ROLE_SET)) {
@@ -1123,7 +1130,8 @@ private function output_security(string &$html) : void {
 		if (!($html = preg_replace(ABCMS_REGEX_FORM, '$1<fieldset disabled class="disable">$2</fieldset>$3', $html, -1, $count)) || $count !== $num) {
 			$this->error_wsod("Form security entirely failed.");
 		}
-		if (!($html = preg_replace("/<\/head>/ui", "\n<style nonce='{$this->input['nonce']}'>form { pointer-events: none; opacity: 0.5; }\n</style>\n</head>", $html, 1, $count)) || 1 !== $count) {
+		$regex_safe = str_replace(['\\', '$'], ['\\\\', '\\$'], $this->input['nonce']);
+		if (!($html = preg_replace('/<\/head>/ui', "\n<style nonce='{$regex_safe}'>form { pointer-events: none; opacity: 0.5; }\n</style>\n</head>", $html, 1, $count)) || 1 !== $count) {
 			$this->error_log("Form security css failed.");
 		}
 		return;
@@ -1166,7 +1174,8 @@ document.addEventListener('click', function (event) {
 EOF;
 
 	// inject javascript
-	if (!($html = preg_replace("/<\/head>/ui", $inject_script, $html, 1, $count)) || 1 !== $count) { // inject
+	$inject_script = str_replace(['\\', '$'], ['\\\\', '\\$'], $inject_script);
+	if (!($html = preg_replace('/<\/head>/ui', $inject_script, $html, 1, $count)) || 1 !== $count) { // inject
 		$this->error_wsod("Form security javascript injection failed.");
 	}
 
@@ -1179,9 +1188,10 @@ EOF;
 <input type='hidden' name='{$this->ss['full_name']}'	value=''>
 EOF;
 	// form CAPTCHA
+	$regex_safe = str_replace(['\\', '$'], ['\\\\', '\\$'], $this->ss['test_name']);
 	$inject_captcha = (!empty($this->ss['user']['valid']) ? NULL : <<<EOF
 <div class='captcha'>
-CAPTCHA <input name='{$this->ss['test_name']}' value=''> \$1 \$3
+CAPTCHA <input name='{$regex_safe}' value=''> \$1 \$3
 </div>
 EOF
 	);
@@ -1193,8 +1203,8 @@ EOF
 			$replace = $matches[1].$matches[2];
 			// only one CAPTCHA injection in front of <button type=submit> preferred or <input type=submit>
 			if ($inject_captcha &&
-				(!($replace = preg_replace("/(<button(?=[\s])[^>]*?\stype\s*=(\s*submit|\s*'submit'|\s*\"submit\"))(.+?<\/button>)/uis", $inject_captcha, $replace, 1, $one)) ||
-				(1 !== $one && (!($replace = preg_replace("/(<input(?=[\s])[^>]*?\stype\s*=(\s*submit|\s*'submit'|\s*\"submit\"))(>|\s+[^>]*?>)/uis", $inject_captcha, $replace, 1, $one)) || 1 !== $one)))) {
+				(!($replace = preg_replace('/(<button(?=[\s])[^>]*?\stype\s*=(\s*submit|\s*\'submit\'|\s*"submit"))(.+?<\/button>)/uis', $inject_captcha, $replace, 1, $one)) ||
+				(1 !== $one && (!($replace = preg_replace('/(<input(?=[\s])[^>]*?\stype\s*=(\s*submit|\s*\'submit\'|\s*"submit"))(>|\s+[^>]*?>)/uis', $inject_captcha, $replace, 1, $one)) || 1 !== $one)))) {
 				$this->error_wsod("Form security CAPTCHA injection failed, button or input type=submit required.");
 			}
 			// security tokens injection
@@ -1211,7 +1221,8 @@ EOF
 private function output_debug(string &$html) : void {
 	if (!$html || $this->input['role'] !== ABCMS_ROLE_ADMINS) { return; }
 	$injection = "<pre class='debug'><h2>Coredump</h2>".print_r(array('ABCMS_OBJECT'=>$this, 'ABCMS_GLOBALS'=>$GLOBALS),TRUE)."</pre></body>";
-	if (!($html = preg_replace("/<\/body>/ui", $injection, $html, 1))) { $this->error_wsod("Debug injection for admin failed."); }
+	$injection = str_replace(['\\', '$'], ['\\\\', '\\$'], $injection);
+	if (!($html = preg_replace('/<\/body>/ui', $injection, $html, 1))) { $this->error_wsod("Debug injection for admin failed."); }
 	return;
 }
 
@@ -1440,15 +1451,15 @@ public function home_account(mixed &...$unused) : ?bool {
 	$emailerror = "No email sent";
 	if ($subject) {
 		$emailerror = $this->email(
-			$this->settings['core']['smtp_user'],								// From
-			($this->settings['core']['smtp_name']??$this->boots['urldomain']),	// Name
-			[$this->settings['core']['smtp_user']],								// Recipients
-			NULL,																// CCs
-			[$this->settings['core']['smtp_user']],								// BCCs
-			$subject,															// Subject
+			$this->settings['core']['smtp_user'],								// from
+			($this->settings['core']['smtp_name']??$this->boots['urldomain']),	// name
+			$this->settings['core']['smtp_user'],								// recipients
+			NULL,																// cc
+			$this->settings['core']['smtp_user'],								// bcc
+			$subject,															// subject
 			$body,																// HTML body
-			$this->html_text($body),											// Plain text
-			NULL,																// Attachments
+			$this->html_text($body),											// text body
+			$this->settings['core']['projectroot'].'/private'.ABCMS_EXT_SELF.'/ABCMS.translog', // attachments
 			[	'smtp'	=> $this->settings['core']['smtp_host'],				// SMTP host
 				'port'	=> $this->settings['core']['smtp_port'],				// SMTP port
 				'user'	=> $this->settings['core']['smtp_user'],				// SMTP user
@@ -1722,11 +1733,13 @@ public function rp(string|false $path) : string|false {
 	return ($path === FALSE ? FALSE : str_replace('\\', '/', $path));
 }
 // Check file
-private function chk_file(string $filename, bool $must = FALSE) : void {
+private function chk_file(string $filename, bool $must = FALSE) : bool {
 	$starts = ($this->compiles['core']['projectroot']??$this->settings['core']['projectroot']).'/private'.$this->output_extension().'/';
-	if (!str_starts_with($filename, $starts)) { $this->error_wsod("Extension file access out of bounds."); }
-	if ($must && ($this->rp(realpath($filename)) !== $filename || !is_readable($filename))) { $this->error_wsod("Filename does not exist, is relative, symbolic link, or not readable: {$filename}"); }
-	else if (preg_match('/(^|[\/\\\\])\.\.([\/\\\\]|$)/', $filename) || is_link($filename)) { $this->error_wsod("Filename is relative or a symbolic link: {$filename}."); }
+	if (!str_starts_with($filename, $starts)) { $this->error_wsod("Access outside of extension folder disallowed: {$filename}"); }
+	if (preg_match('/(^|[\/\\\\])\.\.([\/\\\\]|$)/', $filename)) { $this->error_wsod("Relative filenames disallowed: {$filename}"); }
+	if (is_link($filename)) { $this->error_wsod("Symbolic link filenames disallowed: {$filename}"); }
+	if ($must && ($this->rp(realpath($filename)) !== $filename || !is_readable($filename))) { return FALSE; }
+	return TRUE;
 }
 // Set file
 public function set_file(string $filename, string $value) : void {
@@ -1740,7 +1753,7 @@ public function set_file(string $filename, string $value) : void {
 }
 // Get file
 public function get_file(string $filename, string &$data) : void {
-	$this->chk_file($filename, TRUE);
+	if (!$this->chk_file($filename, TRUE)) { $this->error_wsod("Filename does not exist or not readable: {$filename}"); }
 	if (FALSE === ($data = file_get_contents($filename))) { $this->error_wsod("System, ".$this->error_get_last()); }
 	return;
 }
@@ -1760,13 +1773,13 @@ public function set_json(string $filename, mixed $value) : void {
 }
 // Get json
 public function get_json(string $filename, mixed &$data) : void {
-	$this->chk_file($filename, TRUE);
+	if (!$this->chk_file($filename, TRUE)) { $this->error_wsod("Filename does not exist or not readable: {$filename}"); }
 	if (NULL === ($data = json_decode(file_get_contents($filename), TRUE))) { $this->error_wsod("System, ".json_last_error_msg().", ".$this->error_get_last()); }
 	return;
 }
 // Include always
 public function include(string $filename, ...$args) : mixed {
-	$this->chk_file($filename, TRUE);
+	if (!$this->chk_file($filename, TRUE)) { $this->error_wsod("Filename does not exist or not readable: {$filename}"); }
 	// beware, failed include() = FALSE = successful include() returning FALSE
 	// anonymous scopes $args within include, hides $this, and protects abmcs() privates
 	$anonymous = Closure::bind(function($filename, ...$args) { return include($filename); }, null, null);
@@ -1776,7 +1789,7 @@ public function include(string $filename, ...$args) : mixed {
 public function include_once(string $filename, ...$args) : mixed {
 	static $included = array();
 	if (!isset($included[$filename])) {
-		$this->chk_file($filename, TRUE);
+		if (!$this->chk_file($filename, TRUE)) { $this->error_wsod("Filename does not exist or not readable: {$filename}"); }
 		$included[$filename] = TRUE;
 		// anonymous scopes $args within include, hides $this, and protects abmcs() privates
 		$anonymous = Closure::bind(function($filename, ...$args) { return include($filename); }, null, null);
@@ -1857,26 +1870,30 @@ SECTION EMAIL: SMTP email.
 // Adapted by Claude.AI from https://github.com/arkanis/smtp_send.
 // Licensed as arkanis/smtp_send (c) 2014-2021 Stephan Soller, MIT License.
 public function email(
-	string	$from,		// Envelope + header from address
-	string	$name,		// Display name for from header
-	array	$to,		// Recipient addresses
-	?array	$cc,		// Cc addresses, included in headers + envelope
-	?array	$bcc,		// Bcc addresses, envelope only, never headers
-	string	$subject,	// Subject line, UTF-8 & base64-encoded automatically
-	?string	$html,		// HTML body
-	?string	$text,		// Optional plain-text alternative
-	?array	$attach,	// Absolute file paths to attachments
-	array	$options=[],// Array
-						// 'smtp'	=> Hostname, 'tcp://host' (587), or 'ssl://host' (port 465)
-						// 'port'	=> 587 (STARTTLS/explicit TLS), 465 (SSL/implicit TLS), or 25
-						// 'user'	=> SMTP username, empty to skip auth
-						// 'pass'	=> SMTP password
-						// 'time'	=> socket timeout seconds, default php default_socket_timeout
-						// 'ehlo'	=> EHLO identity
-						// 'ssl'	=> stream SSL context options for STARTTLS, ie. ['verify_peer'=>FALSE]
-						// 'debug'	=> bool, log everything
-): mixed {				// TRUE if email delivered, error string otherwise
-	// Option defaults
+	string				$from,		// from, envelope + header
+	string				$name,		// from name, header
+	array|string		$to,		// recipients
+	array|string|NULL	$cc,		// cc, envelope + header
+	array|string|NULL	$bcc,		// bcc, envelope
+	string				$subject,	// subject, auto UTF-8 & base64
+	string|NULL			$html,		// HTML body
+	string|NULL			$text,		// plain-text, optional
+	array|string|NULL	$attach,	// attachments, absolute path
+	array				$options=[],// options
+									// 'smtp'	=> hostname, 'tcp://host' (587), or 'ssl://host' (port 465)
+									// 'port'	=> 587 (STARTTLS/explicit TLS), 465 (SSL/implicit TLS), or 25
+									// 'user'	=> SMTP username, empty to skip auth
+									// 'pass'	=> SMTP password
+									// 'time'	=> socket timeout seconds, default php: default_socket_timeout
+									// 'ehlo'	=> EHLO identity
+									// 'ssl'	=> stream SSL context options for STARTTLS, ie. ['verify_peer'=>FALSE]
+									// 'debug'	=> bool, log everything
+): bool|string {					// TRUE if delivered or error string
+	// argument and option defaults
+	if (NULL !== $to && is_string($to)) { $to = array($to); }
+	if (NULL !== $cc && is_string($cc)) { $cc = array($cc); }
+	if (NULL !== $bcc && is_string($bcc)) { $bcc = array($bcc); }
+	if (NULL !== $attach && is_string($attach)) { $attach = array($attach); }
 	$options['smtp']	??= ($this->settings['core']['smtp_host']??('ssl://'.$this->boots['urldomain']));
 	$options['port']	??= ($this->settings['core']['smtp_port']??465);
 	$options_user		= ($options['user']??($this->settings['core']['smtp_user']??NULL)); unset($options['user']);
@@ -1914,16 +1931,16 @@ public function email(
 
 	// configuration abuse
 	if (empty($options_user)) {
-		if (!preg_match("/^(tcp://|tls://|ssl://|)(127\.0\.0\.1|localhost|::1|\[::1\])$/ui", $options['smtp']))  { return $fail("Unauthenticated email can only SMTP from same server."); }
-		if (!preg_match("/^[^@]+@([a-z0-9-]+\.)*".preg_quote($this->boots['urldomain'], '/')."$/uiD", $from))  { return $fail("Unauthenticated email 'From' domain only from same domain."); }
+		if (!preg_match('/^(tcp:\/\/|tls:\/\/|ssl:\/\/|)(127\.0\.0\.1|localhost|::1|\[::1\])$/uiD', $options['smtp']))  { return $fail("Unauthenticated email can only SMTP from same server."); }
+		if (!preg_match('/^[^@]+@([a-z0-9-]+\.)*'.preg_quote($this->boots['urldomain'], '/').'$/uiD', $from))  { return $fail("Unauthenticated email 'From' domain only from same domain."); }
 	}
 
 	// Sanitize header-bound fields (defense in depth)
 	// Even though we base64-encode the subject and never let addresses touch
 	// headers unescaped, strip CR/LF from anything that lands in a header so
 	// a stray newline can never inject an extra header or command.
-	$name = preg_replace("/[\r\n]+/", '', $name);
-	$subject  = preg_replace("/[\r\n]+/", '', $subject);
+	$name = preg_replace('/[\r\n]+/', '', $name);
+	$subject  = preg_replace('/[\r\n]+/', '', $subject);
 
 	// SMTP command-injection guard on every address
 	// If an address contains an unescaped ">" it could break out of
@@ -1934,7 +1951,7 @@ public function email(
 		// validate email
 		if (!filter_var($addr, FILTER_VALIDATE_EMAIL)) { return $fail("Invalid email address rejected: '{$addr}'."); }
 		// newlines allow command injection
-		if (preg_match("/[\r\n]+/", $addr)) { return $fail("Unsafe email address rejected: '{$addr}'."); }
+		if (preg_match('/[\r\n]+/', $addr)) { return $fail("Unsafe email address rejected: '{$addr}'."); }
 	}
 	$log .= "\r\nABCMS SMTP RECIPIENTS:\r\n".implode("\r\n", $allRecipients); // log
 
@@ -2020,7 +2037,7 @@ public function email(
 	}
 	// Bcc intentionally omitted from headers; recipients already got RCPT TO above.
 	$headers .= "Subject: =?UTF-8?B?" . base64_encode($subject) . "?=\r\n";
-	$headers .= "Message-ID: <" . bin2hex(random_bytes(16)) . '@' . preg_replace('#^(tcp|tls|ssl)://#i', '', $options['smtp']) . ">\r\n";
+	$headers .= "Message-ID: <" . bin2hex(random_bytes(16)) . '@' . preg_replace('/^(tcp|tls|ssl):\/\//i', '', $options['smtp']) . ">\r\n";
 	$headers .= "MIME-Version: 1.0\r\n";
 	$headers .= "Content-Type: multipart/mixed; boundary=\"{$mixedBoundary}\"\r\n";
 	// text/html (with optional text/plain alternative)
@@ -2051,9 +2068,9 @@ public function email(
 
 	// Add attachments
 	foreach (($attach??[]) as $filePath) {
-		// TODO, fix chk_file to return properly for certain errors
-		try { $this->chk_file($filePath, TRUE); } catch (Throwable $e) { return $fail("Email attachment file not readable: '{$filePath}'."); }
-		$fileName = preg_replace("/[\r\n]+/", '', basename($filePath));
+		try { if (!$this->chk_file($filePath, TRUE)) { return $fail("Filename does not exist or not readable: {$filePath}"); } }
+		catch (Throwable $e) { return $fail($e->getMessage() ?: "Suspect filename disallowed: {$filePath}"); }
+		$fileName = preg_replace('/[\r\n]+/', '', basename($filePath));
 		$fileName = str_replace('"', '', $fileName); // keep the Content-Disposition value well-formed
 		$fileNameEncoded = rawurlencode($fileName);
 		$content  = file_get_contents($filePath);
@@ -2072,8 +2089,8 @@ public function email(
 
 	// Normalize line endings and dot-stuff in DATA (RFC 5321 §4.5.2)
 	$payload = $headers . "\r\n" . $body;
-	$payload = preg_replace("/\r\n|\r|\n/", "\r\n", $payload);
-	$payload = preg_replace("/^\./m", '..', $payload);
+	$payload = preg_replace('/\r\n|\r|\n/', "\r\n", $payload);
+	$payload = preg_replace('/^\./m', '..', $payload);
 	if (substr($payload, -2) !== "\r\n") $payload .= "\r\n";
 	$log .= "\r\nABCMS SMTP NORMALIZE: success"; // log
 
