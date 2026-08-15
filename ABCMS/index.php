@@ -35,7 +35,7 @@ const ABCMS_ROLE_CLI	= 7;
 const ABCMS_ROLE_SET	= array(0,1,2,3,4,5,6,7);
 // regex
 // includefile?function #^(|/vendor/package/filepath)(|?(|classobject(::|->|()->))funcmeth)#
-const ABCMS_REGEX_FUNC	= "/^((\/[^?]+)\?)?((([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*))?$/ui";
+const ABCMS_REGEX_FUNC	= "/^(((?:\/(?!\.\.?(?:\/|$))[^?\/\\\\\x00]+)+)\?)?((([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*))?$/ui";
 const ABCMS_REGEX_HOOK	= "/^\/[^.\/]+\/[^.\/]+\/[^.\/]+$/u";			// hook name, path-like, but not a filepath
 const ABCMS_REGEX_URLV	= "/\/([a-z0-9\-_.~]+)=([a-z0-9\-_.~=]+)/ui";	// URL variable
 const ABCMS_REGEX_FORM	= "/(<form(?=[\s>])[^>]*>)(.+?)(<\/form>)/uis";	// form security injection
@@ -316,17 +316,16 @@ SECTION SETUP: Compile core and extension boot settings.
 private function setup(
 	bool	$boot = FALSE,	// TRUE = load existing, else recreate
 ) : void {
-	// load existing
+	// load existing settings reading a php file for speed, but beware of injection
 	$this->error_log('SETUP: Begin');
-	$storage = $this->rp(dirname(__DIR__).ABCMS_EXT_PRIVATE.'ABCMS.settings');
+	$storage = $this->rp(dirname(__DIR__)).ABCMS_EXT_PRIVATE.'ABCMS.settings.php';
 	if ($boot && file_exists($storage)) {
-		// get_json() cannot indirectly assign $this->settings so for speed...
-		if (NULL === ($this->settings = json_decode(file_get_contents($storage), TRUE))) {
-			$this->error_wsod("System, ".json_last_error_msg().", ".$this->error_get_last());
-		}
+		$fn = Closure::bind(static function($f) { return include($f); }, NULL, NULL);
+		$data = $fn($storage);
+		if (!is_array($data) || empty($data['core']['projectroot'])) { $this->error_wsod("Settings file corrupted."); }
+		$this->settings = $data;
 		return;
 	}
-	
 	// register core settings
 	$this->error_log('SETUP: Core settings');
 	touch(__FILE__); // cycle session secret to anull all sessions, touch() because $this->touch() needs $settings
@@ -359,10 +358,10 @@ private function setup(
 	$this->compiles['core']['smtp_pass']		= NULL; // SMTP password
 	$this->compiles['core']['smtp_ehlo']		= NULL; // SMTP EHLO
 	$this->new_database('BASIC.json');
-	$this->touch(($file=($corefold.'ABCMS.translog')));
-	$this->compiles['core']['translog']			= $file; // transaction log
-	$this->touch(($file=($corefold.'ABCMS.override')));
-	$this->compiles['core']['override']			= $file; // overrides
+	$this->compiles['core']['translog']			= $corefold.'ABCMS.translog'; // transaction log
+	$this->touch($this->compiles['core']['translog']);
+	$this->compiles['core']['override']			= $corefold.'ABCMS.override.php'; // overrides
+	if (!file_exists($this->compiles['core']['override'])) { $this->set_file($this->compiles['core']['override'], "<?php return " . var_export(array(), TRUE) . ";\n"); } // blank override
 
 	// register variables
 	$this->error_log('SETUP: Core variables');
@@ -429,15 +428,26 @@ private function setup(
 	// TODO optimize and remove mixed non-exclusive and exclusive routes
 	$this->error_log('SETUP: Optimize settings');
 
-	// custom override settings
+	// load custom settings reading a php file for speed, but beware of injection
 	$this->error_log('SETUP: Custom overrides');
-	if (($override = json_decode(file_get_contents($this->compiles['core']['override']), TRUE))) { $this->array_walk_merge($this->compiles, $override); }
+	$fn = Closure::bind(static function($f) { return include($f); }, NULL, NULL);
+	if (function_exists('opcache_invalidate')) { opcache_invalidate($this->compiles['core']['override'], TRUE); }
+	$override = $fn($this->compiles['core']['override']);
+	if (!is_array($override)) { $this->error_wsod("Custom settings file corrupted."); }
+	$this->array_walk_merge($this->compiles, $override);
 
-	// save settings with atomic with rename()
+	// save settings as fast op cachable php include file with atomic with rename()
+	// write settings into a php file for speed, but beware of injection
 	$this->error_log('SETUP: Save settings');
-	$this->set_json($storage, $this->compiles);
+	$this->set_file($storage, "<?php return " . var_export($this->compiles, TRUE) . ";\n");
+	if (function_exists('opcache_invalidate')) { opcache_invalidate($storage, TRUE); }
 	if ($boot) { $this->settings = $this->compiles; }
 	$this->compiles = NULL;
+
+	// op cache warning
+	if (function_exists('opcache_get_configuration') && !ini_get('opcache.validate_timestamps')) {
+		$this->error_log("WARNING: opcache.validate_timestamps=0 — reload PHP-FPM for settings to take effect on the web.");
+	}
 	return;
 }
 // Register hook extension
@@ -1665,8 +1675,16 @@ private function command_phpinfo(mixed &...$unused) : ?bool {
 	return NULL;
 }
 private function command_setup(mixed &...$unused) : ?bool {
+	// TODO call this command from the web here using cURL to force cache reload
+	// if validate_timestamps = 0;
 	$this->setup(); // recreate settings
-	echo "ABCMS settings: DONE\n";
+	// op cache warning
+	if (function_exists('opcache_get_configuration') && !ini_get('opcache.validate_timestamps')) {
+		$mess = "WARNING: opcache.validate_timestamps=0 — reload PHP-FPM or call from browser for settings to take effect on the web.";
+		$this->error_log($mess);
+		echo $mess;
+	}
+	echo "ABCMS settings: DONE refresh screen to see updated settings changes\n";
 	return NULL;
 }
 private function command_updater(mixed &...$unused) : ?bool {
@@ -2033,6 +2051,7 @@ public function email(
 
 	// Add attachments
 	foreach (($attach??[]) as $filePath) {
+		// TODO, fix chk_file to return properly for certain errors
 		try { $this->chk_file($filePath, TRUE); } catch (Throwable $e) { return $fail("Email attachment file not readable: '{$filePath}'."); }
 		$fileName = preg_replace("/[\r\n]+/", '', basename($filePath));
 		$fileName = str_replace('"', '', $fileName); // keep the Content-Disposition value well-formed
