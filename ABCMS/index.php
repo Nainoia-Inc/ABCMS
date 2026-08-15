@@ -91,7 +91,7 @@ catch (\Throwable $e) { // catch exceptions
 		}
 	}
 	$buffer = NULL; while(ob_get_level()) { $buffer .= ob_get_clean(); } // examine buffer
-	$title = mb_strtolower(htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://').$_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI'])); // website title
+	$title = mb_strtolower(htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://').$_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI']), 'UTF-8'); // website title
 	$nonce = chr(random_int(97,122)).chr(random_int(97,122)).bin2hex(random_bytes(31)); // security nonce
 	echo <<<EOF
 <!DOCTYPE html>
@@ -206,7 +206,7 @@ private function construct() {
 			// CLI URI validation or default
 			($_SERVER['argc']>1 && '/' === ($_SERVER['argv'][1][0]?:'') && FALSE !== filter_var('http://localhost' . $_SERVER['argv'][1], FILTER_VALIDATE_URL) ? $_SERVER['argv'][1] : '/command/help')) :
 			// HTTP secure
-			((isset($_SERVER['HTTPS']) && mb_strtolower($_SERVER['HTTPS']) !== 'off' ? 'https://' : 'http://') .
+			((isset($_SERVER['HTTPS']) && mb_strtolower($_SERVER['HTTPS'], 'UTF-8') !== 'off' ? 'https://' : 'http://') .
 			// HTTP domain validation including multibyte to punycode
 			(!empty($_SERVER['HTTP_HOST']) && ($host = preg_replace('/:\d*$/u','',$_SERVER['HTTP_HOST'])) &&
 			FALSE !== filter_var(idn_to_ascii($host, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46), FILTER_VALIDATE_DOMAIN) ? $_SERVER['HTTP_HOST'] : 'unknown') .
@@ -278,7 +278,7 @@ private function input_valid(
 		// Insufficient permission
 		if ($role < $this->settings[$cat][$var]['role']) {	$this->set_errors("Insufficient permission for URL variable, '{$var}'");			unset($vars[$var]);	continue; }
 		// NULL special case
-		if ('null' == mb_strtolower($val)) {																									$vars[$var] = NULL;	continue; }
+		if ('null' == mb_strtolower($val, 'UTF-8')) {																									$vars[$var] = NULL;	continue; }
 		// Switch possibilities
 		switch($this->settings[$cat][$var]['type']) {
 			case 'array'	:	$vars[$var] = explode(',', $val);																									continue 2;
@@ -352,10 +352,12 @@ private function setup(
 	if (!is_dir(($file = ($corefold.'ABCMS.sessions'))) && (!mkdir($file, 0755, true))) { $this->error_wsod("Session folder does not exist."); }
 	$this->compiles['core']['session_folder']	= $file; // session folder
 	$this->compiles['core']['session_cookie']	= $this->get_hash('session_cookie'); // session cookie name
+	$this->compiles['core']['session_secret']	= $this->get_hash('session_secret'); // session secret name
 	$this->compiles['core']['session_logins']	= $this->get_hash('session_logins'); // login cookie name
 	$this->compiles['core']['session_badact']	= $this->get_hash('session_badact'); // bad actor cookie name
 	$this->compiles['core']['session_allows']	= $this->get_hash('session_allows'); // user allows cookie name
 	$this->compiles['core']['session_killit']	= TRUE; // kill on close browser
+	$this->compiles['core']['session_domain']	= ''; // '' = host-only; or 'example.com' shared across subdomains
 	$this->compiles['core']['smtp_host']		= NULL; // SMTP server
 	$this->compiles['core']['smtp_port']		= NULL; // SMTP port
 	$this->compiles['core']['smtp_name']		= NULL; // SMTP name
@@ -445,6 +447,21 @@ private function setup(
 	$override = [];
 	if (!$this->get_dump($this->compiles['core']['override'], $override) || !is_array($override)) { $this->error_wsod("Custom settings file missing or corrupted."); }
 	$this->array_walk_merge($this->compiles, $override);
+
+	// post merge error checks
+	// verify custom session_domain
+	if (!is_string($this->compiles['core']['session_domain'])) { $this->error_wsod("Session domain must be a string."); }
+	$dom = $this->compiles['core']['session_domain'] = mb_strtolower(ltrim($this->compiles['core']['session_domain'],'.'), 'UTF-8');
+	$host = mb_strtolower(parse_url('http://'.($_SERVER['HTTP_HOST']??''), PHP_URL_HOST)?:'', 'UTF-8');
+	if ('' !== $dom && '' !== $host && $dom !== $host && !str_ends_with($host, '.'.$dom)) {
+		$this->error_wsod("Session domain '{$dom}' does not match host '{$host}'.");
+	}
+	// __Host- prefix locks cookies to this host, browser rejects any subdomain attempt to set them
+	if ('' === $dom) {
+		foreach (array('session_cookie','session_secret','session_logins','session_badact','session_allows') as $name) {
+			if (!str_starts_with($this->compiles['core'][$name], '__Host-')) { $this->compiles['core'][$name] = '__Host-'.$this->compiles['core'][$name]; }
+		}
+	}
 
 	// save settings as fast op cachable php include file with atomic with rename()
 	// write settings into a php file for speed, but beware of injection
@@ -609,7 +626,7 @@ public function session_start(
 			'gc_maxlifetime'	=> ABCMS_SES_LIFE,								// garbage collection, turn off and replace with cron!
 			'cookie_lifetime'	=> ($this->settings['core']['session_killit'] ? 0 : ABCMS_SES_LIFE), // cookie lifetime, kill when close browser
 			'cookie_path'		=> '/',											// whole domain
-			'cookie_domain'		=> $this->boots['urldomain'],					// current sub.domain only
+			'cookie_domain'		=> $this->settings['core']['session_domain'],	// '' = host-only; or 'example.com' shared across subdomains
 			'cookie_secure'		=> '1',											// HTTPS only
 			'cookie_httponly'	=> '1',											// No JS
 			'cookie_samesite'	=> 'Strict',									// No cross-site
@@ -648,7 +665,7 @@ public function session_start(
 		// uagent inconsistent
 		if ($this->ss['uagent'] !== $this->boots['uagent']) {															$error = 'Session ended, IP/Agent or core reset.';	$slap = 400; }
 		// secrets differ
-		else if (!hash_equals($this->ss['secret'], ($_COOKIE[$this->ss['cookie']]??'x'))) {								$error = 'Session ended, secrets differ.';			$slap = 400; }
+		else if (!hash_equals($this->ss['secret'], ($_COOKIE[$this->settings['core']['session_secret']]??'x'))) {		$error = 'Session ended, secrets differ.';			$slap = 400; }
 		// rapid hits
 		else if ($gothits && $this->ss['counts'][ABCMS_SES_HITS-1] - $this->ss['counts'][0] < ABCMS_SES_TIME) {			$error = 'Session ended, rapid hits.';				$slap = 429; }
 		// POST CSRF1
@@ -685,7 +702,7 @@ KILL:	// set errors
 		if (!$active) { $active = session_start($options); }
 		// remove cookies
 		$this->set_cookie($options['name'], '', 1); // session
-		if ($this->ss['cookie']??0) { $this->set_cookie($this->ss['cookie'], '', 1); } // secret
+		$this->set_cookie($this->settings['core']['session_secret'], '', 1); // secret
 		$this->set_cookie($this->settings['core']['session_logins'], '', 1); // login
 		// PHP says mark for garbage collection, but I don't want garbage laying around
 		$_SESSION = $this->ss = []; // access directly exception to clear entire session
@@ -713,9 +730,8 @@ KILL:	// set errors
 			// session cookie
 			if (!session_regenerate_id(TRUE) || !($_COOKIE[$options['name']] = session_id())) { $this->error_wsod("Session regeneration failed."); }
 			// secret cookie
-			$this->ss['cookie'] = $this->get_uniq();
 			$this->ss['secret'] = $this->get_uniq();
-			$this->set_cookie($this->ss['cookie'], $this->ss['secret'], $this->ss['create'] + ABCMS_SES_LIFE);
+			$this->set_cookie($this->settings['core']['session_secret'], $this->ss['secret'], $this->ss['create'] + ABCMS_SES_LIFE);
 			// CSRF token
 			$this->ss['csrf_valu'] = $this->get_uniq();
 			// login cookie
@@ -738,7 +754,6 @@ KILL:	// set errors
 			'active'	=> $now,
 			'rotate'	=> $now,
 			'uagent'	=> $this->boots['uagent'],
-			'cookie'	=> $this->get_uniq(),
 			'secret'	=> $this->get_uniq(),
 			'counts'	=> array(),
 			'logins'	=> NULL,
@@ -754,7 +769,7 @@ KILL:	// set errors
 			'test_valu' => 'abc',
 		];
 		$this->ss = &$_SESSION[ABCMS_EXT_SELF];
-		$this->set_cookie($this->ss['cookie'], $this->ss['secret'], $now + ABCMS_SES_LIFE);
+		$this->set_cookie($this->settings['core']['session_secret'], $this->ss['secret'], $now + ABCMS_SES_LIFE);
 	}
 	return TRUE;
 }
@@ -795,12 +810,12 @@ public function set_cookie(
 		$cookie,
 		$value,
 		[
-			'expires'	=> $expires,					// expiration
-			'path'		=> '/',							// entire website
-			'domain'	=> $this->boots['urldomain'],	// domain only
-			'secure'	=> TRUE,						// only HTTPS
-			'httponly'	=> TRUE,						// no js prevents XSS
-			'samesite'	=> 'Strict',					// avoid CSRF attacks
+			'expires'	=> $expires,									// expiration
+			'path'		=> '/',											// entire website
+			'domain'	=> $this->settings['core']['session_domain'],	// '' = host-only; or 'example.com' shared across subdomains
+			'secure'	=> TRUE,										// only HTTPS
+			'httponly'	=> TRUE,										// no js prevents XSS
+			'samesite'	=> 'Strict',									// avoid CSRF attacks
 		])) {
 		// expire unset or set
 		if ($expires && $expires < $this->boots['time']) {	unset($_COOKIE[$cookie]); }
@@ -1248,8 +1263,8 @@ private function error_trace() : array {
 	$args = (empty($back[2]['args']) ? array('unknown') : $back[2]['args']);
 	// Truncate long strings
 	array_walk_recursive($args, function (&$value) {
-		if (is_string($value) && mb_strlen($value) > 256) {
-			$value = mb_substr($value, 0, 256) . '...';
+		if (is_string($value) && mb_strlen($value, 'UTF-8') > 256) {
+			$value = mb_substr($value, 0, 256, 'UTF-8') . '...';
 		}
 	});
 	return [$function, $args];
@@ -2019,7 +2034,7 @@ public function email(
 	if (!empty($options_user) && !$encrypted) { return $fail("Email unencrypted authentication refused."); }
 	if (!empty($options_user) && isset($options_pass)) {
 		$authLine = current(preg_grep('/^auth[\s=]+/i', $capabilities)) ?: '';
-		$methods = array_slice(preg_split('/[\s=]+/', mb_strtolower($authLine)), 1);
+		$methods = array_slice(preg_split('/[\s=]+/', mb_strtolower($authLine, 'UTF-8')), 1);
 		if (in_array('plain', $methods, TRUE)) {
 			[$status] = $command('AUTH PLAIN ' . base64_encode("\0{$options_user}\0{$options_pass}"), FALSE);
 			if ($status != 235) { return $fail('Email AUTH PLAIN rejected.'); }
@@ -2149,8 +2164,8 @@ public function theme(
 	int		$flag	= 1,	// control flag
 ) : ?bool {					// return boolean
 // helpful defaults
-$title = mb_strtoupper($this->hsc($this->boots['urldomain']));
-$lower = mb_strtolower($title);
+$title = mb_strtoupper($this->hsc($this->boots['urldomain']), 'UTF-8');
+$lower = mb_strtolower($title, 'UTF-8');
 $favicon = (is_readable('./favicon.ico') ? '/favicon.ico' : (is_readable('./public/favicon.ico') ? '/public/favicon.ico' : 'data:,'));
 // page template
 ?>
