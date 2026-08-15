@@ -17,12 +17,12 @@ Schedule "php index.php /command/cron" to run every 15 minutes to 1x per day.
 SECTION CONSTANTS: Immutable constants.
 */
 // extensions
-const ABCMS_EXT_SELF	= "/nainoiainc/abcms";					// even abcms is an extension
-const ABCMS_EXT_INIT	= "/init";								// initial extension hook
-const ABCMS_EXT_INITX	= "/nainoiainc/abcms".ABCMS_EXT_INIT;	// initial extension fullname
-const ABCMS_EXT_MAIN	= "/theme_main";						// default html <main> extension hook
-const ABCMS_EXT_MAINX	= "/nainoiainc/abcms".ABCMS_EXT_MAIN;	// default html <main> extension fullname
-const ABCMS_EXT_PRIVATE	= "/private/nainoiainc/abcms/";			// core private files
+const ABCMS_EXT_SELF	= '/nainoiainc/abcms';					// even abcms is an extension
+const ABCMS_EXT_INIT	= '/init';								// initial extension hook
+const ABCMS_EXT_INITX	= '/nainoiainc/abcms'.ABCMS_EXT_INIT;	// initial extension fullname
+const ABCMS_EXT_MAIN	= '/theme_main';						// default html <main> extension hook
+const ABCMS_EXT_MAINX	= '/nainoiainc/abcms'.ABCMS_EXT_MAIN;	// default html <main> extension fullname
+const ABCMS_EXT_PRIVATE	= '/private/nainoiainc/abcms/';			// core private files
 // roles
 const ABCMS_ROLE_PUBLIC	= 0;
 const ABCMS_ROLE_AUTHEN	= 1;
@@ -35,11 +35,11 @@ const ABCMS_ROLE_CLI	= 7;
 const ABCMS_ROLE_SET	= array(0,1,2,3,4,5,6,7);
 // regex
 // includefile?function #^(|/vendor/package/filepath)(|?(|classobject(::|->|()->))funcmeth)#
-const ABCMS_REGEX_FUNC	= "/^(((?:\/(?!\.\.?(?:\/|$))[^?\/\\\\\x00]+)+)\?)?((([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*))?$/ui";
-const ABCMS_REGEX_HOOK	= "/^\/[^.\/]+\/[^.\/]+\/[^.\/]+$/u";			// hook name, path-like, but not a filepath
-const ABCMS_REGEX_URLV	= "/\/([a-z0-9\-_.~]+)=([a-z0-9\-_.~=]+)/ui";	// URL variable
-const ABCMS_REGEX_FORM	= "/(<form(?=[\s>])[^>]*>)(.+?)(<\/form>)/uis";	// form security injection
-const ABCMS_REGEX_DATA	= "/^[a-z0-9\-_]+\.[a-z0-9\-_]+$/ui";			// Database filename
+const ABCMS_REGEX_FUNC	= '/^(((?:\/(?!\.\.?(?:\/|$))[^?\/\\\\\x00]+)+)\?)?((([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*))?$/ui';
+const ABCMS_REGEX_HOOK	= '/^\/[^.\/]+\/[^.\/]+\/[^.\/]+$/u';			// hook name, path-like, but not a filepath
+const ABCMS_REGEX_URLV	= '/\/([a-z0-9\-_.~]+)=([a-z0-9\-_.~=]+)/ui';	// URL variable
+const ABCMS_REGEX_FORM	= '/(<form(?=[\s>])[^>]*>)(.+?)(<\/form>)/uis';	// form security injection
+const ABCMS_REGEX_DATA	= '/^[a-z0-9\-_]+\.[a-z0-9\-_]+$/ui';			// Database filename
 // session - move these to overridable $settings
 const ABCMS_SES_ROTA	= 60*15;			// rotate session after 15 minutes
 const ABCMS_SES_IDLE	= 60*60*24*1;		// destroy session after 1 day idle
@@ -1723,10 +1723,10 @@ public function rp(string|false $path) : string|false {
 }
 // Check file
 private function chk_file(string $filename, bool $must = FALSE) : void {
-	if ($must && ($this->rp(realpath($filename)) !== $filename || !is_readable($filename))) { $this->error_wsod("Filename does not exist, is relative, symbolic link, or not readable: {$filename}"); }
-	else if (preg_match('/\.\.[\/\\\\]/', $filename) || is_link($filename)) { $this->error_wsod("Filename is relative or a symbolic link: {$filename}."); }
 	$starts = ($this->compiles['core']['projectroot']??$this->settings['core']['projectroot']).'/private'.$this->output_extension().'/';
 	if (!str_starts_with($filename, $starts)) { $this->error_wsod("Extension file access out of bounds."); }
+	if ($must && ($this->rp(realpath($filename)) !== $filename || !is_readable($filename))) { $this->error_wsod("Filename does not exist, is relative, symbolic link, or not readable: {$filename}"); }
+	else if (preg_match('/(^|[\/\\\\])\.\.([\/\\\\]|$)/', $filename) || is_link($filename)) { $this->error_wsod("Filename is relative or a symbolic link: {$filename}."); }
 }
 // Set file
 public function set_file(string $filename, string $value) : void {
