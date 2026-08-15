@@ -1664,13 +1664,13 @@ SECTION COMMAND: Core extension /command/*
 */
 private function command_router(mixed &...$unused) : ?bool {
 	switch ($this->boots['urlpathall']) {
-		case '/command/code':		$this->command_code();		return NULL;
-		case '/command/cron':		$this->command_cron();		return NULL;
-		case '/command/help':		$this->command_help();		return NULL;
-		case '/command/phpinfo':	$this->command_phpinfo();	return NULL;
-		case '/command/setup':		$this->command_setup();		return NULL;
-		case '/command/updater':	$this->command_updater();	return NULL;
-		default:					echo "Invalid command";		return NULL;
+		case '/command/code':		$this->command_code();		break;
+		case '/command/cron':		$this->command_cron();		break;
+		case '/command/help':		$this->command_help();		break;
+		case '/command/phpinfo':	$this->command_phpinfo();	break;
+		case '/command/setup':		$this->command_setup();		break;
+		case '/command/updater':	$this->command_updater();	break;
+		default:					echo "Invalid command";		break;
 	}
 	return NULL;
 }
@@ -1679,11 +1679,13 @@ private function command_code(mixed &...$unused) : ?bool {
 	return NULL;
 }
 private function command_cron(mixed &...$unused) : ?bool {
-	echo "ABCMS cron\n";
+	if (!headers_sent()) { header('Content-Type: text/plain; charset=utf-8'); }
+	echo "ABCMS cron\n\nDone.";
 	return NULL;
 }
 private function command_help(mixed &...$unused) : ?bool {
-	echo "ABCMS help\n";
+	if (!headers_sent()) { header('Content-Type: text/plain; charset=utf-8'); }
+	echo "ABCMS help\n\nDone.";
 	return NULL;
 }
 private function command_phpinfo(mixed &...$unused) : ?bool {
@@ -1691,6 +1693,7 @@ private function command_phpinfo(mixed &...$unused) : ?bool {
 	return NULL;
 }
 private function command_setup(mixed &...$unused) : ?bool {
+	if (!headers_sent()) { header('Content-Type: text/plain; charset=utf-8'); }
 	// TODO call this command from the web here using cURL to force cache reload
 	// if validate_timestamps = 0;
 	$this->setup(); // recreate settings
@@ -1700,11 +1703,12 @@ private function command_setup(mixed &...$unused) : ?bool {
 		$this->error_log($mess);
 		echo $mess;
 	}
-	echo "ABCMS settings: DONE refresh screen to see updated settings changes\n";
+	echo "ABCMS settings:\n\nrefresh screen to see updated settings changes\n\nDone.";
 	return NULL;
 }
 private function command_updater(mixed &...$unused) : ?bool {
-	echo "ABCMS updater\n";
+	if (!headers_sent()) { header('Content-Type: text/plain; charset=utf-8'); }
+	echo "ABCMS updater\n\nDone.";
 	return NULL;
 }
 
