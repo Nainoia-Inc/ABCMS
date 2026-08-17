@@ -2,6 +2,7 @@
 /*************************************************************************************************
 SECTION INTRODUCTION: A Basic Content Management System and PHP toolkit.
 
+Copyright (c) 2026 Nainoia Inc. All rights reserved.
 Search for "SECTION" and "function" below for toolkit documentation.
 Copy index.php to a docroot or run "composer install nainoia-inc/abcms".
 Visit the website in a browser or run "php index.php /command/help".
