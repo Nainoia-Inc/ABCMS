@@ -1,16 +1,16 @@
 <?php
 /*************************************************************************************************
-SECTION INTRODUCTION: A Basic Content Management System and PHP toolkit.
+SECTION INTRO: A Basic Content Management System and PHP toolkit.
 
 Copyright (c) 2026 Nainoia Inc. All rights reserved.
-Search for "SECTION" and "function" below for toolkit documentation.
+Search for "SECTION" and "function" below for documentation.
 Copy index.php to a docroot or run "composer install nainoia-inc/abcms".
 Visit the website in a browser or run "php index.php /command/help".
-Download and delete the built-in super user password in "ABMCS.deleteme".
-Build an extension imitating setup(), home_*(), webfiles_*(), console_*(), command_*().
-Access extension $_SESSION space only with s(), but $_SESSION remains exposed.
-Run extensions' SETUP.php on /command/setup and CRON.php on /command/cron.
-Schedule "php index.php /command/cron" to run every 15 minutes to 1x per day.
+Download and delete the super user password in "ABMCS.deleteme".
+Extend imitating setup(), home_*(), webfiles_*(), console_*(), command_*().
+Access $_SESSION[extension] with s() API, but $_SESSION is exposed.
+Run extension SETUP.php with /command/setup and CRON.php with /command/cron.
+Schedule "php index.php /command/cron" every 15 minutes to 1x per day.
 
 */
 
@@ -67,7 +67,7 @@ const ABCMS_COOK_TRAK	= 3;				// tracking
 
 
 /*************************************************************************************************
-SECTION TRY/CATCH: Anonymous function for zero global footprint.
+SECTION TRY/CATCH: abcms() for extensions booted in anonymous function for +1 global footprint.
 */
 (function() {				// anonymous wrapper
 $code = 0;					// assume success
@@ -156,7 +156,7 @@ exit($code);
 
 
 /*************************************************************************************************
-SECTION CONSTRUCT: Instantiate object and validate inputs.
+SECTION CONSTRUCT: Instantiate object methods, then properties, then validate inputs.
 */
 function abcms() : ?object {						// abcms() only global
 static $_abcms = FALSE;								// construct once
@@ -176,9 +176,9 @@ private				array	$stackwho	= [];		// stack who
 private				array	$stackarg	= [];		// stack args
 private				bool	$formvalid	= FALSE;	// form valid
 private				bool	$formhuman	= FALSE;	// form human
-// construct object methods
+// construct object methods first, then properties
 function __construct() { $this->oneshot = function() { $this->construct(); }; }
-// two-step constructor, allows extensions to reference abmcs()
+// 2-step constructor, allows extension SETUP.php to reference abmcs() methods
 private function construct() {
 	// settings, log location, dump buffers
 	$this->stackwho[] = ABCMS_EXT_SELF;
@@ -314,7 +314,7 @@ private function input_valid(
 
 
 /*************************************************************************************************
-SECTION SETUP: Compile core and extension boot settings.
+SECTION SETUP: Compile core and extension settings.
 */
 // Read or create core settings, executed by Composer, construct(), and command_setup()
 // reference of $this->boots and $this->input disallowed below because not initialized
@@ -602,7 +602,7 @@ private function setup_variable(
 
 
 /*************************************************************************************************
-SECTION SESSION: Secure sessions with opt-in/out, validation, CSRF, CAPTCHA, tricks, and login.
+SECTION SESSION: Secure sessions with opt-in/out, validation, CSRF, CAPTCHA, and login.
 */
 // start conditionally
 public function session_start(
@@ -836,7 +836,7 @@ public function set_cookie(
 
 
 /*************************************************************************************************
-SECTION DATABASE: Store data in JSON, CSV, SQLite, or MySQL.
+SECTION DATABASE: Store data in VAR_DUMP, JSON, CSV, XML, SQLite, and MySQL.
 */
 // database set
 public function new_database(string $file) : void {
@@ -1735,7 +1735,7 @@ private function command_updater(mixed &...$unused) : ?bool {
 
 
 /*************************************************************************************************
-SECTION UTILITIES: Essential utility methods.
+SECTION UTILITIES: Utility methods.
 */
 // Wrap the echo() construct to use as extension function.
 public function echo(?string ...$args) : void {
