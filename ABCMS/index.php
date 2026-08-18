@@ -352,11 +352,11 @@ private function setup(
 	$this->compiles['core']['secret']			= $this->get_uniq(); // my hash secret
 	if (!is_dir(($file = ($corefold.'ABCMS.sessions'))) && (!mkdir($file, 0755, true))) { $this->error_wsod("Session folder does not exist."); }
 	$this->compiles['core']['session_folder']	= $file; // session folder
-	$this->compiles['core']['session_cookie']	= $this->get_hash('session_cookie'); // session cookie name
-	$this->compiles['core']['session_secret']	= $this->get_hash('session_secret'); // session secret name
-	$this->compiles['core']['session_logins']	= $this->get_hash('session_logins'); // login cookie name
-	$this->compiles['core']['session_badact']	= $this->get_hash('session_badact'); // bad actor cookie name
-	$this->compiles['core']['session_allows']	= $this->get_hash('session_allows'); // user allows cookie name
+	$this->compiles['core']['session_cookie']	= $this->get_uniq(); // session cookie name
+	$this->compiles['core']['session_secret']	= $this->get_uniq(); // session secret name
+	$this->compiles['core']['session_logins']	= $this->get_uniq(); // login cookie name
+	$this->compiles['core']['session_badact']	= $this->get_uniq(); // bad actor cookie name
+	$this->compiles['core']['session_allows']	= $this->get_uniq(); // user allows cookie name
 	$this->compiles['core']['session_killit']	= TRUE; // kill on close browser
 	$this->compiles['core']['session_domain']	= ''; // '' = host-only; or 'example.com' shared across subdomains
 	$this->compiles['core']['smtp_host']		= NULL; // SMTP server
@@ -1870,9 +1870,13 @@ public function get_uniq(): string {
 public function get_dbid(): string {
 	return chr(random_int(97,122)).chr(random_int(97,122)).bin2hex(random_bytes(15));
 }
-// Unique hash for 'documentroot' + getmyinode() + getlastmod() + $string, not for permanent storage, 64 bytes
-public function get_hash(?string $input): string {
-	return hash('sha256', ($this->compiles['core']['secret']??$this->settings['core']['secret']).getmyinode().getlastmod().$input);
+// Derived deterministic hash key, permanent and segregated by extension, 64 bytes
+public function get_pkey(?string $input): string {
+	return hash('sha256', $this->output_extension().$input);
+}
+// Derived deterministic hash key, temporal with settings secret and segregated by extension, 64 bytes
+public function get_ckey(?string $input): string {
+	return hash('sha256', ($this->compiles['core']['secret']??$this->settings['core']['secret']).$this->output_extension().$input);
 }
 // htmlspecialchars() wrapper
 public function hsc(?string $string): ?string {
