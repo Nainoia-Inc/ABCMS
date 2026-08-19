@@ -1,30 +1,37 @@
 <?php
+
 /*************************************************************************************************
 SECTION INTRO: A Basic Content Management System and PHP toolkit.
 
 Copyright (c) 2026 Nainoia Inc. All rights reserved.
 Search for "SECTION" and "function" below for documentation.
 Copy index.php to a docroot or run "composer install nainoia-inc/abcms".
-Visit the website in a browser or run "php index.php /command/help".
-Download and delete the super user password in "ABMCS.deleteme".
+Visit index.php in a browser or run "php index.php /command/help".
+Download the super user password from "ABMCS.deleteme", then delete.
 Extend imitating setup(), home_*(), webfiles_*(), console_*(), command_*().
-Access $_SESSION[extension] with s() API, but $_SESSION is exposed.
+Access $_SESSION[extension] with s() API, but $_SESSION remains exposed.
 Run extension SETUP.php with /command/setup and CRON.php with /command/cron.
 Schedule "php index.php /command/cron" every 15 minutes to 1x per day.
-
 */
+
+
+
+
+
+
 
 /*************************************************************************************************
-SECTION CONSTANTS: Immutable constants.
+SECTION CONSTANTS: Immutable constants defined.
 */
-// extensions
+
+// core extensions
 const ABCMS_EXT_SELF	= '/nainoiainc/abcms';					// even abcms is an extension
 const ABCMS_EXT_INIT	= '/init';								// initial extension hook
 const ABCMS_EXT_INITX	= '/nainoiainc/abcms'.ABCMS_EXT_INIT;	// initial extension fullname
 const ABCMS_EXT_MAIN	= '/theme_main';						// default html <main> extension hook
 const ABCMS_EXT_MAINX	= '/nainoiainc/abcms'.ABCMS_EXT_MAIN;	// default html <main> extension fullname
 const ABCMS_EXT_PRIVATE	= '/private/nainoiainc/abcms/';			// core private files
-// roles
+// user roles
 const ABCMS_ROLE_PUBLIC	= 0;
 const ABCMS_ROLE_AUTHEN	= 1;
 const ABCMS_ROLE_READER	= 2;
@@ -34,18 +41,23 @@ const ABCMS_ROLE_MANAGE	= 5;
 const ABCMS_ROLE_ADMINS	= 6;
 const ABCMS_ROLE_CLI	= 7;
 const ABCMS_ROLE_SET	= array(0,1,2,3,4,5,6,7);
-// regex
-// includefile?function #^(|/vendor/package/filepath)(|?(|classobject(::|->|()->))funcmeth)#
+// regex output_extend() includefile?function #^(|/vendor/package/filepath)(|?(|classobject(::|->|()->))funcmeth)#
 const ABCMS_REGEX_FUNC	= '/^(((?:\/(?!\.\.?(?:\/|$))[^?\/\\\\\x00\r\n]+)+)\?)?((([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*))?$/uiD';
-// extension name patterns, lower case required
+// regex extension name patterns, lower case only
 const ABCMS_REGEX_HOOK	= '/^\/[a-z0-9]([_.-]?[a-z0-9]+)*\/[a-z0-9]([_.-]?[a-z0-9]+)*\/[a-z0-9]([_.-]?[a-z0-9]+)*$/uD';	// extension /vendor/extension/hookname
 const ABCMS_REGEX_FOLD	= '(/[a-z0-9]([_.-]?[a-z0-9]+)*/[a-z0-9]([_.-]?[a-z0-9]+)*)';	// extension /vendor/extension (used with '|' regex delimiters validating extension path)
 const ABCMS_REGEX_NICK	= '/^[a-z0-9]([_.-]?[a-z0-9]+)*$/uD'; // extension nickname
-// other
+// regex other
 const ABCMS_REGEX_URLV	= '/\/([a-z0-9\-_.~]+)=([a-z0-9\-_.~=]+)/ui';	// URL variable
 const ABCMS_REGEX_FORM	= '/(<form(?=[\s>])[^>]*>)(.+?)(<\/form>)/uis';	// form security injection
 const ABCMS_REGEX_DATA	= '/^[a-z0-9\-_]+\.[a-z0-9\-_]+$/uiD';			// Database filename
-// session - move these to overridable $settings
+// cookie permissions
+const ABCMS_COOK_LIFE	= 60*60*24*365;		// choice for 1 year
+const ABCMS_COOK_NONE	= 0;				// none
+const ABCMS_COOK_FORM	= 1;				// security
+const ABCMS_COOK_NAVS	= 2;				// navigation
+const ABCMS_COOK_TRAK	= 3;				// tracking
+// TODO - move session controls to overridable $settings
 const ABCMS_SES_ROTA	= 60*15;			// rotate session after 15 minutes
 const ABCMS_SES_IDLE	= 60*60*24*1;		// destroy session after 1 day idle
 const ABCMS_SES_LIFE	= 60*60*24*3;		// destroy session after 3 days total
@@ -56,33 +68,33 @@ const ABCMS_SES_OPEN	= 21;				// max number form security token sets open total
 const ABCMS_SES_HITS	= 20;				// number of session hit times to track
 const ABCMS_SES_TIME	= 20;				// max session hit time before suspect, 20 in 20 seconds
 const ABCMS_SES_LOGI	= 7;				// max login attempts
-// cookies
-const ABCMS_COOK_LIFE	= 60*60*24*365;		// choice for 1 year
-const ABCMS_COOK_NONE	= 0;				// none
-const ABCMS_COOK_FORM	= 1;				// security
-const ABCMS_COOK_NAVS	= 2;				// navigation
-const ABCMS_COOK_TRAK	= 3;				// tracking
+
+
+
 
 
 
 
 /*************************************************************************************************
-SECTION TRY/CATCH: abcms() for extensions booted in anonymous function for +1 global footprint.
+SECTION TRY/CATCH: Anonymous function boots abcms()->output() for global footprint = 1.
 */
-(function() {				// anonymous wrapper
+
+(function() {				// wrapper reduces globals
 $code = 0;					// assume success
 try {						// try output
 	abcms()->output(		// extension router
-		ABCMS_EXT_INIT,		// initial extension
-		'CLI-GET-POST',		// methods extended
+		ABCMS_EXT_INIT,		// default extension
+		'CLI-GET-POST',		// methods available
 		'abcms()->theme',	// default function
 		ABCMS_ROLE_PUBLIC,	// minimum role
-		1,					// exclusive allowed
+		1,					// exclusive control
 		FALSE,				// default required
-		...$args = array(NULL,NULL,NULL,NULL,NULL,1), // css, js, header, main, footer, exclusive allowed
+		...$args = array(NULL,NULL,NULL,NULL,NULL,1), // css, js, header, main, footer, exclusive?
 	);
 }
-catch (\Throwable $e) { // catch exceptions
+
+catch (\Throwable $e) {		// catch exceptions
+	// gather information
 	$exception = (htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8') ?: 'Unknown exception.'); // thrown error
 	$system = (error_get_last() ?? array('message' => 'No system error reported.')); // system error
 	$composer = array(); // composer extensions
@@ -91,9 +103,10 @@ catch (\Throwable $e) { // catch exceptions
 			$composer[$name] = Composer\InstalledVersions::getInstallPath($name);
 		}
 	}
-	$buffer = NULL; while(ob_get_level()) { $buffer .= ob_get_clean(); } // examine buffer
+	$buffer = NULL; while(ob_get_level()) { $buffer .= ob_get_clean(); } // retrieve buffer
 	$title = mb_strtolower(htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://').$_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI']), 'UTF-8'); // website title
 	$nonce = chr(random_int(97,122)).chr(random_int(97,122)).bin2hex(random_bytes(31)); // security nonce
+	// graceful WSOD
 	echo <<<EOF
 <!DOCTYPE html>
 <html lang='en'>
@@ -128,6 +141,7 @@ SYS: "{$system['message']}"<br>
 <a href='/'>Try again from the homepage</a>.
 </p></div></body></html>
 EOF;
+	// file output
 	error_log("ABCMS->COREDUMP()\n" . print_r(array('COREDUMP_EXCEPTION' => $exception, 'COREDUMP_SYSTEM' => $system))); // log error
 	file_put_contents( // dump corefile
 		str_replace('\\', '/', __DIR__).'/..'.ABCMS_EXT_PRIVATE.'ABCMS.coredump',
@@ -142,12 +156,12 @@ EOF;
 	);
 	$code = 1; // return failure
 }
-finally { // clean up
-	session_commit(); // prevent deferred access to session 
-	$_SESSION = [];
+
+finally { // always clean up
+	session_commit(); $_SESSION = []; // disallow deferred session access
 }
 exit($code);
- ; })(); // done, function definitions follow
+ ; })();
 
 
 
@@ -158,129 +172,97 @@ exit($code);
 /*************************************************************************************************
 SECTION CONSTRUCT: Instantiate object methods, then properties, then validate inputs.
 */
-function abcms() : ?object {						// abcms() only global
+
+function abcms() : ?object {						// abcms() the only global
 static $_abcms = FALSE;								// construct once
 if (FALSE === $_abcms) {							// fail once
 $_abcms = NULL;										// return NULL or object
 $_abcms = new class {								// object assigned
-public				?Closure $oneshot	= NULL;		// oneshot construction token
+public				?Closure $oneshot	= NULL;		// oneshot construction
 readonly			array	$boots;					// bootstrap input before session
 readonly			array	$input;					// sanitize input with session
 private readonly	array	$settings;				// application settings
 private				?array	$compiles	= NULL;		// compile settings
 private				array	$database	= [];		// database
-private				array	$ss			= [];		// session extension
-private				array	$errors		= [];		// errors
-private				array	$debugs		= [];		// debugs
-private				array	$stackwho	= [];		// stack who
-private				array	$stackarg	= [];		// stack args
+private				array	$ss			= [];		// core session pointer
+private				array	$errors		= [];		// TODO combine error info
+private				array	$debugs		= [];		// TODO combine debug info
+private				array	$stackarg	= [];		// TODO combine debug stack args
+private				array	$stackwho	= [];		// extension stack
 private				bool	$formvalid	= FALSE;	// form valid
 private				bool	$formhuman	= FALSE;	// form human
-// construct object methods first, then properties
-function __construct() { $this->oneshot = function() { $this->construct(); }; }
-// 2-step constructor, allows extension SETUP.php to reference abmcs() methods
-private function construct() {
-	// settings, log location, dump buffers
-	$this->stackwho[] = ABCMS_EXT_SELF;
-	$this->setup(TRUE);
-	if (FALSE === ini_set('error_log', $this->settings['core']['translog'])) { $this->error_log("Set error_log location failed."); }
-	while(ob_get_level() > 0) { if (FALSE !== ($buf = ob_get_clean()) && '' !== $buf) { $this->error_log("I got stuff in my buffers."); } }
 
+function __construct() { $this->oneshot = function() { $this->construct(); }; }	// 1st construct object methods, so extension SETUP.php can use abmcs() methods
+
+private function construct() {													// 2nd construct object properties
+	$this->stackwho[] = ABCMS_EXT_SELF; // push core on extension stack
+	$this->setup(TRUE); // assign $settings
+	if (FALSE === ini_set('error_log', $this->settings['core']['translog'])) { $this->error_log("Set error_log location failed."); } // locate logs
+	while(ob_get_level() > 0) { if (FALSE !== ($buf = ob_get_clean()) && '' !== $buf) { $this->error_log("I got stuff in my buffers."); } } // empty buffers
 	// bootstrap inputs for session_start(), then session user validates remaining inputs
 	$this->boots = array(
-		// current time()
-		'time' => time(),
-		// user identity
-		'uagent' => (($_SERVER['REMOTE_ADDR']??'')?:'unknown').(($_SERVER['HTTP_USER_AGENT']??'')?:'unknown'),
-		// auto-loader
-		'auto' => $this->settings['core']['auto'],
-		// CLI execution
-		'cli' => ($cli = ('cli' === PHP_SAPI ? TRUE : FALSE)),
-		// CLI arg count
-		'argc' => ($_SERVER['argc']??0),
-		// CLI args
-		'argv' => ($_SERVER['argv']??[]),
-		// URL full
-		'urlfull' => ($urlfull =
-			// CLI domain
-			($cli ? ('https://localhost' . 
-			// CLI URI validation or default
-			($_SERVER['argc']>1 && '/' === ($_SERVER['argv'][1][0]?:'') && FALSE !== filter_var('http://localhost' . $_SERVER['argv'][1], FILTER_VALIDATE_URL) ? $_SERVER['argv'][1] : '/command/help')) :
-			// HTTP secure
-			((isset($_SERVER['HTTPS']) && mb_strtolower($_SERVER['HTTPS'], 'UTF-8') !== 'off' ? 'https://' : 'http://') .
+		'time' => time(), // current time()
+		'uagent' => (($_SERVER['REMOTE_ADDR']??'')?:'unknown').(($_SERVER['HTTP_USER_AGENT']??'')?:'unknown'), // user identity
+		'auto' => $this->settings['core']['auto'], // auto-loader
+		'cli' => ($cli = ('cli' === PHP_SAPI ? TRUE : FALSE)), // CLI execution
+		'argc' => ($_SERVER['argc']??0), // CLI arg count
+		'argv' => ($_SERVER['argv']??[]), // CLI args
+		'urlfull' => ($urlfull = // URL full
+			($cli ? ('https://localhost' . // CLI domain
+			($_SERVER['argc']>1 && '/' === ($_SERVER['argv'][1][0]?:'') && FALSE !== filter_var('http://localhost' . $_SERVER['argv'][1], FILTER_VALIDATE_URL) ? $_SERVER['argv'][1] : '/command/help')) : // CLI URI validation
+			((isset($_SERVER['HTTPS']) && mb_strtolower($_SERVER['HTTPS'], 'UTF-8') !== 'off' ? 'https://' : 'http://') . // HTTPS secure
 			// HTTP domain validation including multibyte to punycode
-			(!empty($_SERVER['HTTP_HOST']) && ($host = preg_replace('/:\d*$/u','',$_SERVER['HTTP_HOST'])) &&
-			FALSE !== filter_var(idn_to_ascii($host, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46), FILTER_VALIDATE_DOMAIN) ? $_SERVER['HTTP_HOST'] : 'unknown') .
+			(!empty($_SERVER['HTTP_HOST']) && ($host = preg_replace('/:\d*$/u','',$_SERVER['HTTP_HOST'])) && // remove ports
+			FALSE !== filter_var(idn_to_ascii($host, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46), FILTER_VALIDATE_DOMAIN) ? $_SERVER['HTTP_HOST'] : 'unknown') . // filter domain
 			// HTTP URI validation, ascii only
-			(isset($_SERVER['REQUEST_URI']) && mb_check_encoding($_SERVER['REQUEST_URI'],'ASCII') && FALSE!==filter_var('http://localhost'.$_SERVER['REQUEST_URI'],FILTER_VALIDATE_URL) ? $_SERVER['REQUEST_URI'] : '/unknown')))),
-		// URL parse
-		'urlparsed' => ($urlparsed = parse_url($urlfull)),
-		// URL domain
-		'urldomain' => (mb_strtolower(($urlparsed['host']??''), 'UTF-8')),
-		// URL port
-		'urlport' => ($urlparsed['port']??NULL),
-		// URL method
-		'urlmethod' => ($cli ? 'CLI' : ((empty($_SERVER['REQUEST_METHOD']) ||
-			!in_array($_SERVER['REQUEST_METHOD'], array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE'))) ? 'GET' : $_SERVER['REQUEST_METHOD'])),
-		// URL no variables, no trailing slash, and urldecoded
-		'urlpathall' => ($urlpathall = ('/'.(trim(preg_replace(ABCMS_REGEX_URLV, '/', ($urldecoded = urldecode(($urlparsed['path']??'')))), '/')))),
-		// URL first segment for primary router
-		'urlpathone' => (!($ret = preg_match('/^(\/[^\/\x00-\x1f]*)(\/[^\x00-\x1f]+)?$/uD', $urlpathall, $matches)) ? '/' : $matches[1]),
-		// URL second+ segments for secondary router
-		'urlpathext' => (!$ret || empty($matches[2]) ? '/' : $matches[2]),
+			(isset($_SERVER['REQUEST_URI']) && mb_check_encoding($_SERVER['REQUEST_URI'],'ASCII') && // check encoding
+			FALSE!==filter_var('http://localhost'.$_SERVER['REQUEST_URI'],FILTER_VALIDATE_URL) ? $_SERVER['REQUEST_URI'] : '/unknown')))), // filter URI
+		'urlparsed' => ($urlparsed = parse_url($urlfull)), // URL parse
+		'urldomain' => (mb_strtolower(($urlparsed['host']??''), 'UTF-8')), // URL domain
+		'urlport' => ($urlparsed['port']??NULL), // URL port
+		'urlmethod' => ($cli ? 'CLI' : ((empty($_SERVER['REQUEST_METHOD']) || // URL method
+			!in_array($_SERVER['REQUEST_METHOD'], array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE'))) ? 'GET' : $_SERVER['REQUEST_METHOD'])), // validate method
+		'urlpathall' => ($urlpathall = ('/'.(trim(preg_replace(ABCMS_REGEX_URLV, '/', ($urldecoded = urldecode(($urlparsed['path']??'')))), '/')))), // URL no variables, no trailing slash, and urldecoded
+		'urlpathone' => (!($ret = preg_match('/^(\/[^\/\x00-\x1f]*)(\/[^\x00-\x1f]+)?$/uD', $urlpathall, $matches)) ? '/' : $matches[1]), // URL first segment for core router
+		'urlpathext' => (!$ret || empty($matches[2]) ? '/' : $matches[2]), // URL second+ segments for extension router
 	);
-
-	// lazy start
-	$session = $this->session_start(0);
-
-	// sanitize inputs given user role
+	// possibly start session after boots and validate user
+	$session = $this->session_start(0); // lazy session start
+	// sanitize inputs given user permissions
 	$this->input = array(
-		// my user
-		'user' => $this->ss['user']??NULL,
-		// my role
-		'role' => ($role = ($cli ? ABCMS_ROLE_CLI : $this->ss['user']['role']??ABCMS_ROLE_PUBLIC)),
-		// URL validate path vars 'v'
-		'urlvars' => (!preg_match_all(ABCMS_REGEX_URLV, $urldecoded, $matches, PREG_PATTERN_ORDER) ? array() :
-			$this->input_valid('v', array_combine($matches[1], $matches[2]), $role)),
-		// URL validate query vars 'q' from parse_str() because CLI has no $_GET
-		'urlquery' => ($this->input_valid('q', (mb_parse_str(($urlparsed['query']??''), $result) ? $result : array()), $role)),
-		// POST variables 'p'
-		'postvars' => array(), // TODO ($this->input_valid('p', $_POST, $role)),
-		// style & script security nonce
-		'nonce' => $this->get_uniq(),
+		'user' => $this->ss['user']??NULL, // my user
+		'role' => ($role = ($cli ? ABCMS_ROLE_CLI : $this->ss['user']['role']??ABCMS_ROLE_PUBLIC)), // my role
+		'urlvars' => (!preg_match_all(ABCMS_REGEX_URLV, $urldecoded, $matches, PREG_PATTERN_ORDER) ? array() : // validate URL vars 'u'
+			$this->input_valid('U', array_combine($matches[1], $matches[2]), $role)),
+		'urlquery' => ($this->input_valid('G', (mb_parse_str(($urlparsed['query']??''), $result) ? $result : array()), $role)), // URL validate query vars 'q' from parse_str() because CLI has no $_GET
+		'postvars' => array(), // TODO ($this->input_valid('P', $_POST, $role)), // validate $_POST vars 'p'
+		'nonce' => $this->get_uniq(), // style & script security nonce
 	);
-
-	// require composer
-	if ($this->boots['auto']) { require_once($this->boots['auto']); }
-	// URL vars misplaced if !str_starts_with, URL externally constructed
-	if (!str_starts_with($urldecoded, $urlpathall)) { $this->set_errors("URL questioned, variables within path"); }
-
-	// done
-	array_pop($this->stackwho);
+	// complete initialization
+	if ($this->boots['auto']) { require_once($this->boots['auto']); } // require composer
+	if (!str_starts_with($urldecoded, $urlpathall)) { $this->set_errors("URL questioned, variables within path"); } // URL vars misplaced if !str_starts_with, URL externally constructed
+	array_pop($this->stackwho); // pop core off extension stack
 	return;
 }
-// Disallowed methods
-public function __set(string $name, mixed $value) : void { $this->error_wsod("Dynamic properties disallowed."); }
-public function __clone() { $this->error_wsod("Cloning object disallowed."); }
-// Validate path/get/post variable
-private function input_valid(
-	string	$cat,	// Category
-	array	$vars,	// Path/get/post variable
-	int		$role,	// User role
-) : array {
-	// Loop variables
+
+public function __set(string $name, mixed $value) : void { $this->error_wsod("Dynamic properties disallowed."); }	// disallow dynamic properties
+
+public function __clone() { $this->error_wsod("Cloning object disallowed."); }										// disallow cloning
+
+private function input_valid(	// validate input variables
+string	$cat,					// 'U'=URL, 'G'=$_GET, 'P'=$_POST
+array	$vars,					// variable array to validate
+int		$role,					// user role
+) : array {						// return same array
+	// loop input variables
 	$last = NULL;
 	foreach($vars as $var => $val) {
-		// Expected alphabetical
-		if ($var < $last) {									$this->set_errors("URL variables not alphabetical as expected"); }
+		if ($var < $last) {									$this->set_errors("URL variables not alphabetical as expected"); } // expected alphabetical
 		$last = $var;
-		// Ignore undefined
-		if (empty($this->settings[$cat][$var]['type'])) {	$this->set_errors("Ignoring undefined URL variable, '{$var}'");						unset($vars[$var]);	continue; }
-		// Insufficient permission
-		if ($role < $this->settings[$cat][$var]['role']) {	$this->set_errors("Insufficient permission for URL variable, '{$var}'");			unset($vars[$var]);	continue; }
-		// NULL special case
-		if ('null' == mb_strtolower($val, 'UTF-8')) {																									$vars[$var] = NULL;	continue; }
-		// Switch possibilities
+		if (empty($this->settings[$cat][$var]['type'])) {	$this->set_errors("Ignoring undefined URL variable, '{$var}'");						unset($vars[$var]);	continue; } // ignore undefined
+		if ($role < $this->settings[$cat][$var]['role']) {	$this->set_errors("Insufficient permission for URL variable, '{$var}'");			unset($vars[$var]);	continue; }	// no permission
+		if ('null' == mb_strtolower($val, 'UTF-8')) {																							$vars[$var] = NULL;	continue; } // NULL special case
+		// switch possibilities
 		switch($this->settings[$cat][$var]['type']) {
 			case 'array'	:	$vars[$var] = explode(',', $val);																									continue 2;
 			case 'bool'		:
@@ -297,10 +279,9 @@ private function input_valid(
 			case 'uri'		:	if (!mb_check_encoding($val, 'ASCII') || FALSE === filter_var('http://localhost'.$val, FILTER_VALIDATE_URL)) {	break; }			continue 2;
 			case 'url'		:	if (!mb_check_encoding($val, 'ASCII') || FALSE === filter_var($val, FILTER_VALIDATE_URL)) {						break; }			continue 2;
 			case 'uuid'		:	if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iD', $val)) {		break; }			continue 2;			
-			// Variable found, but undefined type registered by setup_variable()
-			default:			$this->error_wsod("Undefined URL variable type, '{$this->settings[$cat][$var]['type']}'");
+			default:			$this->error_wsod("Undefined URL variable type, '{$this->settings[$cat][$var]['type']}'"); // type undefined
 		}
-		// Variable name and type found, but value is invalid
+		// variable name and type found, but with invalid value
 		$this->set_errors("Ignoring invalid URL variable, '{$this->settings[$cat][$var]['type']}' = '{$var}'");
 		unset($vars[$var]);
 	}
@@ -314,18 +295,18 @@ private function input_valid(
 
 
 /*************************************************************************************************
-SECTION SETUP: Compile core and extension settings.
+SECTION SETUP: Compile core and extension readonly settings.
 */
-// Read or create core settings, executed by Composer, construct(), and command_setup()
-// reference of $this->boots and $this->input disallowed below because not initialized
-private function setup(
-	bool	$boot = FALSE,	// TRUE = load existing, else recreate
-) : void {
+
+private function setup(	// read or create core settings, executed by Composer, construct(), command_setup()
+bool	$boot = FALSE,	// TRUE = load existing, else recreate
+) : void {				// return void
+	// $this->boots and $this->input not yet initialized
 	// load settings from var_dump() file for speed, beware of injection
 	$this->error_log('SETUP: Begin');
 	$storage = $this->rp(dirname(__DIR__)).ABCMS_EXT_PRIVATE.'ABCMS.settings.php';
 	$this->compiles = array(); // initialize
-	$this->compiles['core']['projectroot'] = $this->rp(dirname(__DIR__)); // my project folder, needed early for chk_file()
+	$this->compiles['core']['projectroot'] = $this->rp(dirname(__DIR__)); // projectroot, needed early for chk_file()
 	$data = [];
 	if ($boot && $this->get_dump($storage, $data)) {
 		if (!is_array($data) || empty($data['core']['projectroot'])) { $this->error_wsod("Settings file corrupted."); }
@@ -333,10 +314,8 @@ private function setup(
 		$this->compiles = NULL;
 		return;
 	}
-
 	// register core settings
 	$this->error_log('SETUP: Core settings');
-	touch(__FILE__); // cycle session secret to anull all sessions, touch() because $this->touch() needs $settings
 	$this->compiles['core']['filename']			= $this->rp(__FILE__); // my filename
 	$this->compiles['core']['documentroot']		= $this->rp(__DIR__); // my documentroot
 	$corefold = $this->compiles['core']['projectroot'].ABCMS_EXT_PRIVATE;
@@ -370,48 +349,42 @@ private function setup(
 	$this->touch($this->compiles['core']['translog']);
 	$this->compiles['core']['override']			= $corefold.'ABCMS.override.php'; // overrides
 	if (!file_exists($this->compiles['core']['override'])) { $this->set_dump($this->compiles['core']['override'], []); }
-
 	// register variables
 	$this->error_log('SETUP: Core variables');
-	$this->setup_varpath('debug', 'bool', ABCMS_ROLE_ADMINS); // register URL PATH variables
-	$this->setup_varget('debug', 'bool', ABCMS_ROLE_ADMINS); // register $_GET variables
-	$this->setup_varpost('debug', 'bool', ABCMS_ROLE_ADMINS); // register $_POST variables
-
+	$this->setup_variable('U',	'debug', 'bool', ABCMS_ROLE_ADMINS); // register URL PATH variables
+	$this->setup_variable('G',	'debug', 'bool', ABCMS_ROLE_ADMINS); // register $_GET variables
+	$this->setup_variable('P', 'debug', 'bool', ABCMS_ROLE_ADMINS); // register $_POST variables
 	// extension controls
 	// 'I' = Input -OR- 'O' = Output filter, default Input
 	// 'E' = Exclusive to my extension or omit me, default anyone
 	// 'U' = Uno/single extension, default multiple extensions cooperate 
 	// 'D' = Default included, default excluded if extended by $ord < 0
 	$this->error_log('SETUP: Core extensions');
-
 	// register core and command extensions
 	$this->setup_extend(ABCMS_EXT_INITX,	'',			'CLI-GET-POST',	'IEU',	'abcms()->home_theme',		ABCMS_ROLE_PUBLIC,	-10);
 	$this->setup_extend(ABCMS_EXT_INITX,	'console',	'CLI-GET-POST',	'IEU',	'abcms()->console_theme',	ABCMS_ROLE_ADMINS,	-20);
 	$this->setup_equate(ABCMS_EXT_INITX,	'console',	'/console/');
 	$this->setup_extend(ABCMS_EXT_INITX,	'command',	'CLI-GET-POST',	'IEU',	'abcms()->command_router',	ABCMS_ROLE_ADMINS,	-10);
 	$this->setup_equate(ABCMS_EXT_INITX,	'command',	'/command/');
-
 	// register homepage extensions
 	$this->setup_extend(ABCMS_EXT_MAINX,	'home',		'CLI-GET-POST',	'IE',	'abcms()->home_router',		ABCMS_ROLE_PUBLIC,	-10);
 	$this->setup_equate(ABCMS_EXT_MAINX,	'home',		'/');
 	$this->setup_equate(ABCMS_EXT_MAINX,	'home',		'/account');
 	$this->setup_equate(ABCMS_EXT_MAINX,	'home',		'/contact');
-
 	// register console extensions
 	$this->setup_extend(ABCMS_EXT_MAINX,	'console',	'CLI-GET-POST',	'IE',	'abcms()->console_router',	ABCMS_ROLE_ADMINS,	-10);
 	$this->setup_equate(ABCMS_EXT_MAINX,	'console',	'/console');
 	$this->setup_equate(ABCMS_EXT_MAINX,	'console',	'/console/');
-
 	// run SETUP.php for each extension
 	$this->error_log('SETUP: Contrib extensions');
 	$exts = glob("{$this->compiles['core']['projectroot']}/private/*/*/");
 	foreach ($exts?:[] as $fold) {
-		// extension name
+		// valid extension name
 		if (!preg_match('|^'.preg_quote($this->compiles['core']['projectroot'],'|').'/private'.ABCMS_REGEX_FOLD.'/$|uD', $fold, $match) || empty($match[1])) {
 			$this->error_log("SETUP: Extension name invalid, {$fold}");
 			continue;
 		}
-		// must be a file
+		// valid file
 		$temp = $fold . "SETUP.php";
 		if (!is_file($temp)) {
 			$this->error_log("SETUP: Invalid extensions, SETUP.php is not a file, {$temp}");
@@ -422,7 +395,7 @@ private function setup(
 			$this->error_log("SETUP: Extension symlinks rejected, {$temp}");
 			continue;
 		}
-		// push stackwho so abcms()->s() returns valid $_SESSION extension storage
+		// push extension stackwho so s() returns valid $_SESSION storage
 		$this->stackwho[] = $match[1];
 		try {
 			$this->include($file);
@@ -438,18 +411,14 @@ private function setup(
 			array_pop($this->stackwho);
 		}
 	}
-
 	// TODO optimize and remove mixed non-exclusive and exclusive routes
 	$this->error_log('SETUP: Optimize settings');
-
-	// load custom settings reading a php file for speed, but beware of injection
+	// load custom settings from var_dump file for speed, beware of injection
 	$this->error_log('SETUP: Custom overrides');
 	if (function_exists('opcache_invalidate')) { opcache_invalidate($this->compiles['core']['override'], TRUE); }
 	$override = [];
 	if (!$this->get_dump($this->compiles['core']['override'], $override) || !is_array($override)) { $this->error_wsod("Custom settings file missing or corrupted."); }
 	$this->array_walk_merge($this->compiles, $override);
-
-	// post merge error checks
 	// verify custom session_domain
 	if (!is_string($this->compiles['core']['session_domain'])) { $this->error_wsod("Session domain must be a string."); }
 	$dom = $this->compiles['core']['session_domain'] = mb_strtolower(ltrim($this->compiles['core']['session_domain'],'.'), 'UTF-8');
@@ -463,53 +432,48 @@ private function setup(
 			if (!str_starts_with($this->compiles['core'][$name], '__Host-')) { $this->compiles['core'][$name] = '__Host-'.$this->compiles['core'][$name]; }
 		}
 	}
-
-	// save settings as fast op cachable php include file with atomic with rename()
-	// write settings into a php file for speed, but beware of injection
+	// save settings as fast op cachable php include file with atomic with rename(), beware of injection
 	$this->error_log('SETUP: Save settings');
 	$this->set_dump($storage, $this->compiles);
 	if ($boot) { $this->settings = $this->compiles; }
 	$this->compiles = NULL;
-
-	// op cache warning
+	// warning: op cache setting requires manual cache refresh
 	if (function_exists('opcache_get_configuration') && !ini_get('opcache.validate_timestamps')) {
 		$this->error_log("WARNING: opcache.validate_timestamps=0 — reload PHP-FPM for settings to take effect on the web.");
 	}
 	return;
 }
-// Register hook extension
-public function setup_extend(
-	string	$hok,						// /vendor/package/hook
-	string	$ext,						// Extension name or '' for all
-	string	$met,						// HTTP methods, '' = all = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE"
-	string	$str,						// Control string
-										// 'I' = Input -OR- 'O' = Output filter, default Input
-										// 'E' = Exclusive to my extension or omit me, default anyone
-										// 'U' = Uno/single extension, default multiple extensions cooperate 
-										// 'D' = Default included, default excluded if extended by $ord < 0
-	string	$fun,						// Includefile?function
-	int		$rol = ABCMS_ROLE_PUBLIC,	// Minimum role permission
-	int		$ord = 0,					// Order considered, PHP_INT_MIN >= $ord <= PHP_INT_MAX 
-	mixed	...$arg,					// Argument alternatives
-) : bool {
-	// wrong context
-	if (NULL === $this->compiles) { $this->error_log("wrong context for setup_extend(): {$hok} {$ext} {$fun}."); return FALSE; }
-	// Control string to array indices
+
+public function setup_extend(		// register hook extension
+string	$hok,						// /vendor/package/hook TODO combine $hok & $ext ?
+string	$ext,						// extension or '' for all
+string	$met,						// HTTP methods, '' = all = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE"
+string	$str,						// control string TODO constants?
+									// 'I' = input -OR- 'O' = output filter, default input
+									// 'E' = exclusive to my extension or omit me, default anyone
+									// 'U' = uno/single extension, default multiple extensions cooperate 
+									// 'D' = include default, default excluded if extended by $ord < 0
+string	$fun,						// includefile?function
+int		$rol = ABCMS_ROLE_PUBLIC,	// minimum role permission
+int		$ord = 0,					// order considered, PHP_INT_MIN >= $ord <= PHP_INT_MAX 
+mixed	...$arg,					// argument alternatives
+) : bool {							// return success or failure
+	// wrong context or parse control string
 	$ctl = array_flip(($key=str_split(strtoupper($str))));
 	$key = array_diff_key($key, array('I','O','E','U','D'));
-
-	// Error checks
-	$a = $b = $c = $d = $e = $f = FALSE;
-	if (($a=(!preg_match(ABCMS_REGEX_HOOK, $hok))) || // hook valid
-		($b=('' !== $ext && !preg_match(ABCMS_REGEX_NICK, $ext))) || // target extension valid
-		($c=(!empty($met) && array_diff(explode('-', $met), array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE')))) || // method validation
-		($d=(isset($ctl['I']) && isset($ctl['O']))) || // input output exclusive
-		($e=(!empty($key))) || // control flags valid
-		($f=(!empty($fun) && !preg_match(ABCMS_REGEX_FUNC, $fun)))) { // function valid
-		$this->error_log("Invalid extension: {$hok} {$ext} {$fun}, err: hok={$a} ext={$b} met={$c} exc={$d} con={$e} fun={$f}");
+	// validate
+	$a = $b = $c = $d = $e = $f = $g = FALSE;
+	if (($a=(!is_array($this->compiles))) || // bad context
+		($b=(!preg_match(ABCMS_REGEX_HOOK, $hok))) || // hook
+		($c=('' !== $ext && !preg_match(ABCMS_REGEX_NICK, $ext))) || // extension
+		($d=(!empty($met) && array_diff(explode('-', $met), array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE')))) || // method
+		($e=(isset($ctl['I']) && isset($ctl['O']))) || // input or output
+		($f=(!empty($key))) || // control
+		($g=(!empty($fun) && !preg_match(ABCMS_REGEX_FUNC, $fun)))) { // function
+		$this->error_log("Invalid extension: {$hok} {$ext} {$fun}, err: bad={$a} hok={$b} ext={$c} met={$d} exc={$e} con={$f} fun={$g}");
 		return FALSE;
 	}
-	// Extension assigned
+	// assign extension
 	unset($ctl['I']);
 	$this->compiles['route'][$hok]['ex'][$ext][(isset($ctl['O']) ? 'O' : 'I')][] = array(
 		'met'	=> $met,
@@ -522,77 +486,49 @@ public function setup_extend(
 	);
 	return TRUE;
 }
-// Equate path to hook extension name
-public function setup_equate(
-	string	$hok,	// hook name
-	string	$ext,	// extension name or '' for all
-	string	$pat,	// Unique URL path, trailing '/' for 1st segment only, otherwise no trailing slash
-) : bool {
-	// wrong context
-	if (NULL === $this->compiles) { $this->error_log("wrong context for setup_equate(): {$hok} {$ext} {$pat}."); return FALSE; }
-	// Error checks
-	$a = $b = $c = $d = $e = FALSE;
-	if (($a=(!preg_match(ABCMS_REGEX_HOOK, $hok))) || // Valid hook
-		($b=('' !== $ext && !preg_match(ABCMS_REGEX_NICK, $ext))) || // target extension valid
-		($c=(substr_count($pat, '/')>2 && '/' == $pat[-1])) || // trailing slash matches 1st path segment only
-		($d=('' !== $pat && ('/' !== $pat[0] || FALSE === filter_var('http://localhost'.$pat, FILTER_VALIDATE_URL)))) || // valid path
-		($e=isset($this->compiles['route'][$hok]['eq'][$pat]))) { // duplicate
-		$this->error_log("Invalid extension path: {$hok} {$ext} {$pat} err: hok={$a} ext={$b} p//={$c} pat={$d} dup={$e}");
+
+public function setup_equate(	// equate path to hook extension name
+string	$hok,					// /vendor/package/hook TODO combine $hok & $ext ?
+string	$ext,					// extension or '' for all
+string	$pat,					// unique URL path, trailing '/' for 1st segment only, otherwise no trailing slash
+) : bool {						// return success or failure
+	// validate
+	$a = $b = $c = $d = $e = $f = FALSE;
+	if (($a=(!is_array($this->compiles))) || // bad context
+		($b=(!preg_match(ABCMS_REGEX_HOOK, $hok))) || // hook
+		($c=('' !== $ext && !preg_match(ABCMS_REGEX_NICK, $ext))) || // extension
+		($d=(substr_count($pat, '/')>2 && '/' == $pat[-1])) || // trailing slash matches 1st path segment only
+		($e=('' !== $pat && ('/' !== $pat[0] || FALSE === filter_var('http://localhost'.$pat, FILTER_VALIDATE_URL)))) || // path
+		($f=isset($this->compiles['route'][$hok]['eq'][$pat]))) { // duplicate
+		$this->error_log("Invalid extension path: {$hok} {$ext} {$pat} err: bad={$a} hok={$b} ext={$c} p//={$d} pat={$e} dup={$f}");
 		return FALSE;
 	}
-	// Equate path assigned
+	// assign equate path
 	$this->compiles['route'][$hok]['eq'][$pat] = $ext;
 	return TRUE;
 }
-// Define path variable
-public function setup_varpath(
-	string	$var,			// Allowed path variable
-	string	$type,			// Allowed type
-	int		$role,			// Minimum role
-	?array	$reg = NULL,	// Regex validation
-) : void {
-	$this->setup_variable('v', $var, $type, $role, $reg);
-	return;
-}
-// Define _GET variable
-public function setup_varget(
-	string	$var,			// Allowed query variable
-	string	$type,			// Allowed type
-	int		$role,			// Minimum role
-	?array	$reg = NULL,	// Regex validation
-) : void {
-	$this->setup_variable('q', $var, $type, $role, $reg);	
-	return;
-}
-// Define _POST variable
-public function setup_varpost(
-	string	$var,			// Allowed post variable
-	string	$type,			// Allowed type
-	int		$role,			// Minimum role
-	?array	$reg = NULL,	// Regex validation
-) : void {
-	$this->setup_variable('p', $var, $type, $role, $reg);	
-	return;
-}
-// Register variable
-private function setup_variable(
-	string	$cat,			// Category
-	string	$var,			// Variable name
-	string	$type,			// Allowed type
-	int		$role,			// Minimum role
-	?array	$reg = NULL,	// Regex validation
-) : void {
-	// wrong context
-	if (NULL === $this->compiles) { $this->error_log("wrong context for setup_variable(): {$cat} {$var} {$type}."); return; }
-	if (!preg_match('/^[a-z0-9\-_.~]+$/uiD', $var) ||
-		!empty($this->compiles[$cat][$var]) ||
-		!in_array($type, array('mixed','string','array','integer','float','bool','boolean','email','domain','uri','url','ip','mac','uuid','path')) ||
-		!in_array($role, ABCMS_ROLE_SET)) {
-		$this->error_log("Invalid or duplicate variable.");
-		return;
+
+private function setup_variable(// register variable
+string	$cat,					// category 'U','G','P' TODO constants?
+string	$var,					// variable
+string	$typ,					// type
+int		$rol,					// min role
+?array	$reg = NULL,			// regex validation
+) : bool {						// return success or failure
+	// validate
+	$a = $b = $c = $d = $e = $f = FALSE;
+	if (($a=(!is_array($this->compiles))) || // bad context
+		($b=(!in_array($cat, array('U','G','P')))) || // category
+		($c=(!preg_match('/^[a-z0-9\-_.~]+$/uiD', $var))) || // variable
+		($d=(!in_array($typ, array('mixed','string','array','integer','float','bool','boolean','email','domain','uri','url','ip','mac','uuid','path')))) || // type
+		($e=(!in_array($rol, ABCMS_ROLE_SET))) || // role
+		($f=(!empty($this->compiles[$cat][$var])))) { // duplicate
+		$this->error_log("Invalid extension variable: {$cat} {$var} {$typ} err: bad={$a} cat={$b} var={$c} typ={$d} rol={$e} dup={$f}");
+		return FALSE;
 	}
-	$this->compiles[$cat][$var] = array('type'=>$type, 'role'=>$role, 'reg'=>$reg);
-	return;
+	// assign variable
+	$this->compiles[$cat][$var] = array('type'=>$typ, 'role'=>$rol, 'reg'=>$reg);
+	return TRUE;
 }
 
 
@@ -604,11 +540,10 @@ private function setup_variable(
 /*************************************************************************************************
 SECTION SESSION: Secure sessions with opt-in/out, validation, CSRF, CAPTCHA, and login.
 */
-// start conditionally
-public function session_start(
-	int $cmd,	// 1=unconditional, -1=destroy, 0=me-1st-conditional
-) : bool {		// TRUE=started, FALSE=destroyed
 
+public function session_start(	// start session conditionally
+int $cmd,						// 1=unconditional, -1=destroy, 0=me-1st-conditional
+) : bool {						// return TRUE=started, FALSE=destroyed
 	// initialize
 	$active = (session_status() === PHP_SESSION_ACTIVE ? TRUE : FALSE);
 	$slap = 0;
@@ -836,7 +771,7 @@ public function set_cookie(
 
 
 /*************************************************************************************************
-SECTION DATABASE: Store data in VAR_DUMP, JSON, CSV, XML, SQLite, and MySQL.
+SECTION DATABASE: Store data in VAR_DUMP, JSON, CSV, SQLite, and MySQL.
 */
 // database set
 public function new_database(string $file) : void {
@@ -1735,7 +1670,7 @@ private function command_updater(mixed &...$unused) : ?bool {
 
 
 /*************************************************************************************************
-SECTION UTILITIES: Utility methods.
+SECTION UTILITIES: Utility helper methods.
 */
 // Wrap the echo() construct to use as extension function.
 public function echo(?string ...$args) : void {
@@ -1909,7 +1844,7 @@ public function html_text(string $html): string {
 
 
 /*************************************************************************************************
-SECTION EMAIL: SMTP email.
+SECTION EMAIL: SMTP emailer.
  */
 // Adapted by Claude.AI from https://github.com/arkanis/smtp_send.
 // Licensed as arkanis/smtp_send (c) 2014-2021 Stephan Soller, MIT License.
@@ -2166,7 +2101,7 @@ public function theme(
 	?string	$head	= NULL,	// header override
 	?string	$main	= NULL,	// content override
 	?string	$foot	= NULL,	// footer override
-	int		$flag	= 1,	// control flag
+	int		$flag	= 1,	// exclusive control
 ) : ?bool {					// return boolean
 // helpful defaults
 $title = mb_strtoupper($this->hsc($this->boots['urldomain']), 'UTF-8');
