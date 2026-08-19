@@ -9,6 +9,7 @@ Copy index.php to a docroot or run "composer install nainoia-inc/abcms".
 Visit index.php in a browser or run "php index.php /command/help".
 Download the super user password from "ABMCS.deleteme", then delete.
 Extend imitating setup(), home_*(), webfiles_*(), console_*(), command_*().
+Everything is a routed extension, but extensions should also do their own routing.
 Access $_SESSION[extension] with s() API, but $_SESSION remains exposed.
 Run extension SETUP.php with /command/setup and CRON.php with /command/cron.
 Schedule "php index.php /command/cron" every 15 minutes to 1x per day.
@@ -350,6 +351,9 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	$this->compiles['core']['override']			= $corefold.'ABCMS.override.php'; // overrides
 	if (!file_exists($this->compiles['core']['override'])) { $this->set_dump($this->compiles['core']['override'], []); }
 	// register variables
+	// 'U' = URL variable
+	// 'G' = $_GET variable
+	// 'P' = $_POST variable
 	$this->error_log('SETUP: Core variables');
 	$this->setup_variable('U',	'debug', 'bool', ABCMS_ROLE_ADMINS); // register URL PATH variables
 	$this->setup_variable('G',	'debug', 'bool', ABCMS_ROLE_ADMINS); // register $_GET variables
@@ -359,6 +363,7 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	// 'E' = Exclusive to my extension or omit me, default anyone
 	// 'U' = Uno/single extension, default multiple extensions cooperate 
 	// 'D' = Default included, default excluded if extended by $ord < 0
+	// HTTP methods, '' = all = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE"
 	$this->error_log('SETUP: Core extensions');
 	// register core and command extensions
 	$this->setup_extend(ABCMS_EXT_INITX,	'',			'CLI-GET-POST',	'IEU',	'abcms()->home_theme',		ABCMS_ROLE_PUBLIC,	-10);
@@ -509,7 +514,7 @@ string	$pat,					// unique URL path, trailing '/' for 1st segment only, otherwis
 }
 
 private function setup_variable(// register variable
-string	$cat,					// category 'U','G','P' TODO constants?
+string	$cat,					// category 'U' = URL variable,'G' = $_GET variable,'P' = $_POST variable
 string	$var,					// variable
 string	$typ,					// type
 int		$rol,					// min role
@@ -572,7 +577,6 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 			'use_trans_sid'		=> '0',											// Disable URL rewriting
 			];
 	}
-
 	// early exit
 	if ($deny || isset($_COOKIE[$this->settings['core']['session_badact']])) { if (!($deny)) { $this->set_errors('Session denied to suspected bad actor.'); } $deny = TRUE; return FALSE; } // bad actor
 	if ($cmd < 0) { $error = 'You are logged out.'; goto KILL; } // destroy session
@@ -582,14 +586,12 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 	if (empty($_COOKIE[$this->settings['core']['session_allows']])) {	$this->set_errors('Session denied without your cookie approval.'); return FALSE; } // cookies not approved
 	$post = ('POST' === $this->boots['urlmethod'] && !$posthandled ? TRUE : FALSE); // is this a POST?
 	if (0 === $cmd && !isset($_COOKIE[$this->settings['core']['session_logins']]) && !$post) { return FALSE; } // conditional start
-
 	// start session, more variables
 	if (!session_start($options) || !($_COOKIE[$options['name']] = session_id())) { $this->error_wsod("Session start failed, unknown reason.");	}
 	$active = $posthandled = TRUE;
 	$error = $gauntlet = NULL;
 	$csrf = ($post && !empty($_POST['csrf']) ? $_POST['csrf'] : '');
 	if (empty($_SESSION[ABCMS_EXT_SELF]['create'])) { $this->ss = []; } else { $this->ss = &$_SESSION[ABCMS_EXT_SELF]; }
-
 	// validate session
 	if (!$this->ss) {
 		// cannot POST without session
@@ -629,7 +631,6 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 		// Passed gauntlet so maybe human
 		else {																											$gauntlet = TRUE; }
 	}
-
 	// destroy by request or for corruption
 	if ($error) {
 KILL:	// set errors
@@ -653,7 +654,6 @@ KILL:	// set errors
 		}
 		return FALSE;
 	}
-
 	// update valid session
 	if ($this->ss) {
 		// valid POST, though POST data validated in form handler
@@ -682,7 +682,6 @@ KILL:	// set errors
 		$this->ss['active'] = $now;
 		$this->ss['role'] = $this->ss['user']['role']??NULL;
 	}
-
 	// validate new session
 	else {
 		$_SESSION[ABCMS_EXT_SELF] = [
@@ -737,7 +736,7 @@ string	$cookie,			// name
 string	$value,				// value
 int		$expires,			// expiration
 bool	$killit = TRUE,		// kill heed
-): void {					// return void or WSOD
+) : void {					// return void or WSOD
 	// headers sent error and kill cookie on close browser
 	if (headers_sent()) { $this->error_wsod("Set cookie headers already sent"); }
 	if ($killit && $expires > 1 && $this->settings['core']['session_killit']) { $expires = 0; }
@@ -922,31 +921,30 @@ int		$flag,			// <0 = extender exclusive, 0 = anyone, 1 = extender exclusive all
 bool	$must,			// must do default, TRUE = required -OR- FALSE = optional
 mixed	&...$args,		// default arguments
 ) : array {				// return input $args
-	// stack start essential even for core
+	// initialize stack and variables
 	$pushed = FALSE; if (empty($this->stackwho)) { $this->stackwho[] = ABCMS_EXT_SELF; $pushed = TRUE; } try {
-	// Initialize
 	$whoami = $this->output_extension(); // which extension?
 	$hook = $whoami . $hook; // Full hook name
 	$ext = array( // Default
-		'I' => (empty($default) ? array() : array( array( // Empty default allowed
-				'met'	=> $meth, // HTTP methods
-				'fun'	=> $default, // Function
-				'rol'	=> $role, // Role
-				'ord'	=> 0, // Order
-				'ctl'	=> NULL, // Control
-				'who'	=> $whoami, // Default for each caller
-				'arg'	=> NULL, // None
+		'I' => (empty($default) ? array() : array( array(	// empty default allowed
+				'met'	=> $meth,							// HTTP methods
+				'fun'	=> $default,						// function
+				'rol'	=> $role,							// role
+				'ord'	=> 0,								// order
+				'ctl'	=> NULL,							// control
+				'who'	=> $whoami,							// default for each caller
+				'arg'	=> NULL,							// none
 		))),
-		'O' => array(), // No default output filter
+		'O' => array(),										// no default output filter
 	);
-	// Prioritize
-	if (isset($this->settings['route'][$hook])) { // Build hook extensions
-		$hooky = $this->settings['route'][$hook]; // Shortened reference
-		$ext = array_merge_recursive( // Merge extensions with matches
-			$ext, // Default
+	// prioritize
+	if (isset($this->settings['route'][$hook])) {			// build hook extensions
+		$hooky = $this->settings['route'][$hook];			// shortened reference
+		$ext = array_merge_recursive(						// merge extensions with matches
+			$ext,											// Default
 			(!empty($hooky['eq'][$this->boots['urlpathall']]) &&
 			 !empty($hooky['ex'][$hooky['eq'][$this->boots['urlpathall']]]) ?
-			 $hooky['ex'][$hooky['eq'][$this->boots['urlpathall']]] : // Full path
+			 $hooky['ex'][$hooky['eq'][$this->boots['urlpathall']]] : // full path
 			('/' !== $this->boots['urlpathone'] &&
 			 !empty($hooky['eq'][$this->boots['urlpathone'].'/']) &&
 			 !empty($hooky['ex'][$hooky['eq'][$this->boots['urlpathone'].'/']]) ?
@@ -957,36 +955,36 @@ mixed	&...$args,		// default arguments
 		if (isset($ext['I'])) {	usort($ext['I'], function($a, $b) { return (($ret=(isset($a['ctl']['U'])===isset($b['ctl']['U']) ? 0 : (isset($a['ctl']['U']) ? -1 : 1))) ? $ret : $a['ord'] <=> $b['ord']); } ); }
 		if (isset($ext['O'])) {	usort($ext['O'], function($a, $b) { return (($ret=(isset($a['ctl']['U'])===isset($b['ctl']['U']) ? 0 : (isset($a['ctl']['U']) ? -1 : 1))) ? $ret : $a['ord'] <=> $b['ord']); } ); }
 	}
-	// Execute
-	$exin = $exout = NULL; // Exclusive winner or non-exclusive
+	// execute
+	$exin = $exout = NULL; // exclusive winner or non-exclusive
 	$dopt = TRUE; // default optional
-	foreach($ext['I'] as $extin) { // Input extensions by priority
-		if (!$this->output_doit($extin, $whoami, $flag, ($must || $dopt), $exin)) { continue; } // Skip for reasons
-		if (!$must && $extin['ord'] < 0 && !isset($extin['ctl']['D'])) { $dopt = FALSE; } // Omit default if hook and one extension says not required
-		if ($this->input['role'] >= ABCMS_ROLE_ADMINS) { $this->stackarg[] = func_get_args(); } // log the exension stack when I am administrator
-		if (isset($extin['arg'])) { $this->array_walk_merge($args, $extin['arg']); } // Extend arguments
-		if (empty($extin['fun'])) { continue; } // Extension only grabs exclusivity or set args
-		do { // Repeat hook extension until FALSE -OR- NULL
-			if (FALSE === ob_start()) { $this->error_wsod("Buffer start failure."); } // Buffer output
-			$more = $this->output_call($extin['who'], $extin['fun'], ...$args); // Execute hook extension
-			if (FALSE === ($out = ob_get_clean())) { $this->error_wsod("Buffer clean failure."); } // Retrieve buffer
-			// Output filter extensions by priority
+	foreach($ext['I'] as $extin) { // input extensions by priority
+		if (!$this->output_doit($extin, $whoami, $flag, ($must || $dopt), $exin)) { continue; } // skip for reasons
+		if (!$must && $extin['ord'] < 0 && !isset($extin['ctl']['D'])) { $dopt = FALSE; } // omit default if hook and one extension says not required
+		if ($this->input['role'] >= ABCMS_ROLE_ADMINS) { $this->stackarg[] = func_get_args(); } // log the exension stack for administrator
+		if (isset($extin['arg'])) { $this->array_walk_merge($args, $extin['arg']); } // extend arguments
+		if (empty($extin['fun'])) { continue; } // extension only grabs exclusivity or set args
+		// loop only applies to registered extension functions, internal extension dispatch is its own business
+		do { // repeat hook extension until FALSE -OR- NULL || TODO invert the continue test
+			if (FALSE === ob_start()) { $this->error_wsod("Buffer start failure."); } // buffer output, TODO optionally stream or file output
+			$more = $this->output_call($extin['who'], $extin['fun'], ...$args); // execute hook extension
+			if (FALSE === ($out = ob_get_clean())) { $this->error_wsod("Buffer clean failure."); } // retrieve buffer, TODO optionally stream or file output
+			// output filter extensions by priority
 			foreach($ext['O'] as $extout) {
-				if (!$this->output_doit($extout, $whoami, $flag, TRUE, $exout)) { continue; } // Skip for reasons
-				$this->output_call($extout['who'], $extout['fun'], $out, ...$args); // Execute output filter
+				if (!$this->output_doit($extout, $whoami, $flag, TRUE, $exout)) { continue; } // skip for reasons
+				$this->output_call($extout['who'], $extout['fun'], $out, ...$args); // execute output filter
 			}
-			// ABCMS security output filter and injection, <FORM> security, and XSS checks, etc.
+			// ABCMS security output filter and injection, <FORM> security, and XSS checks, etc. TODO replace with function and switch on output type
 			if (ABCMS_EXT_INITX == $hook) {
 				$this->output_security($out);	// inject security
-				$this->output_debug($out);	// TEMP CODE
+				$this->output_debug($out);	// debug output
 			}
-			echo $out; // Echo compiled output
-		} while ($more); // Repeat hook extension until FALSE
-		if (isset($extin['ctl']['U'])) { break; } // Uno extension allowed
+			echo $out; // echo compiled output, TODO optionally stream or file output
+		} while ($more); // repeat hook extension until FALSE || TODO invert the test
+		if (isset($extin['ctl']['U'])) { break; } // uno extension allowed
 	}
-	// stack pop
+	// stack pop and return $arguments
 	} finally { if ($pushed) { array_pop($this->stackwho); } }
-	//return $arguments
 	return $args;
 }
 
@@ -1002,19 +1000,19 @@ int		$flag,					// <0 = extender exclusive, 0 = anyone, 1 = extender exclusive a
 bool	$must,					// must also do default
 ?string	&$excl,					// exclusive extension winner
 ) : bool {						// return TRUE or FALSE
-	// Exit before exclusive selection
-	if (!$must && !$ext['ord']) {																	return FALSE; }	// No default extension
-	if (!empty($ext['met']) && FALSE === stripos($ext['met'], $this->boots['urlmethod'])) { 		return FALSE; }	// HTTP method | TODO consider this instead in_array($method, explode('-', $met)
-	if ($flag < 0 && $whoami !== $ext['who']) { $this->error_log("Extender not self.");				return FALSE; }	// Extender match
-	if (!$flag && isset($ext['ctl']['E'])) {														return FALSE; }	// Non-exclusive, cancel request
-	// Exclusive winner or non-exclusive
+	// exit before exclusive selection
+	if (!$must && !$ext['ord']) {																				return FALSE; }	// no default extension
+	if (!empty($ext['met']) && FALSE === stripos($ext['met'], $this->boots['urlmethod'])) { 					return FALSE; }	// HTTP method | TODO consider this instead in_array($method, explode('-', $met)
+	if ($flag < 0 && $whoami !== $ext['who']) { $this->error_log("Extender not self.");							return FALSE; }	// extender match
+	if (!$flag && isset($ext['ctl']['E'])) {																	return FALSE; }	// non-exclusive, cancel request
+	// exclusive winner or non-exclusive
 	if ($flag > 0) {
-		if (NULL === $excl) { $excl = (isset($ext['ctl']['E']) ? $ext['who'] : FALSE); }							// Determine exclusive winner or non-exclusive
-		if (!$excl && isset($ext['ctl']['E'])) {													return FALSE; }	// Non-exclusive, cancel request
-		if ($excl && $ext['who'] !== $excl) {														return FALSE; }	// Exclusive, but not winner
+		if (NULL === $excl) { $excl = (isset($ext['ctl']['E']) ? $ext['who'] : FALSE); }
+		if (!$excl && isset($ext['ctl']['E'])) {																return FALSE; }	// non-exclusive, cancel request
+		if ($excl && $ext['who'] !== $excl) {																	return FALSE; }	// exclusive, but not winner
 	}
-	if ($this->input['role'] < $ext['rol']) { $this->set_errors("No permission to resource, {$ext['fun']}.");		return FALSE; }	// No permision
-	// Do it
+	if ($this->input['role'] < $ext['rol']) { $this->set_errors("No permission to resource, {$ext['fun']}.");	return FALSE; }	// No permision
+	// do it
 	return TRUE;
 }
 
@@ -1023,61 +1021,59 @@ string	$who,					// extension stack
 string	$filefunc,				// includefile?function
 mixed	&...$args,				// arguments passed
 ) : ?bool {						// return function result
-	// Parse includefile?function
+	// parse includefile?function
 	if (!preg_match(ABCMS_REGEX_FUNC, $filefunc, $match)) { $this->error_wsod("Calling invalid function name."); }
 	$filepath	= $match[2]; // extension include file
 	$classobject= $match[5]; // class or object
 	$operator	= $match[6]; // operator to function
 	$funcmeth	= $match[7]; // function / method
-	// include the file
-	$result = FALSE; // Default failure
-	// push who stack
-	$this->stackwho[] = $who; try {
-	// includes
+	// initialize
+	$result = FALSE; // default is failure
+	$this->stackwho[] = $who; try { // push who stack
+	// include
 	if ($filepath) {
 		$filepath = $this->settings['core']['projectroot'].'/private'.$who.$filepath; // resolved filename
 		if ($funcmeth) {	$result = (bool)$this->include_once($filepath, ...$args); } // failsafe include once for definition
 		else {				$result = (bool)$this->include($filepath, ...$args); } // or multiple executions allowed
 	}
-	// Call function
-	if ($funcmeth) { // Function attempt
-		if ($classobject) { // Class or object method
-			if ("::" === $operator) { // Class operator
+	// call function
+	if ($funcmeth) { // function attempt
+		if ($classobject) { // class or object method
+			if ("::" === $operator) { // class operator
 				if (!class_exists($classobject) || !method_exists($classobject, $funcmeth)) { $this->error_wsod("Calling invalid class method."); }
 				$result = (bool)$classobject::$funcmeth(...$args); // Execute
 			}
-			else { // Non-class methods
-				if ("->" === $operator) { // Instance or object operator
+			else { // non-class methods
+				if ("->" === $operator) { // instance or object operator
 					if (!isset($GLOBALS[$classobject]) || !is_object($GLOBALS[$classobject])) { $this->error_wsod("Calling invalid object."); }
 					$newobject = $GLOBALS[$classobject];
 				}
-				else if ("()->" === $operator) { // Function returned object operator
+				else if ("()->" === $operator) { // function returned object operator
 					if (!function_exists($classobject)) { $this->error_wsod("Calling invalid function to object."); }
 					if (!is_object(($newobject = $classobject()))) { $this->error_wsod("Calling invalid function object."); }
 				}
 				else { $this->error_wsod("Calling invalid operator."); }
-				// Execute function/method
+				// execute function/method
 				if (!method_exists($newobject, $funcmeth)) { $this->error_wsod("Calling invalid object method: {$funcmeth}"); }
-				if (ABCMS_EXT_SELF != $who && $newobject === $this) { // Disallow abcms() privates unless extension is ABCMS
+				if (ABCMS_EXT_SELF != $who && $newobject === $this) { // disallow abcms() privates unless extension is ABCMS
 					$reflection = new ReflectionClass($this);
 					if (!$reflection->getMethod($funcmeth)->isPublic()) { $this->error_wsod("Calling private/protected method disallowed."); }
 				}
-				$result = (bool)$newobject->$funcmeth(...$args); // Execute
+				$result = (bool)$newobject->$funcmeth(...$args); // execute
 			}
 		}
 		else {
 			if (!function_exists($funcmeth)) { $this->error_wsod("Calling invalid function."); }
-			$result = (bool)$funcmeth(...$args); // Execute
+			$result = (bool)$funcmeth(...$args); // execute
 		}
 	}
-	// pop who stack
+	// pop who stack and return result
 	} finally { array_pop($this->stackwho); }
 	return $result;
 }
 
-
-private function output_security(	// inject html form security with regex for speed instead of DOM 
-string &$html,						// inject into output HTML
+private function output_security(	// inject html form security with fast regex instead of DOM 
+string &$html,						// inject into output HTML || TODO not all output is HTML
 ) : void {							// return void
 	// failure or no form so skip
 	if (FALSE === ($num = preg_match_all(ABCMS_REGEX_FORM, $html))) { $this->error_wsod("Form security failed initialization."); }
@@ -1172,7 +1168,7 @@ EOF
 	return;
 }
 
-private function output_debug(	// inject debug information for administrator only
+private function output_debug(	// inject debug info for admin
 string &$html,					// inject into HTML output string
 ) : void {						// return void
 	if (!$html || $this->input['role'] !== ABCMS_ROLE_ADMINS) { return; }
@@ -1193,14 +1189,14 @@ SECTION RESPONSES: Return request responses.
 */
 
 private function error_trace() : array { // return backtrace info for error log
-	// Omit object, include args, 3 levels back
+	// omit object, include args, 3 levels back
 	$back = debug_backtrace(0, 3);
 	$function = (empty($back[1]['function']) ? 'unknown' : $back[1]['function']);
 	$args = (empty($back[2]['args']) ? array('unknown') : $back[2]['args']);
-	// Truncate long strings
+	// truncate long strings
 	array_walk_recursive($args, function (&$value) {
-		if (is_string($value) && mb_strlen($value, 'UTF-8') > 256) {
-			$value = mb_substr($value, 0, 256, 'UTF-8') . '...';
+		if (is_string($value) && mb_strlen($value, 'UTF-8') > 100) {
+			$value = mb_substr($value, 0, 100, 'UTF-8') . '...';
 		}
 	});
 	return [$function, $args];
@@ -1257,18 +1253,18 @@ public function see_errors() : ?string { // return formatted errors for public
 /*************************************************************************************************
 SECTION HOME: Core extension /home/*
 */
-private function home_theme(
-	mixed &...$unused,
-) : ?bool {
-$footer = <<<EOF
+
+private function home_theme(mixed &...$unused) : ?bool { // default home theme
+	$footer = <<<EOF
 <a href='/'>Home</a>
  / <a href='/account'>Account</a>
  / <a href='/contact'>Contact</a>
 EOF
 . ($this->input['role'] < ABCMS_ROLE_ADMINS ? NULL : " / <a href='/console'>Console</a>");
 // TODO, the above line is wrong when first logging in because don't know I am authenticated till later...
+// TODO where do I inject user error results into HTML display?
 // how can I do that without putting the authentication into session_start()????
-	return $this->theme( // theme
+	$this->theme( // theme
 		...$args = array( // spreader
 			NULL,	// css
 			NULL,	// js
@@ -1281,9 +1277,11 @@ EOF
 			1,		// exclusive?
 		),
 	);
+	return NULL;
 }
-// inject error display here?
-private function home_router(mixed &...$unused) : ?bool {
+
+private function home_router(mixed &...$unused) : ?bool { // home router
+	// internal extension dispatch bypasses core routing for speed
 	switch ($this->boots['urlpathall']) {
 		case '/':			$this->home();			break;
 		case '/contact':	$this->home_contact();	break;
@@ -1292,7 +1290,8 @@ private function home_router(mixed &...$unused) : ?bool {
 	}
 	return NULL;
 }
-private function home(mixed &...$unused) : ?bool {
+
+private function home(mixed &...$unused) : void { // home homepage
 	echo <<<EOF
 <p class='center margin-top-0'>
 AKA "<a href='https://www.AionianBible.org' target='_blank'>Aionian Bible</a> Content Management System"<br>
@@ -1321,12 +1320,10 @@ Composer install, or drop index.php in docroot and go. What's included?
 No frameworks. No ceremony. Just PHP, HTML, JavaScript. Why can't a CMS be simple? Yee Haw!
 </p>
 EOF;
-	return NULL;
+	return;
 }
 
-// account register, login, logout, update, delete
-public function home_account(mixed &...$unused) : ?bool {
-
+public function home_account(mixed &...$unused) : void { // home register, login, logout, update, delete
 	// initialize
 	echo "<h2>Account</h2>";
 	$switch =
@@ -1336,10 +1333,9 @@ public function home_account(mixed &...$unused) : ?bool {
 		(!$this->formhuman ? 'inhuman' :
 		(!empty($_POST['clicked']) ? $_POST['clicked'] : 'unknown')))));
 	$mess = $email = $email2 = $subject = $body = NULL;
-
 	// switch
 	switch ($switch) {
-		case 'nosession':	$this->set_errors('Login system is unavailable. Try again.'); return NULL;
+		case 'nosession':	$this->set_errors('Login system is unavailable. Try again.'); return;
 		case 'invalid':		$mess = "Suspect form submital. Try again."; break;
 		case 'inhuman':		$mess = "CAPTCHA or form security alert. Try again."; break;
 		case 'login':		if (!empty($_POST['Account_Email']) && !empty($_POST['Account_Email2']) &&
@@ -1408,7 +1404,6 @@ public function home_account(mixed &...$unused) : ?bool {
 							$mess = "Login or register below.";
 							break;
 	}
-	
 	// send email
 	$emailerror = "No email sent";
 	if ($subject) {
@@ -1431,7 +1426,6 @@ public function home_account(mixed &...$unused) : ?bool {
 		);
 		$emailerror = (TRUE === $emailerror ? "Email sent" : $emailerror);
 	}
-
 	// display account
 	$stat = (empty($this->ss['user']) ? "Logged out" : (empty($this->ss['user']['valid']) ? "Logged in validating" : "Logged in validated"));
 	echo <<<EOF
@@ -1445,32 +1439,33 @@ public function home_account(mixed &...$unused) : ?bool {
 <label></label>
 <div>
 EOF;
-if (empty($this->ss['user']['valid'])) {
-echo <<<EOF
+	if (empty($this->ss['user']['valid'])) {
+	echo <<<EOF
 <button type='submit' name='register'	value='register'>Register</button>
 <button type='submit' name='login'		value='login'	>Login</button>
 <button type='submit' name='reset'		value='reset'	>Reset</button>
 EOF;
 }
-else {
-echo <<<EOF
+	else {
+	echo <<<EOF
 <button type='submit' name='logout'		value='logout'	>Logout</button>
 <button type='submit' name='update'		value='update'	>Update</button>														
 <button type='submit' name='delete'		value='delete'	>Delete</button>
 EOF;
 }
-echo "</div></form>";
-
-return NULL;
+	echo "</div></form>";
+	return;
 }
-private function home_contact(mixed &...$unused) : ?bool {
-echo <<<EOF
+
+private function home_contact(mixed &...$unused) : void { // home contact form
+	echo <<<EOF
 <h2>Contact</h2>
 EOF;
-	return NULL;
+	return;
 }
-private function home_notfound(mixed &...$unused) : ?bool {
-echo <<<EOF
+
+private function home_notfound(mixed &...$unused) : void { // home page not found
+	echo <<<EOF
 <h2>Status</h2>
 <p class='center'>
 My sincere apologies.<br>
@@ -1479,7 +1474,7 @@ I just cannot find the page requested.<br>
 <a href='/'>Try again from the homepage</a>.
 </p>
 EOF;
-return NULL;
+	return;
 }
 
 
@@ -1500,11 +1495,9 @@ SECTION WEBFILES: Core extension /webfiles/*
 /*************************************************************************************************
 SECTION CONSOLE: Core extension /console/*
 */
-// Admin webpage template
-private function console_theme(
-	mixed &...$unused,
-) : ?bool {
-	return $this->theme(
+
+private function console_theme(mixed &...$unused) : ?bool { // default console theme
+	$this->theme(
 		...$args = array(
 <<<EOF
 body { border: 2rem solid #999999; border-top: 0; }
@@ -1526,21 +1519,24 @@ EOF
 			1,				// exclusive?
 		),
 	);
+	return NULL;
 }
-private function console_router(mixed &...$unused) : ?bool {
+
+private function console_router(mixed &...$unused) : ?bool { // console router
+	// internal extension dispatch bypasses core routing for speed
 	switch ($this->boots['urlpathall']) {
 		case '/console':
 		case '/console/menu':		$this->console_menu();			break;
 		case '/console/browse':		$this->console_browse();		break;
 		case '/console/help':		$this->console_help();			break;
 		case '/console/status':		$this->console_status();		break;
-		case '/console/tests':		$this->console_tests();			break;
 		case '/console/webservant':	$this->console_webservant();	break;
 		default:					$this->home_notfound();			break;
 	}
 	return NULL;
 }
-private function console_menu(mixed &...$unused) : ?bool {
+
+private function console_menu(mixed &...$unused) : void { // console menu
 	echo <<<EOF
 <h1>Menu</h1>
 <br>
@@ -1553,7 +1549,6 @@ private function console_menu(mixed &...$unused) : ?bool {
 <a href='/console/browse'		>/console/browse</a><br>
 <a href='/console/help'			>/console/help</a><br>
 <a href='/console/status'		>/console/status</a><br>
-<a href='/console/tests'		>/console/tests</a><br>
 <a href='/console/webservant'	>/console/webservant</a><br>
 <br>
 <a href='/command/code'			target='_blank'>/command/code</a><br>
@@ -1567,9 +1562,10 @@ private function console_menu(mixed &...$unused) : ?bool {
 <a href='/home/bogus'>/home/bogus</a><br>
 <a href='/console/bogus'>/console/bogus</a><br>
 EOF;	
-	return NULL;
+	return;
 }
-private function console_browse(mixed &...$unused) : ?bool {
+
+private function console_browse(mixed &...$unused) : void { // console browser
 	echo <<<EOF
 <h1>Browser</h1>
 EOF;
@@ -1583,31 +1579,28 @@ EOF;
 		$display .= $file."<br>\n";
 	}
 	echo $display;
-	return NULL;
+	return;
 }
-private function console_help(mixed &...$unused) : ?bool {
+
+private function console_help(mixed &...$unused) : void { // console help
 	echo <<<EOF
 <h1>Help</h1>
 EOF;	
-	return NULL;
+	return;
 }
-private function console_status(mixed &...$unused) : ?bool {
+
+private function console_status(mixed &...$unused) : void { // console status
 	echo <<<EOF
 <h1>Status</h1>
 EOF;	
-	return NULL;
+	return;
 }
-private function console_tests(mixed &...$unused) : ?bool {
-	echo <<<EOF
-<h1>Tests</h1>
-EOF;
-	return NULL;
-}
-private function console_webservant(mixed &...$unused) : ?bool {
+
+private function console_webservant(mixed &...$unused) : void { // console webservant
 	echo <<<EOF
 <h1>Webservant</h1>
 EOF;
-	return NULL;
+	return;
 }
 
 
@@ -1619,7 +1612,8 @@ EOF;
 /*************************************************************************************************
 SECTION COMMAND: Core extension /command/*
 */
-private function command_router(mixed &...$unused) : ?bool {
+private function command_router(mixed &...$unused) : ?bool { // command router
+	// internal extension dispatch bypasses core routing for speed
 	switch ($this->boots['urlpathall']) {
 		case '/command/code':		$this->command_code();		break;
 		case '/command/cron':		$this->command_cron();		break;
@@ -1631,28 +1625,31 @@ private function command_router(mixed &...$unused) : ?bool {
 	}
 	return NULL;
 }
-private function command_code(mixed &...$unused) : ?bool {
+
+private function command_code(mixed &...$unused) : void { // command code
 	highlight_file($this->rp(__FILE__));
-	return NULL;
+	return;
 }
-private function command_cron(mixed &...$unused) : ?bool {
+
+private function command_cron(mixed &...$unused) : void { // command cron
 	if (!headers_sent()) { header('Content-Type: text/plain; charset=utf-8'); }
 	echo "ABCMS cron\n\nDone.\n\n";
-	return NULL;
+	return;
 }
-private function command_help(mixed &...$unused) : ?bool {
+
+private function command_help(mixed &...$unused) : void { // command help
 	if (!headers_sent()) { header('Content-Type: text/plain; charset=utf-8'); }
 	echo "ABCMS help\n\nDone.\n\n";
-	return NULL;
+	return;
 }
-private function command_phpinfo(mixed &...$unused) : ?bool {
+
+private function command_phpinfo(mixed &...$unused) : void { // command phpinfo
 	phpinfo();
-	return NULL;
+	return;
 }
-private function command_setup(mixed &...$unused) : ?bool {
+
+private function command_setup(mixed &...$unused) : void { // command setup
 	if (!headers_sent()) { header('Content-Type: text/plain; charset=utf-8'); }
-	// TODO call this command from the web here using cURL to force cache reload
-	// if validate_timestamps = 0;
 	$this->setup(); // recreate settings
 	// op cache warning
 	$mess = NULL;
@@ -1661,12 +1658,13 @@ private function command_setup(mixed &...$unused) : ?bool {
 		$this->error_log($mess);
 	}
 	echo "ABCMS settings:\n\nrefresh screen to see updated settings changes\n\n{$mess}Done.\n\n";
-	return NULL;
+	return;
 }
-private function command_updater(mixed &...$unused) : ?bool {
+
+private function command_updater(mixed &...$unused) : void { // command updater
 	if (!headers_sent()) { header('Content-Type: text/plain; charset=utf-8'); }
 	echo "ABCMS updater\n\nDone.\n\n";
-	return NULL;
+	return;
 }
 
 
@@ -1678,28 +1676,25 @@ private function command_updater(mixed &...$unused) : ?bool {
 /*************************************************************************************************
 SECTION UTILITIES: Utility helper methods.
 */
-// Wrap the echo() construct to use as extension function.
-public function echo(?string ...$args) : void {
+
+public function echo(?string ...$args) : void { // wrap the echo() construct for extension function.
 	if (NULL !== $args) { echo implode('',$args); } return;
 }
-// Wrap the print() construct to use as extension function.
-public function print(?string $string = NULL) : bool {
+
+public function print(?string $string = NULL) : bool { // wrap the print() construct for extension function.
 	return (NULL === $string ? TRUE : print($string));
 }
-// Set url with persistant path variables
-public function set_url(?string $path = NULL) : ?string {
+
+public function get_url(?string $path = NULL) : ?string { // construct url with persistant path variables
+	// TODO persistent URL vars to be listed in $this->inputs
 	return $path;
 }
-// Get url with persistant path variables
-public function get_url(?string $path = NULL) : ?string {
-	return $path;
-}
-// linux style slashes
-public function rp(string|false $path) : string|false {
+
+public function rp(string|false $path) : string|false { // linux style slashes from windows
 	return ($path === FALSE ? FALSE : str_replace('\\', '/', $path));
 }
-// Check file
-private function chk_file(string $filename, bool $must = FALSE) : bool {
+
+private function chk_file(string $filename, bool $must = FALSE) : bool {// check file valid in in my extension folder
 	$starts = ($this->compiles['core']['projectroot']??$this->settings['core']['projectroot']).'/private'.$this->output_extension().'/';
 	if (!str_starts_with($filename, $starts)) { $this->error_wsod("Access outside of extension folder disallowed: {$filename}"); }
 	if (preg_match('/(^|[\/\\\\])\.\.([\/\\\\]|$)/', $filename)) { $this->error_wsod("Relative filenames disallowed: {$filename}"); }
@@ -1707,8 +1702,8 @@ private function chk_file(string $filename, bool $must = FALSE) : bool {
 	if ($must && ($this->rp(realpath($filename)) !== $filename || !is_file($filename) || !is_readable($filename))) { return FALSE; }
 	return TRUE;
 }
-// Set file
-public function set_file(string $filename, string $value) : void {
+
+public function set_file(string $filename, string $value) : void { // write file
 	$this->chk_file($filename);
 	$temp = "{$filename}.".getmypid();
 	if (FALSE === file_put_contents($temp, $value) || !chmod($temp, 0640) || !rename($temp, $filename)) {
@@ -1717,57 +1712,57 @@ public function set_file(string $filename, string $value) : void {
 	}
 	return;
 }
-// Get file
-public function get_file(string $filename, string &$data) : void {
+
+public function get_file(string $filename, string &$data) : void { // read file
 	if (!$this->chk_file($filename, TRUE)) { $this->error_wsod("Filename does not exist or not readable: {$filename}"); }
 	if (FALSE === ($data = file_get_contents($filename))) { $this->error_wsod("System, ".$this->error_get_last()); }
 	return;
 }
-// touch file permissions
-public function touch(string $filename) : void {
+
+public function touch(string $filename) : void { // touch/create file with permissions
 	$this->chk_file($filename);
 	if (!touch($filename) || !chmod($filename, 0640)) { $this->error_wsod("Touch file failed: {$filename}"); }
 	return;
 }
-// Set json
-public function set_json(string $filename, mixed $value) : void {
+
+public function set_json(string $filename, mixed $value) : void { // write json
 	$this->set_file($filename, json_encode($value, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
 	if (json_last_error() !== JSON_ERROR_NONE) {
 		$this->error_wsod("System json_encode(), ".json_last_error_msg());
 	}
 	return;
 }
-// Get json
-public function get_json(string $filename, mixed &$data) : void {
+
+public function get_json(string $filename, mixed &$data) : void { // read json
 	if (!$this->chk_file($filename, TRUE)) { $this->error_wsod("Filename does not exist or not readable: {$filename}"); }
 	if (NULL === ($data = json_decode(file_get_contents($filename), TRUE))) { $this->error_wsod("System, ".json_last_error_msg().", ".$this->error_get_last()); }
 	return;
 }
-// set var_dump
-public function set_dump(string $filename, mixed $data) : void {
+
+public function set_dump(string $filename, mixed $data) : void { // write var_dump
 	// partial validity check at top level, nested elements unvalidated
 	if (is_object($data) || is_resource($data)) { $this->error_wsod("set_dump() supports scalars, arrays, and NULL only."); }
 	$this->set_file($filename, "<?php return " . var_export($data, TRUE) . ";\n");
 	if (function_exists('opcache_invalidate')) { opcache_invalidate($filename, TRUE); }
 }
-// get var_dump
-public function get_dump(string $filename, mixed &$data) : bool {
+
+public function get_dump(string $filename, mixed &$data) : bool { // read var_dump
 	if (!$this->chk_file($filename, TRUE)) { return FALSE; }
 	// beware, failed include() = FALSE = successful include() returning FALSE
 	$fn = Closure::bind(static function($f) { return include($f); }, NULL, NULL);
 	$data = $fn($filename);
 	return TRUE;
 }
-// Include always
-public function include(string $filename, ...$args) : mixed {
+
+public function include(string $filename, ...$args) : mixed { // include always
 	if (!$this->chk_file($filename, TRUE)) { $this->error_wsod("Filename does not exist or not readable: {$filename}"); }
 	// beware, failed include() = FALSE = successful include() returning FALSE
 	// anonymous scopes $args within include, hides $this, and protects abmcs() privates
 	$anonymous = Closure::bind(function($filename, ...$args) { return include($filename); }, NULL, NULL);
 	return $anonymous($filename, ...$args);
 }
-// Include once, PHP should provide a native no fault include_once() function
-public function include_once(string $filename, ...$args) : mixed {
+
+public function include_once(string $filename, ...$args) : mixed { // PHP should have no fault include_once()
 	static $included = array();
 	if (!isset($included[$filename])) {
 		if (!$this->chk_file($filename, TRUE)) { $this->error_wsod("Filename does not exist or not readable: {$filename}"); }
@@ -1778,53 +1773,53 @@ public function include_once(string $filename, ...$args) : mixed {
 	}
 	return FALSE;
 }
-// Need because array_walk_recursive() cannot copy from multi-dimensional source, array_map() cannot edit destination
-public function array_walk_merge(array &$destiny, array $source) : void {
-	foreach($destiny as $key => $value) { // Overwrite
-		if (!isset($source[$key])) { continue; } // No source
-		else if (is_array($destiny[$key]) && is_array($source[$key])) { $this->array_walk_merge($destiny[$key], $source[$key]); } // Recurse branch
-		else { $destiny[$key] = $source[$key]; } // Overwrite leaf
+
+public function array_walk_merge(array &$destiny, array $source) : void { // array_walk_recursive() cannot copy multi-dimensional source, array_map() cannot edit destination
+	foreach($destiny as $key => $value) { // overwrite
+		if (!isset($source[$key])) { continue; } // no source
+		else if (is_array($destiny[$key]) && is_array($source[$key])) { $this->array_walk_merge($destiny[$key], $source[$key]); } // recurse branch
+		else { $destiny[$key] = $source[$key]; } // overwrite leaf
 	}
-	foreach($source as $key => $value) { // Extend
-		if (!isset($destiny[$key])) { $destiny[$key] = $source[$key]; continue; } // Extend branch/leaf
-		else if (is_array($destiny[$key]) && is_array($source[$key])) { $this->array_walk_merge($destiny[$key], $source[$key]); } // Recurse branch
+	foreach($source as $key => $value) { // extend
+		if (!isset($destiny[$key])) { $destiny[$key] = $source[$key]; continue; } // extend branch/leaf
+		else if (is_array($destiny[$key]) && is_array($source[$key])) { $this->array_walk_merge($destiny[$key], $source[$key]); } // recurse branch
 	}
 	return;
 }
-// RFC 4122 compliant Version 4 UUIDs, globally unique
-public function get_uuid() : string {
-	// Generate 16 bytes (128 bits) of random data
+
+public function get_uuid() : string { // RFC 4122 compliant Version 4 UUIDs, globally unique
+	// generate 16 bytes (128 bits) of random data
 	$data = random_bytes(16);
 	if (strlen($data) !== 16) { $this->error_wsod("Sixteen bytes unavailable for uuidv4."); }
-    // Set version to 0100
+    // set version to 0100
     $data[6] = chr(ord($data[6]) & 0x0f | 0x40);
-    // Set bits 6-7 to 10
+    // set bits 6-7 to 10
     $data[8] = chr(ord($data[8]) & 0x3f | 0x80);
-    // Output the 36 character UUID.
+    // output the 36 character UUID.
     return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
 }
-// Unique token, 64 bytes
-public function get_uniq(): string {
+
+public function get_uniq() : string { // unique 64 byte token for transients
 	return chr(random_int(97,122)).chr(random_int(97,122)).bin2hex(random_bytes(31));
 }
-// Unique DB ID, 32 bytes
-public function get_dbid(): string {
+
+public function get_dbid() : string {// unique 32 byte token for permanents
 	return chr(random_int(97,122)).chr(random_int(97,122)).bin2hex(random_bytes(15));
 }
-// Derived deterministic hash key, permanent and segregated by extension, 64 bytes
-public function get_pkey(?string $input): string {
+
+public function get_pkey(?string $input) : string { // derived deterministic immutable 64 byte hash key, segregated by extension
 	return hash('sha256', $this->output_extension().$input);
 }
-// Derived deterministic hash key, temporal with settings secret and segregated by extension, 64 bytes
-public function get_ckey(?string $input): string {
+
+public function get_ckey(?string $input) : string { // derived deterministic immutable 64 byte hash key, segregated by extension, keyed on session secret
 	return hash('sha256', ($this->compiles['core']['secret']??$this->settings['core']['secret']).$this->output_extension().$input);
 }
-// htmlspecialchars() wrapper
-public function hsc(?string $string): ?string {
+
+public function hsc(?string $string) : ?string { // htmlspecialchars() name shortener
 	return (NULL === $string ? NULL : htmlspecialchars(($string), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML401, 'UTF-8'));
 }
-// HTML to plain text
-public function html_text(string $html): string {
+
+public function html_text(string $html) : string { // HTML to plain text
 	// remove JavaScript, CSS, and head
 	$html = preg_replace('/<script[^>]*?>.*?<\/script>/is', '', $html);
 	$html = preg_replace('/<style[^>]*?>.*?<\/style>/is', '', $html);
@@ -1852,28 +1847,29 @@ public function html_text(string $html): string {
 /*************************************************************************************************
 SECTION EMAIL: SMTP emailer.
  */
+ 
 // Adapted by Claude.AI from https://github.com/arkanis/smtp_send.
 // Licensed as arkanis/smtp_send (c) 2014-2021 Stephan Soller, MIT License.
-public function email(
-	string				$from,		// from, envelope + header
-	string				$name,		// from name, header
-	array|string		$to,		// recipients
-	array|string|NULL	$cc,		// cc, envelope + header
-	array|string|NULL	$bcc,		// bcc, envelope
-	string				$subject,	// subject, auto UTF-8 & base64
-	string|NULL			$html,		// HTML body
-	string|NULL			$text,		// plain-text, optional
-	array|string|NULL	$attach,	// attachments, absolute path
-	array				$options=[],// options
-									// 'smtp'	=> hostname, 'tcp://host' (587), or 'ssl://host' (port 465)
-									// 'port'	=> 587 (STARTTLS/explicit TLS), 465 (SSL/implicit TLS), or 25
-									// 'user'	=> SMTP username, empty to skip auth
-									// 'pass'	=> SMTP password
-									// 'time'	=> socket timeout seconds, default php: default_socket_timeout
-									// 'ehlo'	=> EHLO identity
-									// 'ssl'	=> stream SSL context options for STARTTLS, ie. ['verify_peer'=>FALSE]
-									// 'debug'	=> bool, log everything
-): bool|string {					// TRUE if delivered or error string
+public function email(			// SMTP mailer function
+string				$from,		// from, envelope + header
+string				$name,		// from name, header
+array|string		$to,		// recipients
+array|string|NULL	$cc,		// cc, envelope + header
+array|string|NULL	$bcc,		// bcc, envelope
+string				$subject,	// subject, auto UTF-8 & base64
+string|NULL			$html,		// HTML body
+string|NULL			$text,		// plain-text, optional
+array|string|NULL	$attach,	// attachments, absolute path
+array				$options=[],// options
+								// 'smtp'	=> hostname, 'tcp://host' (587), or 'ssl://host' (port 465)
+								// 'port'	=> 587 (STARTTLS/explicit TLS), 465 (SSL/implicit TLS), or 25
+								// 'user'	=> SMTP username, empty to skip auth
+								// 'pass'	=> SMTP password
+								// 'time'	=> socket timeout seconds, default php: default_socket_timeout
+								// 'ehlo'	=> EHLO identity
+								// 'ssl'	=> stream SSL context options for STARTTLS, ie. ['verify_peer'=>FALSE]
+								// 'debug'	=> bool, log everything
+) : bool|string {				// TRUE if delivered or error string
 	// argument and option defaults
 	if (NULL !== $to && is_string($to)) { $to = array($to); }
 	if (NULL !== $cc && is_string($cc)) { $cc = array($cc); }
@@ -1888,7 +1884,6 @@ public function email(
 	$options['ssl']		??= [];
 	$options['debug']	??= FALSE;
 	$log = "\r\nABCMS SMTP BEGIN: from={$from}"; // log
-
 	// define done() and SMTP command() functions
 	$socket = NULL;
 	$command = function (?string $line, $logit = TRUE) use (&$socket, &$log, $options) {
@@ -1913,22 +1908,18 @@ public function email(
 		$this->error_log($log."\r\nABCMS SMTP FAIL: {$result}");
 		return $result;
 	};
-
 	// configuration abuse
 	if (empty($options_user)) {
 		if (!preg_match('/^(tcp:\/\/|tls:\/\/|ssl:\/\/|)(127\.0\.0\.1|localhost|::1|\[::1\])$/uiD', $options['smtp']))  { return $fail("Unauthenticated email can only SMTP from same server."); }
 		if (!preg_match('/^[^@]+@([a-z0-9-]+\.)*'.preg_quote($this->boots['urldomain'], '/').'$/uiD', $from))  { return $fail("Unauthenticated email 'From' domain only from same domain."); }
 	}
-
-	// Sanitize header-bound fields (defense in depth)
-	// Even though we base64-encode the subject and never let addresses touch
-	// headers unescaped, strip CR/LF from anything that lands in a header so
-	// a stray newline can never inject an extra header or command.
+	// sanitize header-bound fields (defense in depth) even though we base64-encode the
+	// subject and never let addresses touch headers unescaped, strip CR/LF from anything
+	// that lands in a header so a stray newline can never inject an extra header or command.
 	$name = preg_replace('/[\r\n]+/', '', $name);
 	$subject  = preg_replace('/[\r\n]+/', '', $subject);
-
 	// SMTP command-injection guard on every address
-	// If an address contains an unescaped ">" it could break out of
+	// iIf an address contains an unescaped ">" it could break out of
 	// "RCPT TO:<...>" and inject further SMTP commands.
 	if (empty($to)) { return $fail("Email requires at least one recipient."); }
 	$allRecipients = array_unique(array_merge($to, ($cc??[]), ($bcc??[])));
@@ -1939,8 +1930,7 @@ public function email(
 		if (preg_match('/[\r\n]+/', $addr)) { return $fail("Unsafe email address rejected: '{$addr}'."); }
 	}
 	$log .= "\r\nABCMS SMTP RECIPIENTS:\r\n".implode("\r\n", $allRecipients); // log
-
-	// Connect to SMTP socket
+	// connect to SMTP socket
 	if (!($socket = @fsockopen($options['smtp'], $options['port'], $errno, $errstr, $options['time']))) {
 		return $fail("Email SMTP connection failed: {$errstr} ({$errno}).");
 	}
@@ -1948,14 +1938,12 @@ public function email(
 		return $fail("Email set stream timeout failed.");
 	}
 	$log .= "\r\nABCMS SMTP SOCKET:\r\n".print_r($socket,TRUE); // log
-
 	// SMTP Handshake
 	[$status] = $command(NULL); // consume greeting
 	if ($status != 220) { return $fail("Email failed with no greeting from SMTP server."); }
 	[$status, $capabilities] = $command('EHLO ' . $options['ehlo']);
 	if ($status != 250) { return $fail("Email failed with rejected EHLO."); }
 	$log .= "\r\nABCMS SMTP HANDSHAKE:\r\n".print_r($capabilities,TRUE); // log
-
 	// STARTTLS if offered and not already an implicit-TLS transport
 	$encrypted = (FALSE === stripos($options['smtp'],'ssl://') ? FALSE : TRUE);
 	if (!$encrypted && in_array('STARTTLS', $capabilities, TRUE)) {
@@ -1975,7 +1963,6 @@ public function email(
 		else { return $fail("Email STARTTLS security failed."); }
 		$log .= "\r\nABCMS SMTP STARTTLS: success={$status}"; // log
 	}
-
 	// AUTH (PLAIN preferred, LOGIN fallback), only if credentials given
 	if (!empty($options_user) && !$encrypted) { return $fail("Email unencrypted authentication refused."); }
 	if (!empty($options_user) && isset($options_pass)) {
@@ -1998,8 +1985,7 @@ public function email(
 		}
 		$log .= "\r\nABCMS SMTP AUTHENTICATED: success={$status}"; // log
 	}
-
-	// Envelope: MAIL FROM + RCPT TO for to+cc+bcc combined
+	// envelope: MAIL FROM + RCPT TO for to+cc+bcc combined
 	[$status] = $command("MAIL FROM:<{$from}>");
 	if ($status != 250) { return $fail('Email MAIL FROM rejected.'); }
 	foreach ($allRecipients as $recipient) {
@@ -2009,11 +1995,10 @@ public function email(
 	[$status] = $command('DATA');
 	if ($status != 354) { return $fail('Email DATA not accepted.'); }
 	$log .= "\r\nABCMS SMTP ENVELOPE: success={$status}"; // log
-
-	// Build MIME message
+	// build MIME message
 	$mixedBoundary = 'abcms_mixed_' . bin2hex(random_bytes(16));
 	$altBoundary   = 'abcms_alt_'   . bin2hex(random_bytes(16));
-	// Header begins
+	// header begins
 	$headers  = "Date: " . date('r') . "\r\n";
 	$headers .= "From: =?UTF-8?B?" . base64_encode($name) . "?= <{$from}>\r\n";
 	$headers .= 'To: ' . implode(', ', array_map(fn($r) => "<{$r}>", $to)) . "\r\n";
@@ -2050,8 +2035,7 @@ public function email(
 		$body .= chunk_split(base64_encode(($text??'')));
 	}
 	$log .= "\r\nABCMS SMTP MESSAGE: success"; // log
-
-	// Add attachments
+	// add attachments
 	foreach (($attach??[]) as $filePath) {
 		try { if (!$this->chk_file($filePath, TRUE)) { return $fail("Filename does not exist or not readable: {$filePath}"); } }
 		catch (Throwable $e) { return $fail($e->getMessage() ?: "Suspect filename disallowed: {$filePath}"); }
@@ -2071,21 +2055,18 @@ public function email(
 	}
 	$body .= "--{$mixedBoundary}--\r\n";
 	$log .= "\r\nABCMS SMTP ATTACHMENTS: success"; // log
-
-	// Normalize line endings and dot-stuff in DATA (RFC 5321 §4.5.2)
+	// normalize line endings and dot-stuff in DATA (RFC 5321 §4.5.2)
 	$payload = $headers . "\r\n" . $body;
 	$payload = preg_replace('/\r\n|\r|\n/', "\r\n", $payload);
 	$payload = preg_replace('/^\./m', '..', $payload);
 	if (substr($payload, -2) !== "\r\n") $payload .= "\r\n";
 	$log .= "\r\nABCMS SMTP NORMALIZE: success"; // log
-
-	// Write the email
+	// write the email
 	if (FALSE === fwrite($socket, $payload)) { return $fail('Email SMTP send failed.');	}
 	[$status] = $command('.');
 	if ($status != 250) { return $fail('Email server rejected the message body.'); }
 	$log .= "\r\nABCMS SMTP SEND: status={$status} bytes=".strlen($payload); // log
-
-	// Finish
+	// finish
 	$command('QUIT');
 	fclose($socket);
 	if ($options['debug']) { $this->error_log($log."\r\nABCMS SMTP EXIT: success"); }
@@ -2101,19 +2082,20 @@ public function email(
 /*************************************************************************************************
 SECTION THEME: Core webpage template.
 */
-public function theme(
-	?string	$css	= NULL,	// css override
-	?string	$js		= NULL,	// js override
-	?string	$head	= NULL,	// header override
-	?string	$main	= NULL,	// content override
-	?string	$foot	= NULL,	// footer override
-	int		$flag	= 1,	// exclusive control
-) : ?bool {					// return boolean
-// helpful defaults
+
+public function theme(	// default HTML template
+?string	$css	= NULL,	// css override
+?string	$js		= NULL,	// js override
+?string	$head	= NULL,	// header override
+?string	$main	= NULL,	// content override
+?string	$foot	= NULL,	// footer override
+int		$flag	= 1,	// exclusive control
+) : ?bool {				// return boolean
+// initialize
 $title = mb_strtoupper($this->hsc($this->boots['urldomain']), 'UTF-8');
 $lower = mb_strtolower($title, 'UTF-8');
 $favicon = (is_readable('./favicon.ico') ? '/favicon.ico' : (is_readable('./public/favicon.ico') ? '/public/favicon.ico' : 'data:,'));
-// page template
+// HTML template
 ?>
 <!DOCTYPE html>
 <html lang='en'>
@@ -2201,7 +2183,7 @@ echo $this->see_errors();
 </div>
 </body>
 <?php
-return NULL; // done
+return NULL;
 }
 // end object
 };
@@ -2218,6 +2200,7 @@ $_abcms->oneshot = NULL;
 try { if ($oneshot) { $oneshot(); } }
 catch (Throwable $e) { $_abcms = NULL; throw $e; }
 }
+
 // return fully constructed object or NULL
 return $_abcms;
 }
