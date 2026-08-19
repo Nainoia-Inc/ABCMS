@@ -76,7 +76,7 @@ const ABCMS_SES_LOGI	= 7;				// max login attempts
 
 
 /*************************************************************************************************
-SECTION TRY/CATCH: Anonymous function boots abcms()->output() for global footprint = 1.
+SECTION TRY/CATCH: Anonymous function boot for global footprint = abcms().
 */
 
 (function() {				// wrapper reduces globals
@@ -160,7 +160,7 @@ EOF;
 finally { // always clean up
 	session_commit(); $_SESSION = []; // disallow deferred session access
 }
-exit($code);
+exit($code); // script return 0 = success or 1 = failure
  ; })();
 
 
@@ -170,14 +170,14 @@ exit($code);
 
 
 /*************************************************************************************************
-SECTION CONSTRUCT: Instantiate object methods, then properties, then validate inputs.
+SECTION INPUT: Validate input with construct object methods() 1st and properties 2nd.
 */
 
 function abcms() : ?object {						// abcms() the only global
 static $_abcms = FALSE;								// construct once
 if (FALSE === $_abcms) {							// fail once
 $_abcms = NULL;										// return NULL or object
-$_abcms = new class {								// object assigned
+$_abcms = new class {								// abcms object assigned
 public				?Closure $oneshot	= NULL;		// oneshot construction
 readonly			array	$boots;					// bootstrap input before session
 readonly			array	$input;					// sanitize input with session
@@ -192,9 +192,9 @@ private				array	$stackwho	= [];		// extension stack
 private				bool	$formvalid	= FALSE;	// form valid
 private				bool	$formhuman	= FALSE;	// form human
 
-function __construct() { $this->oneshot = function() { $this->construct(); }; }	// 1st construct object methods, so extension SETUP.php can use abmcs() methods
+function __construct() { $this->oneshot = function() { $this->input_construct(); }; } // 1st construct object methods, so extension SETUP.php can use abmcs() methods
 
-private function construct() {													// 2nd construct object properties
+private function input_construct() { // 2nd construct object properties
 	$this->stackwho[] = ABCMS_EXT_SELF; // push core on extension stack
 	$this->setup(TRUE); // assign $settings
 	if (FALSE === ini_set('error_log', $this->settings['core']['translog'])) { $this->error_log("Set error_log location failed."); } // locate logs
@@ -253,7 +253,7 @@ private function input_valid(	// validate input variables
 string	$cat,					// 'U'=URL, 'G'=$_GET, 'P'=$_POST
 array	$vars,					// variable array to validate
 int		$role,					// user role
-) : array {						// return same array
+) : array {						// return $vars array or WSOD
 	// loop input variables
 	$last = NULL;
 	foreach($vars as $var => $val) {
@@ -295,12 +295,12 @@ int		$role,					// user role
 
 
 /*************************************************************************************************
-SECTION SETUP: Compile core and extension readonly settings.
+SECTION SETUP: Setup core and extension readonly settings.
 */
 
 private function setup(	// read or create core settings, executed by Composer, construct(), command_setup()
 bool	$boot = FALSE,	// TRUE = load existing, else recreate
-) : void {				// return void
+) : void {				// return void or WSOD
 	// $this->boots and $this->input not yet initialized
 	// load settings from var_dump() file for speed, beware of injection
 	$this->error_log('SETUP: Begin');
@@ -415,7 +415,7 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	$this->error_log('SETUP: Optimize settings');
 	// load custom settings from var_dump file for speed, beware of injection
 	$this->error_log('SETUP: Custom overrides');
-	if (function_exists('opcache_invalidate')) { opcache_invalidate($this->compiles['core']['override'], TRUE); }
+	if (function_exists('opcache_invalidate')) { opcache_invalidate($this->compiles['core']['override'], TRUE); } // clear php cache
 	$override = [];
 	if (!$this->get_dump($this->compiles['core']['override'], $override) || !is_array($override)) { $this->error_wsod("Custom settings file missing or corrupted."); }
 	$this->array_walk_merge($this->compiles, $override);
@@ -542,7 +542,7 @@ SECTION SESSION: Secure sessions with opt-in/out, validation, CSRF, CAPTCHA, and
 */
 
 public function session_start(	// start session conditionally
-int $cmd,						// 1=unconditional, -1=destroy, 0=me-1st-conditional
+int $cmd,						// -1 = destroy, 0 = start if, 1 = start 
 ) : bool {						// return TRUE=started, FALSE=destroyed
 	// initialize
 	$active = (session_status() === PHP_SESSION_ACTIVE ? TRUE : FALSE);
@@ -712,13 +712,13 @@ KILL:	// set errors
 
 // Extensions safely segregated with $_SESSION[extension].
 // Use $copysess = $this->s() to copy $_SESSION[extension].
-// Use $writesess = &$this->s(TRUE) to read/write $_SESSION[extension].
 // Copy session extension element: $value = $copysess['element'];
+// Use $writesess = &$this->s(TRUE) to read/write $_SESSION[extension].
 // Assign extension element: $writesess['element'] = FALSE;
 // Assign whole extension: $writesess = array('element' => TRUE);
-public function &s(
-	bool $assign = FALSE, // TRUE to initialize $_SESSION[extension]
-) : array {
+public function &s(		// segregated $_SESSION by extension
+bool $assign = FALSE,	// TRUE to initialize $_SESSION[extension]
+) : array {				// return $_SESSION[extension], empty, or WSOD
 	$ext = $this->output_extension(); // segregation key
 	$bad = TRUE; // allow only one call to session_status()
 	if ($assign) {
@@ -731,13 +731,13 @@ public function &s(
 	}
 	$empty = []; return $empty; // return fail-safe emptiness
 }
-// set cookie
-public function set_cookie(
-	string	$cookie,		// name
-	string	$value,			// value
-	int		$expires,		// expiration
-	bool	$killit = TRUE,	// kill heed
-): void {
+
+public function set_cookie(	// set cookie
+string	$cookie,			// name
+string	$value,				// value
+int		$expires,			// expiration
+bool	$killit = TRUE,		// kill heed
+): void {					// return void or WSOD
 	// headers sent error and kill cookie on close browser
 	if (headers_sent()) { $this->error_wsod("Set cookie headers already sent"); }
 	if ($killit && $expires > 1 && $this->settings['core']['session_killit']) { $expires = 0; }
@@ -773,8 +773,10 @@ public function set_cookie(
 /*************************************************************************************************
 SECTION DATABASE: Store data in VAR_DUMP, JSON, CSV, SQLite, and MySQL.
 */
-// database set
-public function new_database(string $file) : void {
+
+public function new_database(	// create new database
+string $file,					// filename within extension
+) : void {						// return void or WSOD
 	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->error_wsod("Database name invalid: {$file}"); } // invalid file
 	$fold = ($this->compiles['core']['projectroot']??$this->settings['core']['projectroot']).'/private'.$this->output_extension().'/ABCMS.database';
 	if (!is_dir($fold) && !mkdir($fold, 0750, true)) { $this->error_wsod("Database folder does not exist: {$fold}"); }
@@ -782,12 +784,13 @@ public function new_database(string $file) : void {
 	$this->touch($file);
 	$this->touch($file.'.lock');
 }
-public function set_database(
-	string	$file,		// database file
-	array	$keys,		// element keys, [] replaces database with (is_array($data) ? $data : [$data])
-	mixed	$data,		// element
-	bool	$new=TRUE,	// TRUE to add new record (fails if exists), FALSE to update existing (fails if doesn't exist)
-) : bool {
+
+public function set_database(	// write to database
+	string	$file,				// filename within extension
+	array	$keys,				// element keys, [] replaces database with (is_array($data) ? $data : [$data])
+	mixed	$data,				// new or updated element
+	bool	$new = TRUE,		// TRUE to add new record (fails if exists), FALSE to update existing (fails if doesn't exist)
+) : bool {						// return success or failure
 	// errors
 	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->error_wsod("Database name invalid: {$file}"); } // invalid file
 	if ($new && NULL === $data) { return FALSE; } // may not new NULL
@@ -857,11 +860,11 @@ public function set_database(
 	flock($lockfd, LOCK_UN); fclose($lockfd);
 	return TRUE;
 }
-// database get
-public function get_database(
-	string	$file,	// database file
-	array	$keys,	// element keys, [] returns whole database
-) : mixed {
+
+public function get_database(	// read database
+string	$file,					// filename within extension
+array	$keys,					// read element from key path or [] returns whole database
+) : mixed {						// return element or NULL for failure
 	// errors
 	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->error_wsod("Database name invalid: {$file}"); } // invalid file
 	// cached or not cached
@@ -909,16 +912,16 @@ public function get_database(
 /*************************************************************************************************
 SECTION OUTPUT: Everything is a routed extension.
 */
-// Hooked function output path router extension manager
-public function output(
-	string	$hook,		// /vendor/extension/$hook name, only create hooks for your own extension
-	string	$meth,		// HTTP methods, '' = ALL = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE"
-	string	$default,	// Default function, '' = no default
-	int		$role,		// Minimum role permissions
-	int		$flag,		// <0 = extender exclusive, 0 = anyone, 1 = extender exclusive allowed
-	bool	$must,		// Must do default, TRUE = required -OR- FALSE = optional
-	mixed	&...$args,	// Default arguments
-) : array {
+
+public function output(	// hookable output path router extension function manager
+string	$hook,			// /vendor/extension/$hook name, only create hooks for your own extension
+string	$meth,			// HTTP methods, '' = ALL = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE"
+string	$default,		// default function, '' = no default
+int		$role,			// minimum role permissions
+int		$flag,			// <0 = extender exclusive, 0 = anyone, 1 = extender exclusive allowed
+bool	$must,			// must do default, TRUE = required -OR- FALSE = optional
+mixed	&...$args,		// default arguments
+) : array {				// return input $args
 	// stack start essential even for core
 	$pushed = FALSE; if (empty($this->stackwho)) { $this->stackwho[] = ABCMS_EXT_SELF; $pushed = TRUE; } try {
 	// Initialize
@@ -986,19 +989,19 @@ public function output(
 	//return $arguments
 	return $args;
 }
-// Determine extension name
-private function output_extension() : string {
+
+private function output_extension() : string { // return callers extension name
 	if (empty($this->stackwho)) { $this->error_wsod("Session stack identity missing."); }
 	return end($this->stackwho);
 }
-// Execute hook extension?
-private function output_doit(
-	array	$ext,	// Extension definition
-	string	$whoami,// Is this extender allowed
-	int		$flag,	// <0 = extender exclusive, 0 = anyone, 1 = extender exclusive allowed
-	bool	$must,	// Must do default
-	?string	&$excl,	// Exclusive extension winner
-) : bool {
+
+private function output_doit(	// shall we execute hook extension?
+array	$ext,					// extension definition
+string	$whoami,				// is this extender allowed
+int		$flag,					// <0 = extender exclusive, 0 = anyone, 1 = extender exclusive allowed
+bool	$must,					// must also do default
+?string	&$excl,					// exclusive extension winner
+) : bool {						// return TRUE or FALSE
 	// Exit before exclusive selection
 	if (!$must && !$ext['ord']) {																	return FALSE; }	// No default extension
 	if (!empty($ext['met']) && FALSE === stripos($ext['met'], $this->boots['urlmethod'])) { 		return FALSE; }	// HTTP method | TODO consider this instead in_array($method, explode('-', $met)
@@ -1014,12 +1017,12 @@ private function output_doit(
 	// Do it
 	return TRUE;
 }
-// Call extension function
-private function output_call(
-	string	$who,		// extension stack
-	string	$filefunc,	// Includefile?function
-	mixed	&...$args,	// Arguments passed
-) : ?bool {
+
+private function output_call(	// call extension function
+string	$who,					// extension stack
+string	$filefunc,				// includefile?function
+mixed	&...$args,				// arguments passed
+) : ?bool {						// return function result
 	// Parse includefile?function
 	if (!preg_match(ABCMS_REGEX_FUNC, $filefunc, $match)) { $this->error_wsod("Calling invalid function name."); }
 	$filepath	= $match[2]; // extension include file
@@ -1072,13 +1075,13 @@ private function output_call(
 	return $result;
 }
 
-// inject html form security with regex for speed instead of DOM 
-private function output_security(string &$html) : void {
 
+private function output_security(	// inject html form security with regex for speed instead of DOM 
+string &$html,						// inject into output HTML
+) : void {							// return void
 	// failure or no form so skip
 	if (FALSE === ($num = preg_match_all(ABCMS_REGEX_FORM, $html))) { $this->error_wsod("Form security failed initialization."); }
 	if (!$num) { return; }
-
 	// start session
 	if (!$this->session_start(1)) {
 		// session failed, disable forms with <fieldset> and CSS with missing CSRF as safety net
@@ -1092,7 +1095,6 @@ private function output_security(string &$html) : void {
 		}
 		return;
 	}
-
 	// session shortcut and click delay
 	$delay = ABCMS_SES_WAIT * 1000;
 	// secure button click instead of enter submission
@@ -1128,13 +1130,11 @@ document.addEventListener('click', function (event) {
 </head>
 
 EOF;
-
 	// inject javascript
 	$inject_script = str_replace(['\\', '$'], ['\\\\', '\\$'], $inject_script);
 	if (!($html = preg_replace('/<\/head>/ui', $inject_script, $html, 1, $count)) || 1 !== $count) { // inject
 		$this->error_wsod("Form security javascript injection failed.");
 	}
-
 	// form security tokens
 	$inject_tokens = <<<EOF
 <input type='hidden' name='clicked'					value=''>
@@ -1151,7 +1151,6 @@ CAPTCHA <input name='{$regex_safe}' value=''> \$1 \$3
 </div>
 EOF
 	);
-
 	// further injection in <form>s and <button>s
 	if (!($html = preg_replace_callback(
 		ABCMS_REGEX_FORM,
@@ -1173,8 +1172,9 @@ EOF
 	return;
 }
 
-// inject debug information for administrator only
-private function output_debug(string &$html) : void {
+private function output_debug(	// inject debug information for administrator only
+string &$html,					// inject into HTML output string
+) : void {						// return void
 	if (!$html || $this->input['role'] !== ABCMS_ROLE_ADMINS) { return; }
 	$injection = "<pre class='debug'><h2>Coredump</h2>".print_r(array('ABCMS_OBJECT'=>$this, 'ABCMS_GLOBALS'=>$GLOBALS),TRUE)."</pre></body>";
 	$injection = str_replace(['\\', '$'], ['\\\\', '\\$'], $injection);
@@ -1191,8 +1191,8 @@ private function output_debug(string &$html) : void {
 /*************************************************************************************************
 SECTION RESPONSES: Return request responses.
 */
-// Backtrace simplified
-private function error_trace() : array {
+
+private function error_trace() : array { // return backtrace info for error log
 	// Omit object, include args, 3 levels back
 	$back = debug_backtrace(0, 3);
 	$function = (empty($back[1]['function']) ? 'unknown' : $back[1]['function']);
@@ -1205,39 +1205,45 @@ private function error_trace() : array {
 	});
 	return [$function, $args];
 }
-// Throw exception
-public function error_wsod(
-	string $mess,
-) : void {
+
+public function error_wsod(	// throw exception
+string $mess,				// message
+) : void {					// never returns
 	[$function, $args] = $this->error_trace();
 	error_log("{$function}->error_wsod() {$mess}\n".print_r($args,TRUE));
 	throw new Exception($mess);
 	return;
 }
-// Log error
-public function error_log(string $mess) : void {
+
+public function error_log(	// log error
+string $mess,				// message
+) : void {					// return void
 	[$function, $args] = $this->error_trace();
 	error_log(($mess = "{$function}->error_log() {$mess}\n".print_r($args,TRUE)));
 	return;
 }
-public function set_errors(					// Set errors
-	string ...$errors,						// Error strings
-) : void {
+
+public function set_errors(	// set user errors
+	string ...$errors,		// message
+) : void {					// return void
 	array_push($this->errors, ...$errors);
 	return;
 }
-public function get_debugs() : array {		// Get private debugs for public
+
+public function get_debugs() : array { // return debugs for public
 	return $this->debugs;
 }
-public function get_errors() : array {		// Get private errors for public
+
+public function get_errors() : array { // return errors for public
 	return $this->errors;
 }
-public function error_get_last() : ?string {// Get last error message
+
+public function error_get_last() : ?string { // return last error message
 	$error = error_get_last();
 	return ($error ? "{$error['message']} [type={$error['type']}] in {$error['file']} on line {$error['line']}" : NULL);
 }
 
-public function see_errors() : ?string {	// Format private errors for public
+public function see_errors() : ?string { // return formatted errors for public
 	if (!empty($this->errors)) { return '<br><br>Errors:<br>'.implode('<br>',$this->errors); }
 	return NULL;
 }	
