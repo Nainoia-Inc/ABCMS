@@ -445,10 +445,10 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 }
 
 public function setup_extend(		// register hook extension
-string	$hok,						// /vendor/package/hook TODO combine $hok & $ext ?
+string	$hok,						// /vendor/package/hook | TODO combine $hok & $ext ?
 string	$ext,						// extension or '' for all
-string	$met,						// HTTP methods, '' = all = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE"
-string	$str,						// control string TODO constants?
+string	$met,						// HTTP methods, '' = all = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE" | TODO make $met and $str similar structure?
+string	$str,						// control string | TODO constants?
 									// 'I' = input -OR- 'O' = output filter, default input
 									// 'E' = exclusive to my extension or omit me, default anyone
 									// 'U' = uno/single extension, default multiple extensions cooperate 
@@ -459,8 +459,8 @@ int		$ord = 0,					// order considered, PHP_INT_MIN >= $ord <= PHP_INT_MAX
 mixed	...$arg,					// argument alternatives
 ) : bool {							// return success or failure
 	// wrong context or parse control string
-	$ctl = array_flip(($key=str_split(strtoupper($str))));
-	$key = array_diff_key($key, array('I','O','E','U','D'));
+	$ctl = ('' === $str ? array() : array_flip(str_split(strtoupper($str))));
+	$key = array_diff_key($ctl, array('I'=>0,'O'=>0,'E'=>0,'U'=>0,'D'=>0));
 	// validate
 	$a = $b = $c = $d = $e = $f = $g = FALSE;
 	if (($a=(!is_array($this->compiles))) || // bad context
@@ -1001,7 +1001,7 @@ private function output_doit(
 ) : bool {
 	// Exit before exclusive selection
 	if (!$must && !$ext['ord']) {																	return FALSE; }	// No default extension
-	if (!empty($ext['met']) && FALSE === stripos($ext['met'], $this->boots['urlmethod'])) { 		return FALSE; }	// HTTP method
+	if (!empty($ext['met']) && FALSE === stripos($ext['met'], $this->boots['urlmethod'])) { 		return FALSE; }	// HTTP method | TODO consider this instead in_array($method, explode('-', $met)
 	if ($flag < 0 && $whoami !== $ext['who']) { $this->error_log("Extender not self.");				return FALSE; }	// Extender match
 	if (!$flag && isset($ext['ctl']['E'])) {														return FALSE; }	// Non-exclusive, cancel request
 	// Exclusive winner or non-exclusive
