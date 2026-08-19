@@ -192,7 +192,7 @@ private				array	$stackwho	= [];		// extension stack
 private				bool	$formvalid	= FALSE;	// form valid
 private				bool	$formhuman	= FALSE;	// form human
 
-function __construct() { $this->oneshot = function() { $this->input_construct(); }; } // 1st construct object methods, so extension SETUP.php can use abmcs() methods
+function __construct() { $this->oneshot = function() { $this->input_construct(); }; } // 1st construct object methods, so extension SETUP.php can use abcms() methods
 
 private function input_construct() { // 2nd construct object properties
 	$this->stackwho[] = ABCMS_EXT_SELF; // push core on extension stack
