@@ -9,7 +9,7 @@ Copy index.php to a docroot or run "composer install nainoia-inc/abcms".
 Visit index.php in a browser or run "php index.php /command/help".
 Download the super user password from "ABMCS.deleteme", then delete.
 Extend imitating setup(), home_*(), webfiles_*(), console_*(), command_*().
-Everything is a routed extension, but extensions should also do their own routing.
+Everything is a routed extension, but extensions also do their own routing.
 Access $_SESSION[extension] with s() API, but $_SESSION remains exposed.
 Run extension SETUP.php with /command/setup and CRON.php with /command/cron.
 Schedule "php index.php /command/cron" every 15 minutes to 1x per day.
@@ -43,7 +43,7 @@ const ABCMS_EXT_INIT	= '/init';								// initial extension hook
 const ABCMS_EXT_INITX	= '/nainoiainc/abcms'.ABCMS_EXT_INIT;	// initial extension fullname
 const ABCMS_EXT_MAIN	= '/theme_main';						// default html <main> extension hook
 const ABCMS_EXT_MAINX	= '/nainoiainc/abcms'.ABCMS_EXT_MAIN;	// default html <main> extension fullname
-const ABCMS_EXT_PRIVATE	= '/private/nainoiainc/abcms/';			// core private files
+const ABCMS_EXT_PRIVATE	= '/private/nainoiainc/abcms/';			// core private file folder
 // user roles
 const ABCMS_ROLE_PUBLIC	= 0;
 const ABCMS_ROLE_AUTHEN	= 1;
@@ -54,6 +54,7 @@ const ABCMS_ROLE_MANAGE	= 5;
 const ABCMS_ROLE_ADMINS	= 6;
 const ABCMS_ROLE_CLI	= 7;
 const ABCMS_ROLE_SET	= array(0,1,2,3,4,5,6,7);
+// regex
 // regex output_extend() includefile?function #^(|/vendor/package/filepath)(|?(|classobject(::|->|()->))funcmeth)#
 const ABCMS_REGEX_FUNC	= '/^(((?:\/(?!\.\.?(?:\/|$))[^?\/\\\\\x00\r\n]+)+)\?)?((([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*)(::|\->|\(\)\->))?([a-z_\x{7f}-\x{ff}][a-z0-9_\x{7f}-\x{ff}]*))?$/uiD';
 // regex extension name patterns, lower case only
@@ -64,21 +65,21 @@ const ABCMS_REGEX_NICK	= '/^[a-z0-9]([_.-]?[a-z0-9]+)*$/uD'; // extension nickna
 const ABCMS_REGEX_URLV	= '/\/([a-z0-9\-_.~]+)=([a-z0-9\-_.~=]+)/ui';	// URL variable
 const ABCMS_REGEX_FORM	= '/(<form(?=[\s>])[^>]*>)(.+?)(<\/form>)/uis';	// form security injection
 const ABCMS_REGEX_DATA	= '/^[a-z0-9\-_]+\.[a-z0-9\-_]+$/uiD';			// Database filename
-// cookie permissions
+// cookie permissions, TODO use
 const ABCMS_COOK_LIFE	= 60*60*24*365;		// choice for 1 year
 const ABCMS_COOK_NONE	= 0;				// none
 const ABCMS_COOK_FORM	= 1;				// security
 const ABCMS_COOK_NAVS	= 2;				// navigation
 const ABCMS_COOK_TRAK	= 3;				// tracking
 // response types
-const ABCMS_LOG_DEBUG	= 0;				// log if debug = TRUE
+const ABCMS_LOG_DEBUG	= 0;				// silent log, if URL debug=TRUE
 const ABCMS_LOG_TRACE	= 1;				// silent log
 const ABCMS_LOG_INFO	= 2;				// log || echo user
 const ABCMS_LOG_WARN	= 3;				// log || echo user
 const ABCMS_LOG_ERROR	= 4;				// log || echo user
 const ABCMS_LOG_FATAL	= 5;				// log && echo user
-const ABCMS_LOG			= array('Debug','Trace','Info','Warning','Error','Fatal');
-// TODO - move session controls to overridable $settings
+const ABCMS_LOG			= array('Debug','Trace','Info','Warning','Error','Fatal'); // log type map
+// session controls, TODO - move to overridable $settings
 const ABCMS_SES_ROTA	= 60*15;			// rotate session after 15 minutes
 const ABCMS_SES_IDLE	= 60*60*24*1;		// destroy session after 1 day idle
 const ABCMS_SES_LIFE	= 60*60*24*3;		// destroy session after 3 days total
@@ -117,8 +118,8 @@ try {						// try output
 catch (\Throwable $e) {		// catch exceptions
 	// gather information
 	$exception = (htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8') ?: 'Unknown exception.'); // thrown error
-	$system = (error_get_last() ?? array('message' => 'No system error reported.')); // system error
-	$resplogs = (abcms() ? abcms()->response_user("\n") : $exception."\n".$system['message'] )."\n\n"; // response
+	$system = htmlspecialchars((error_get_last() ?? array('message' => 'No system error reported.'))['message']); // system error
+	$resplogs = (abcms() ? abcms()->response_user("\n") : $exception."\n".$system)."\n\n"; // response
 	$composer = array(); // composer extensions
 	if (class_exists(\Composer\InstalledVersions::class)) {
 		foreach (Composer\InstalledVersions::getInstalledPackagesByType('abcms-extension') as $name) {
@@ -158,7 +159,7 @@ Try again, wait, or contact webmaster.<br>
 <br>
 URL: "{$title}"<br>
 ERR: "{$exception}"<br>
-SYS: "{$system['message']}"<br>
+SYS: "{$system}"<br>
 <br>
 <a href='/'>Try again from the homepage</a>.
 </p></div></body></html>
@@ -170,7 +171,7 @@ EOF;
 		str_replace('\\', '/', __DIR__).'/..'.ABCMS_EXT_PRIVATE.'ABCMS.coredump',
 		print_r(array(
 			'ABCMS_EXCEPTION'	=> $exception,
-			'ABCMS_SYSTEM'		=> $system['message'],
+			'ABCMS_SYSTEM'		=> $system,
 			'ABCMS_OBJECT'		=> (abcms()?:'Constructor failed.'),
 			'ABCMS_GLOBALS'		=> $GLOBALS,
 			'ABCMS_BUFFER'		=> $buffer,
@@ -180,8 +181,8 @@ EOF;
 	$code = 1; // return failure
 }
 
-finally { // always clean up
-	if (abcms()) { abcms()->response_flush(); }
+finally { // clean up
+	if (abcms()) { abcms()->response_flush(); } // write log buffer
 	session_commit(); $_SESSION = []; // disallow deferred session access
 }
 exit($code); // script return 0 = success or 1 = failure
@@ -1637,6 +1638,7 @@ private function console_menu(mixed &...$unused) : void { // console menu
 <a href='/console/webservant'	>/console/webservant</a><br>
 <br>
 <a href='/command/code'			target='_blank'>/command/code</a><br>
+<a href='/command/coredump'		target='_blank'>/command/coredump</a><br>
 <a href='/command/cron'			target='_blank'>/command/cron</a><br>
 <a href='/command/help'			target='_blank'>/command/help</a><br>
 <a href='/command/phpinfo'		target='_blank'>/command/phpinfo</a><br>
@@ -1701,6 +1703,7 @@ private function command_router(mixed &...$unused) : ?bool { // command router
 	// internal extension dispatch bypasses core routing for speed
 	switch ($this->boots['urlpathall']) {
 		case '/command/code':		$this->command_code();		break;
+		case '/command/coredump':	$this->command_coredump();	break;
 		case '/command/cron':		$this->command_cron();		break;
 		case '/command/phpinfo':	$this->command_phpinfo();	break;
 		case '/command/setup':		$this->command_setup();		break;
@@ -1713,6 +1716,11 @@ private function command_router(mixed &...$unused) : ?bool { // command router
 
 private function command_code(mixed &...$unused) : void { // command code
 	highlight_file($this->rp(__FILE__));
+	return;
+}
+
+private function command_coredump(mixed &...$unused) : void { // command code
+	$this->response("Forced coredump.", ABCMS_LOG_FATAL);
 	return;
 }
 
