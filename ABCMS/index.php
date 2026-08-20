@@ -22,6 +22,18 @@ Schedule "php index.php /command/cron" every 15 minutes to 1x per day.
 
 
 /*************************************************************************************************
+SECTION REQUIREMENTS: Minimum requirements for operation.
+
+PHP version 8.1.0 or greater
+Filesystem supporting flock($fd, LOCK_EX)
+*/
+
+
+
+
+
+
+/*************************************************************************************************
 SECTION CONSTANTS: Immutable constants defined.
 */
 
@@ -58,6 +70,14 @@ const ABCMS_COOK_NONE	= 0;				// none
 const ABCMS_COOK_FORM	= 1;				// security
 const ABCMS_COOK_NAVS	= 2;				// navigation
 const ABCMS_COOK_TRAK	= 3;				// tracking
+// response types
+const ABCMS_LOG_DEBUG	= 0;				// log if debug = TRUE
+const ABCMS_LOG_TRACE	= 1;				// silent log
+const ABCMS_LOG_INFO	= 2;				// log || echo user
+const ABCMS_LOG_WARN	= 3;				// log || echo user
+const ABCMS_LOG_ERROR	= 4;				// log || echo user
+const ABCMS_LOG_FATAL	= 5;				// log && echo user
+const ABCMS_LOG			= array('Debug','Trace','Info','Warning','Error','Fatal');
 // TODO - move session controls to overridable $settings
 const ABCMS_SES_ROTA	= 60*15;			// rotate session after 15 minutes
 const ABCMS_SES_IDLE	= 60*60*24*1;		// destroy session after 1 day idle
@@ -98,6 +118,7 @@ catch (\Throwable $e) {		// catch exceptions
 	// gather information
 	$exception = (htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8') ?: 'Unknown exception.'); // thrown error
 	$system = (error_get_last() ?? array('message' => 'No system error reported.')); // system error
+	$resplogs = (abcms() ? abcms()->response_user("\n") : $exception."\n".$system['message'] )."\n\n"; // response
 	$composer = array(); // composer extensions
 	if (class_exists(\Composer\InstalledVersions::class)) {
 		foreach (Composer\InstalledVersions::getInstalledPackagesByType('abcms-extension') as $name) {
@@ -108,7 +129,7 @@ catch (\Throwable $e) {		// catch exceptions
 	$title = mb_strtolower(htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://').$_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI']), 'UTF-8'); // website title
 	$nonce = chr(random_int(97,122)).chr(random_int(97,122)).bin2hex(random_bytes(31)); // security nonce
 	// graceful WSOD
-	echo <<<EOF
+	if ('cli' !== PHP_SAPI) { echo <<<EOF
 <!DOCTYPE html>
 <html lang='en'>
 <head>
@@ -142,14 +163,15 @@ SYS: "{$system['message']}"<br>
 <a href='/'>Try again from the homepage</a>.
 </p></div></body></html>
 EOF;
+	}
+	else { echo $resplogs; } // CLI echo
 	// file output
-	error_log("ABCMS->COREDUMP()\n" . print_r(array('COREDUMP_EXCEPTION' => $exception, 'COREDUMP_SYSTEM' => $system))); // log error
 	file_put_contents( // dump corefile
 		str_replace('\\', '/', __DIR__).'/..'.ABCMS_EXT_PRIVATE.'ABCMS.coredump',
 		print_r(array(
 			'ABCMS_EXCEPTION'	=> $exception,
-			'ABCMS_SYSTEM'		=> $system,
-			'ABCMS_OBJECT'		=> (abcms()?:'constructor failed'),
+			'ABCMS_SYSTEM'		=> $system['message'],
+			'ABCMS_OBJECT'		=> (abcms()?:'Constructor failed.'),
 			'ABCMS_GLOBALS'		=> $GLOBALS,
 			'ABCMS_BUFFER'		=> $buffer,
 			'ABCMS_COMPOSER'	=> $composer,
@@ -159,6 +181,7 @@ EOF;
 }
 
 finally { // always clean up
+	if (abcms()) { abcms()->response_flush(); }
 	session_commit(); $_SESSION = []; // disallow deferred session access
 }
 exit($code); // script return 0 = success or 1 = failure
@@ -190,12 +213,15 @@ private				array	$errors		= [];		// TODO combine error info
 private				array	$debugs		= [];		// TODO combine debug info
 private				array	$stackarg	= [];		// TODO combine debug stack args
 private				array	$stackwho	= [];		// extension stack
+private				array	$resplogs	= [];		// response log
+private				array	$respuser	= [];		// response user
 private				bool	$formvalid	= FALSE;	// form valid
 private				bool	$formhuman	= FALSE;	// form human
 
 function __construct() { $this->oneshot = function() { $this->input_construct(); }; } // 1st construct object methods, so extension SETUP.php can use abcms() methods
 
 private function input_construct() { // 2nd construct object properties
+	// initialize
 	$this->stackwho[] = ABCMS_EXT_SELF; // push core on extension stack
 	$this->setup(TRUE); // assign $settings
 	if (FALSE === ini_set('error_log', $this->settings['core']['translog'])) { $this->error_log("Set error_log location failed."); } // locate logs
@@ -203,7 +229,8 @@ private function input_construct() { // 2nd construct object properties
 	// bootstrap inputs for session_start(), then session user validates remaining inputs
 	$this->boots = array(
 		'time' => time(), // current time()
-		'uagent' => (($_SERVER['REMOTE_ADDR']??'')?:'unknown').(($_SERVER['HTTP_USER_AGENT']??'')?:'unknown'), // user identity
+		'ip' => ($ip = ($_SERVER['REMOTE_ADDR'] ?? 'unknown')),
+		'uagent' => ($ip.(($_SERVER['HTTP_USER_AGENT']??'')?:'unknown')), // user identity
 		'auto' => $this->settings['core']['auto'], // auto-loader
 		'cli' => ($cli = ('cli' === PHP_SAPI ? TRUE : FALSE)), // CLI execution
 		'argc' => ($_SERVER['argc']??0), // CLI arg count
@@ -246,9 +273,9 @@ private function input_construct() { // 2nd construct object properties
 	return;
 }
 
-public function __set(string $name, mixed $value) : void { $this->error_wsod("Dynamic properties disallowed."); }	// disallow dynamic properties
+public function __set(string $name, mixed $value) : void { $this->response("Dynamic properties disallowed.", ABCMS_LOG_FATAL); }	// disallow dynamic properties
 
-public function __clone() { $this->error_wsod("Cloning object disallowed."); }										// disallow cloning
+public function __clone() { $this->response("Cloning object disallowed.", ABCMS_LOG_FATAL); }										// disallow cloning
 
 private function input_valid(	// validate input variables
 string	$cat,					// 'U'=URL, 'G'=$_GET, 'P'=$_POST
@@ -355,9 +382,9 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	// 'G' = $_GET variable
 	// 'P' = $_POST variable
 	$this->error_log('SETUP: Core variables');
-	$this->setup_variable('U',	'debug', 'bool', ABCMS_ROLE_ADMINS); // register URL PATH variables
-	$this->setup_variable('G',	'debug', 'bool', ABCMS_ROLE_ADMINS); // register $_GET variables
-	$this->setup_variable('P', 'debug', 'bool', ABCMS_ROLE_ADMINS); // register $_POST variables
+	$this->setup_variable('U', 'debug', 'bool', ABCMS_ROLE_ADMINS); // register URL PATH variables
+	//$this->setup_variable('G', 'debug', 'bool', ABCMS_ROLE_ADMINS); // register $_GET variables
+	//$this->setup_variable('P', 'debug', 'bool', ABCMS_ROLE_ADMINS); // register $_POST variables
 	// extension controls
 	// 'I' = Input -OR- 'O' = Output filter, default Input
 	// 'E' = Exclusive to my extension or omit me, default anyone
@@ -804,7 +831,7 @@ public function set_database(	// write to database
 	}
 	$current = $data;
 	// exclusive lock
-	if (!($lockfd = fopen($base.'.lock', 'r+')) || !flock($lockfd, LOCK_EX)) {
+	if (!($lockfd = fopen($base.'.lock', 'r+')) || !flock($lockfd, LOCK_EX)) { // assume filesystem support
 		if ($lockfd) { fclose($lockfd); }
 		$this->error_wsod("Database exclusive lock failure");
 	}
@@ -871,7 +898,7 @@ array	$keys,					// read element from key path or [] returns whole database
 	if (!isset($this->database[$file])) {
 		// shared lock
 		$base = ($this->compiles['core']['projectroot']??$this->settings['core']['projectroot']).'/private'.$file;
-		if (!($lockfd = fopen($base.'.lock', 'r')) || !flock($lockfd, LOCK_SH)) {
+		if (!($lockfd = fopen($base.'.lock', 'r')) || !flock($lockfd, LOCK_SH)) { // assume filesystem support
 			if ($lockfd) { fclose($lockfd); }
 			$this->error_wsod("Database shared lock failure");
 		}
@@ -1185,27 +1212,98 @@ string &$html,					// inject into HTML output string
 
 
 /*************************************************************************************************
-SECTION RESPONSES: Return request responses.
+SECTION RESPONSE: Return request response.
 */
 
-private function error_trace() : array { // return backtrace info for error log
-	// omit object, include args, 3 levels back
-	$back = debug_backtrace(0, 3);
-	$function = (empty($back[1]['function']) ? 'unknown' : $back[1]['function']);
-	$args = (empty($back[2]['args']) ? array('unknown') : $back[2]['args']);
-	// truncate long strings
-	array_walk_recursive($args, function (&$value) {
-		if (is_string($value) && mb_strlen($value, 'UTF-8') > 100) {
-			$value = mb_substr($value, 0, 100, 'UTF-8') . '...';
-		}
-	});
-	return [$function, $args];
+public function response(	// request response
+string	$mess,				// message
+int		$levs,				// level
+bool	$logs = TRUE,		// to logs
+bool	$user = TRUE,		// to user
+mixed	$rets = NULL,		// return pass thru
+int		$code = 200,		// http code
+) : mixed {
+	// fix levels
+	if (ABCMS_LOG_DEBUG === $levs) { // debug?
+		if (!($this->input['urlvars']['debug']??FALSE)) { return $rets; } // nope
+		$logs = TRUE; $user = FALSE; // silent log
+	}
+	else if (!isset(ABCMS_LOG[$levs])) {	$levs = ABCMS_LOG_FATAL; } // bad level elevates to fatal
+	if (ABCMS_LOG_TRACE === $levs) {		$logs = TRUE; $user = FALSE; } // silent log
+	else if (ABCMS_LOG_FATAL === $levs) {	$logs = $user = TRUE; } // get noisy
+	else if (!$logs && !$user) {			$logs = TRUE; } // do something
+	// logs entry
+	if ($logs) {
+		static $rids = NULL;
+		static $nums = 1;
+		if (NULL === $rids) { $rids = $this->get_dbid(); } else { ++$nums; }
+		[$file, $line, $func, $args] = $this->error_trace();
+		$entry = [
+			'@timestamp'				=> gmdate('Y-m-d\TH:i:s.000\Z', ($this->boots['time']??time())),
+			'event.sequence'			=> $nums,
+			'log.level'					=> ABCMS_LOG[$levs],
+			'message'					=> $mess,
+			'ext'						=> (empty($this->stackwho) ? 'unknown' : end($this->stackwho)),
+			'log.origin.function'		=> $func,
+			'log.origin.file.name'		=> basename(dirname($file)).'/'.basename($file),
+			'log.origin.file.line'		=> $line,
+			'user.roles'				=> ($this->input['role']??'unknown'),
+			'event.severity'			=> $levs,
+			'trace.id'					=> $rids,
+			'service.name'				=> ($this->settings['core']['project']??'abcms'),
+			'url.domain'				=> ($this->boots['urldomain']??'unknown'),
+			'url.path'					=> ($this->boots['urlpathall']??'unknown'),
+			'http.request.method'		=> ($this->boots['urlmethod']??'unknown'),
+			'client.ip'					=> ($this->boots['ip']??'unknown'),
+			'http.response.status_code'	=> $code,
+		];
+		$this->resplogs[] = json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+	}
+	// wrap up
+	if ($user) {						$this->respuser[] = ['level' => ABCMS_LOG[$levs], 'message' => $mess]; } // user format
+	if (ABCMS_LOG_FATAL === $levs) {	throw new Exception($mess);	} // throw WSOD
+	return $rets; // return pass thru
+}
+
+public function response_flush() : void { // write reponse logs
+	if ($this->resplogs??NULL) {
+		$file = ($this->settings['core']['translog'] ?? str_replace('\\', '/', __DIR__).'/..'.ABCMS_EXT_PRIVATE.'ABCMS.translog');
+		file_put_contents($file, implode("\n", $this->resplogs)."\n", FILE_APPEND | LOCK_EX);
+	}
+	return;
+}
+
+public function response_user(string $delimiter = "<br>\n") : ?string { // return formatted log
+	if (empty($this->respuser??NULL)) { return NULL; }
+	return implode($delimiter, array_map(function($row) { return implode(': ', $row); }, $this->respuser));
+}
+
+private function error_trace(	// get backtrace info
+bool	$fast = TRUE,			// omit object and args
+) : array {						// return info
+	// 3 levels back
+	$back = debug_backtrace(($fast ? DEBUG_BACKTRACE_IGNORE_ARGS : 0), 3);
+	$file = ($back[1]['file']		?? 'unknown');
+	$line = ($back[1]['line']		?? 0);
+	$func = ($back[2]['function']	?? 'unknown');
+	// arguments?
+	if ($fast || empty($back[2]['args'])) { $args = array('unknown'); }
+	else {
+		$args = $back[2]['args'];
+		array_walk_recursive($args, function (&$value) {
+			if (is_string($value) && mb_strlen($value, 'UTF-8') > 100) {
+				$value = mb_substr($value, 0, 100, 'UTF-8') . '...';
+			}
+		});
+	}
+	// return
+	return [$file, $line, $func, $args];
 }
 
 public function error_wsod(	// throw exception
 string $mess,				// message
 ) : void {					// never returns
-	[$function, $args] = $this->error_trace();
+	[$file, $line, $function, $args] = $this->error_trace();
 	error_log("{$function}->error_wsod() {$mess}\n".print_r($args,TRUE));
 	throw new Exception($mess);
 	return;
@@ -1214,7 +1312,7 @@ string $mess,				// message
 public function error_log(	// log error
 string $mess,				// message
 ) : void {					// return void
-	[$function, $args] = $this->error_trace();
+	[$file, $line, $function, $args] = $this->error_trace();
 	error_log(($mess = "{$function}->error_log() {$mess}\n".print_r($args,TRUE)));
 	return;
 }
@@ -1226,23 +1324,10 @@ public function set_errors(	// set user errors
 	return;
 }
 
-public function get_debugs() : array { // return debugs for public
-	return $this->debugs;
-}
-
-public function get_errors() : array { // return errors for public
-	return $this->errors;
-}
-
 public function error_get_last() : ?string { // return last error message
 	$error = error_get_last();
 	return ($error ? "{$error['message']} [type={$error['type']}] in {$error['file']} on line {$error['line']}" : NULL);
 }
-
-public function see_errors() : ?string { // return formatted errors for public
-	if (!empty($this->errors)) { return '<br><br>Errors:<br>'.implode('<br>',$this->errors); }
-	return NULL;
-}	
 
 
 
@@ -2174,7 +2259,7 @@ I just cannot find the page requested.<br>
 EOF;
 }
 $this->output(ABCMS_EXT_MAIN, 'CLI-GET-POST', 'abcms()->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($main));
-echo $this->see_errors();
+echo $this->response_user();
 ?>
 </main>
 <footer>
