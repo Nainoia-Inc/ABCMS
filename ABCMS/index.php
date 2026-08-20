@@ -225,51 +225,53 @@ private function input_construct() { // 2nd construct object properties
 	// initialize
 	$this->stackwho[] = ABCMS_EXT_SELF; // push core on extension stack
 	$this->setup(TRUE); // assign $settings
-	if (FALSE === ini_set('error_log', $this->settings['core']['translog'])) { $this->error_log("Set error_log location failed."); } // locate logs
-	while(ob_get_level() > 0) { if (FALSE !== ($buf = ob_get_clean()) && '' !== $buf) { $this->error_log("I got stuff in my buffers."); } } // empty buffers
+	if (FALSE === ini_set('error_log', $this->settings['core']['translog'])) { $this->response("Set error_log location failed.", ABCMS_LOG_WARN, TRUE, FALSE); } // set log destination after setup
+	while(ob_get_level() > 0) { if (FALSE !== ($buf = ob_get_clean()) && '' !== $buf) { $this->response("Unexpected ob_get_clean() buffers discarded.", ABCMS_LOG_WARN, TRUE, FALSE); } } // empty buffers
 	// bootstrap inputs for session_start(), then session user validates remaining inputs
 	$this->boots = array(
-		'time' => time(), // current time()
-		'ip' => ($ip = ($_SERVER['REMOTE_ADDR'] ?? 'unknown')),
-		'uagent' => ($ip.(($_SERVER['HTTP_USER_AGENT']??'')?:'unknown')), // user identity
-		'auto' => $this->settings['core']['auto'], // auto-loader
-		'cli' => ($cli = ('cli' === PHP_SAPI ? TRUE : FALSE)), // CLI execution
-		'argc' => ($_SERVER['argc']??0), // CLI arg count
-		'argv' => ($_SERVER['argv']??[]), // CLI args
-		'urlfull' => ($urlfull = // URL full
+		'time'			=> time(), // execution time()
+		'ip'			=> ($ip = ($_SERVER['REMOTE_ADDR'] ?? 'unknown')), // caller ip
+		'uagent'		=> ($ip.(($_SERVER['HTTP_USER_AGENT']??'')?:'unknown')), // user identity
+		'auto'			=> $this->settings['core']['auto'], // auto-loader
+		'cli'			=> ($cli = ('cli' === PHP_SAPI ? TRUE : FALSE)), // CLI execution
+		'argc'			=> ($_SERVER['argc']??0), // CLI arg count
+		'argv'			=> ($_SERVER['argv']??[]), // CLI args
+		'urlfull'		=> ($urlfull = // URL full
+			// localhost
 			($cli ? ('https://localhost' . // CLI domain
 			($_SERVER['argc']>1 && '/' === ($_SERVER['argv'][1][0]?:'') && FALSE !== filter_var('http://localhost' . $_SERVER['argv'][1], FILTER_VALIDATE_URL) ? $_SERVER['argv'][1] : '/command/help')) : // CLI URI validation
+			// HTTPS or HTTP
 			((isset($_SERVER['HTTPS']) && mb_strtolower($_SERVER['HTTPS'], 'UTF-8') !== 'off' ? 'https://' : 'http://') . // HTTPS secure
-			// HTTP domain validation including multibyte to punycode
+			// domain validation with multibyte to punycode
 			(!empty($_SERVER['HTTP_HOST']) && ($host = preg_replace('/:\d*$/u','',$_SERVER['HTTP_HOST'])) && // remove ports
 			FALSE !== filter_var(idn_to_ascii($host, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46), FILTER_VALIDATE_DOMAIN) ? $_SERVER['HTTP_HOST'] : 'unknown') . // filter domain
-			// HTTP URI validation, ascii only
+			// URI validation, ascii only
 			(isset($_SERVER['REQUEST_URI']) && mb_check_encoding($_SERVER['REQUEST_URI'],'ASCII') && // check encoding
 			FALSE!==filter_var('http://localhost'.$_SERVER['REQUEST_URI'],FILTER_VALIDATE_URL) ? $_SERVER['REQUEST_URI'] : '/unknown')))), // filter URI
-		'urlparsed' => ($urlparsed = parse_url($urlfull)), // URL parse
-		'urldomain' => (mb_strtolower(($urlparsed['host']??''), 'UTF-8')), // URL domain
-		'urlport' => ($urlparsed['port']??NULL), // URL port
-		'urlmethod' => ($cli ? 'CLI' : ((empty($_SERVER['REQUEST_METHOD']) || // URL method
+		'urlparsed'		=> ($urlparsed = parse_url($urlfull)), // URL parse
+		'urldomain'		=> (mb_strtolower(($urlparsed['host']??''), 'UTF-8')), // URL domain
+		'urlport'		=> ($urlparsed['port']??NULL), // URL port
+		'urlmethod'		=> ($cli ? 'CLI' : ((empty($_SERVER['REQUEST_METHOD']) || // URL method
 			!in_array($_SERVER['REQUEST_METHOD'], array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE'))) ? 'GET' : $_SERVER['REQUEST_METHOD'])), // validate method
-		'urlpathall' => ($urlpathall = ('/'.(trim(preg_replace(ABCMS_REGEX_URLV, '/', ($urldecoded = urldecode(($urlparsed['path']??'')))), '/')))), // URL no variables, no trailing slash, and urldecoded
-		'urlpathone' => (!($ret = preg_match('/^(\/[^\/\x00-\x1f]*)(\/[^\x00-\x1f]+)?$/uD', $urlpathall, $matches)) ? '/' : $matches[1]), // URL first segment for core router
-		'urlpathext' => (!$ret || empty($matches[2]) ? '/' : $matches[2]), // URL second+ segments for extension router
+		'urlpathall'	=> ($urlpathall = ('/'.(trim(preg_replace(ABCMS_REGEX_URLV, '/', ($urldecoded = urldecode(($urlparsed['path']??'')))), '/')))), // URL without variables, no trailing slash, and urldecoded
+		'urlpathone'	=> (!($ret = preg_match('/^(\/[^\/\x00-\x1f]*)(\/[^\x00-\x1f]+)?$/uD', $urlpathall, $matches)) ? '/' : $matches[1]), // URL first segment for core router
+		'urlpathext'	=> (!$ret || empty($matches[2]) ? '/' : $matches[2]), // URL second+ segments for extension routers
 	);
 	// possibly start session after boots and validate user
 	$session = $this->session_start(0); // lazy session start
-	// sanitize inputs given user permissions
+	// sanitize inputs with user permissions
 	$this->input = array(
-		'user' => $this->ss['user']??NULL, // my user
-		'role' => ($role = ($cli ? ABCMS_ROLE_CLI : $this->ss['user']['role']??ABCMS_ROLE_PUBLIC)), // my role
-		'urlvars' => (!preg_match_all(ABCMS_REGEX_URLV, $urldecoded, $matches, PREG_PATTERN_ORDER) ? array() : // validate URL vars 'u'
+		'user'			=> $this->ss['user']??NULL, // my user
+		'role'			=> ($role = ($cli ? ABCMS_ROLE_CLI : $this->ss['user']['role']??ABCMS_ROLE_PUBLIC)), // my role
+		'urlvars'		=> (!preg_match_all(ABCMS_REGEX_URLV, $urldecoded, $matches, PREG_PATTERN_ORDER) ? array() : // validate URL vars 'U'
 			$this->input_valid('U', array_combine($matches[1], $matches[2]), $role)),
-		'urlquery' => ($this->input_valid('G', (mb_parse_str(($urlparsed['query']??''), $result) ? $result : array()), $role)), // URL validate query vars 'q' from parse_str() because CLI has no $_GET
-		'postvars' => array(), // TODO ($this->input_valid('P', $_POST, $role)), // validate $_POST vars 'p'
-		'nonce' => $this->get_uniq(), // style & script security nonce
+		'urlquery'		=> ($this->input_valid('G', (mb_parse_str(($urlparsed['query']??''), $result) ? $result : array()), $role)), // URL validate query vars 'q' from parse_str() because CLI has no $_GET
+		'postvars'		=> array(), // TODO ($this->input_valid('P', $_POST, $role)), // validate $_POST vars 'p'
+		'nonce'			=> $this->get_uniq(), // style & script security nonce
 	);
-	// complete initialization
+	// initialize completion
 	if ($this->boots['auto']) { require_once($this->boots['auto']); } // require composer
-	if (!str_starts_with($urldecoded, $urlpathall)) { $this->set_errors("URL questioned, variables within path"); } // URL vars misplaced if !str_starts_with, URL externally constructed
+	if (!str_starts_with($urldecoded, $urlpathall)) { $this->response("URL questioned, variables misplaced in path", ABCMS_LOG_WARN, TRUE, TRUE); } // if !str_starts_with() URL is externally constructed
 	array_pop($this->stackwho); // pop core off extension stack
 	return;
 }
