@@ -340,7 +340,6 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 ) : void {				// return void or WSOD
 	// $this->boots and $this->input not yet initialized
 	// load settings from var_dump() file for speed, beware of injection
-	$this->response("SETUP: Begin.", ABCMS_LOG_INFO, TRUE, FALSE);
 	$storage = $this->rp(dirname(__DIR__)).ABCMS_EXT_PRIVATE.'ABCMS.settings.php';
 	$this->compiles = array(); // initialize
 	$this->compiles['core']['projectroot'] = $this->rp(dirname(__DIR__)); // projectroot, needed early for chk_file()
@@ -352,7 +351,7 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 		return;
 	}
 	// register core settings
-	$this->response("SETUP: Core settings.", ABCMS_LOG_INFO, TRUE, FALSE);
+	$this->response("SETUP: Begin.", ABCMS_LOG_INFO, TRUE, FALSE);
 	$this->compiles['core']['filename']			= $this->rp(__FILE__); // my filename
 	$this->compiles['core']['documentroot']		= $this->rp(__DIR__); // my documentroot
 	$this->compiles['core']['project']			= (basename(dirname(__DIR__))); // my project name
@@ -508,7 +507,7 @@ mixed	...$arg,					// argument alternatives
 	$ctl = ('' === $str ? array() : array_flip(str_split(strtoupper($str))));
 	$key = array_diff_key($ctl, array('I'=>0,'O'=>0,'E'=>0,'U'=>0,'D'=>0));
 	// validate
-	$a = $b = $c = $d = $e = $f = $g = FALSE;
+	$a = $b = $c = $d = $e = $f = $g = 0;
 	if (($a=(!is_array($this->compiles))) || // bad context
 		($b=(!preg_match(ABCMS_REGEX_HOOK, $hok))) || // hook
 		($c=('' !== $ext && !preg_match(ABCMS_REGEX_NICK, $ext))) || // extension
@@ -516,7 +515,7 @@ mixed	...$arg,					// argument alternatives
 		($e=(isset($ctl['I']) && isset($ctl['O']))) || // input or output
 		($f=(!empty($key))) || // control
 		($g=(!empty($fun) && !preg_match(ABCMS_REGEX_FUNC, $fun)))) { // function
-		$this->error_log("Invalid extension: {$hok} {$ext} {$fun}, err: bad={$a} hok={$b} ext={$c} met={$d} exc={$e} con={$f} fun={$g}");
+		$this->response("SETUP: Invalid setup_extend(): {$hok} {$ext} {$fun}, err: bad={$a} hok={$b} ext={$c} met={$d} exc={$e} con={$f} fun={$g}.", ABCMS_LOG_ERROR, TRUE, FALSE);
 		return FALSE;
 	}
 	// assign extension
@@ -539,14 +538,14 @@ string	$ext,					// extension or '' for all
 string	$pat,					// unique URL path, trailing '/' for 1st segment only, otherwise no trailing slash
 ) : bool {						// return success or failure
 	// validate
-	$a = $b = $c = $d = $e = $f = FALSE;
+	$a = $b = $c = $d = $e = $f = 0;
 	if (($a=(!is_array($this->compiles))) || // bad context
 		($b=(!preg_match(ABCMS_REGEX_HOOK, $hok))) || // hook
 		($c=('' !== $ext && !preg_match(ABCMS_REGEX_NICK, $ext))) || // extension
-		($d=(substr_count($pat, '/')>2 && '/' == $pat[-1])) || // trailing slash matches 1st path segment only
-		($e=('' !== $pat && ('/' !== $pat[0] || FALSE === filter_var('http://localhost'.$pat, FILTER_VALIDATE_URL)))) || // path
+		($d=(substr_count($pat, '/')>2 && str_ends_with($pat, '/'))) || // trailing slash matches 1st path segment only
+		($e=('' !== $pat && (!str_starts_with($pat, '/') || FALSE === filter_var('http://localhost'.$pat, FILTER_VALIDATE_URL)))) || // path
 		($f=isset($this->compiles['route'][$hok]['eq'][$pat]))) { // duplicate
-		$this->error_log("Invalid extension path: {$hok} {$ext} {$pat} err: bad={$a} hok={$b} ext={$c} p//={$d} pat={$e} dup={$f}");
+		$this->response("SETUP: Invalid setup_equate(): {$hok} {$ext} {$pat} err: bad={$a} hok={$b} ext={$c} p//={$d} pat={$e} dup={$f}.", ABCMS_LOG_ERROR, TRUE, FALSE);
 		return FALSE;
 	}
 	// assign equate path
@@ -562,14 +561,14 @@ int		$rol,					// min role
 ?array	$reg = NULL,			// regex validation
 ) : bool {						// return success or failure
 	// validate
-	$a = $b = $c = $d = $e = $f = FALSE;
+	$a = $b = $c = $d = $e = $f = 0;
 	if (($a=(!is_array($this->compiles))) || // bad context
 		($b=(!in_array($cat, array('U','G','P')))) || // category
 		($c=(!preg_match('/^[a-z0-9\-_.~]+$/uiD', $var))) || // variable
 		($d=(!in_array($typ, array('array','bool','boolean','domain','email','explode','float','integer','ip','mac','mixed','path','string','uri','url','uuid')))) || // type
 		($e=(!in_array($rol, ABCMS_ROLE_SET))) || // role
 		($f=(!empty($this->compiles[$cat][$var])))) { // duplicate
-		$this->error_log("Invalid extension variable: {$cat} {$var} {$typ} err: bad={$a} cat={$b} var={$c} typ={$d} rol={$e} dup={$f}");
+		$this->response("SETUP: Invalid setup_variable(): {$cat} {$var} {$typ} err: bad={$a} cat={$b} var={$c} typ={$d} rol={$e} dup={$f}.", ABCMS_LOG_ERROR, TRUE, FALSE);
 		return FALSE;
 	}
 	// assign variable
