@@ -225,8 +225,8 @@ private function input_construct() { // 2nd construct object properties
 	// initialize
 	$this->stackwho[] = ABCMS_EXT_SELF; // push core on extension stack
 	$this->setup(TRUE); // assign $settings
-	if (FALSE === ini_set('error_log', $this->settings['core']['translog'])) { $this->response("Set error_log location failed.", ABCMS_LOG_WARN, TRUE, FALSE); } // set log destination after setup
-	while(ob_get_level() > 0) { if (FALSE !== ($buf = ob_get_clean()) && '' !== $buf) { $this->response("Unexpected ob_get_clean() buffers discarded.", ABCMS_LOG_WARN, TRUE, FALSE); } } // empty buffers
+	if (FALSE === ini_set('error_log', $this->settings['core']['translog'])) { $this->response("Set error_log() location failed.", ABCMS_LOG_ERROR, TRUE, FALSE); } // set log destination after setup
+	while(ob_get_level() > 0) { if (FALSE !== ($buf = ob_get_clean()) && '' !== $buf) { $this->response("Unexpected ob_get_clean() buffers discarded.", ABCMS_LOG_ERROR, TRUE, FALSE); } } // empty buffers
 	// bootstrap inputs for session_start(), then session user validates remaining inputs
 	$this->boots = array(
 		'time'			=> time(), // execution time()
@@ -271,14 +271,14 @@ private function input_construct() { // 2nd construct object properties
 	);
 	// initialize completion
 	if ($this->boots['auto']) { require_once($this->boots['auto']); } // require composer
-	if (!str_starts_with($urldecoded, $urlpathall)) { $this->response("URL questioned, variables misplaced in path", ABCMS_LOG_WARN, TRUE, TRUE); } // if !str_starts_with() URL is externally constructed
+	if (!str_starts_with($urldecoded, $urlpathall)) { $this->response("Input variables misplaced in path.", ABCMS_LOG_WARN, FALSE, TRUE); } // warn user, if !str_starts_with() URL is externally constructed
 	array_pop($this->stackwho); // pop core off extension stack
 	return;
 }
 
-public function __set(string $name, mixed $value) : void { $this->response("Dynamic properties disallowed.", ABCMS_LOG_FATAL); }	// disallow dynamic properties
+public function __set(string $name, mixed $value) : void { $this->response("Dynamic properties disallowed.", ABCMS_LOG_FATAL); } // disallow dynamic properties
 
-public function __clone() { $this->response("Cloning object disallowed.", ABCMS_LOG_FATAL); }										// disallow cloning
+public function __clone() { $this->response("Cloning object disallowed.", ABCMS_LOG_FATAL); } // disallow cloning
 
 private function input_valid(	// validate input variables
 string	$cat,					// 'U'=URL, 'G'=$_GET, 'P'=$_POST
@@ -288,33 +288,39 @@ int		$role,					// user role
 	// loop input variables
 	$last = NULL;
 	foreach($vars as $var => $val) {
-		if ($var < $last) {									$this->set_errors("URL variables not alphabetical as expected"); } // expected alphabetical
+		if ($var < $last) { $this->response("Input not alphabetical, '{$var}'", ABCMS_LOG_WARN, FALSE, TRUE); } // warn user, continue
 		$last = $var;
-		if (empty($this->settings[$cat][$var]['type'])) {	$this->set_errors("Ignoring undefined URL variable, '{$var}'");						unset($vars[$var]);	continue; } // ignore undefined
-		if ($role < $this->settings[$cat][$var]['role']) {	$this->set_errors("Insufficient permission for URL variable, '{$var}'");			unset($vars[$var]);	continue; }	// no permission
-		if ('null' == mb_strtolower($val, 'UTF-8')) {																							$vars[$var] = NULL;	continue; } // NULL special case
+		// security, do not distinguish between not found and no permissions
+		if (empty($this->settings[$cat][$var]['type']) || $role < $this->settings[$cat][$var]['role']) {
+			$this->response("Input undefined, ignored '{$var}'", ABCMS_LOG_WARN, FALSE, TRUE);	unset($vars[$var]);	continue; // warn user, unset
+		}
+		// $val type checks
+		if (is_string($val) && 'null' == mb_strtolower($val, 'UTF-8')) { $vars[$var] = NULL; continue; } // NULL special case
+		if (!is_string($val) && ('array' !== $this->settings[$cat][$var]['type'])) {
+			$this->response("Input not valid, '{$var} = !string'", ABCMS_LOG_WARN, FALSE, TRUE); unset($vars[$var]); continue; // warn user, unset
+		}
 		// switch possibilities
 		switch($this->settings[$cat][$var]['type']) {
-			case 'array'	:	$vars[$var] = explode(',', $val);																									continue 2;
+			case 'array'	:	if (!is_array($val)) { $val = '!array';																			break; }			continue 2;
 			case 'bool'		:
 			case 'boolean'	:	if (NULL  === filter_var($val, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE)) {									break; }			continue 2;
 			case 'domain'	:	if (FALSE === filter_var(idn_to_ascii($val, IDNA_DEFAULT,INTL_IDNA_VARIANT_UTS46), FILTER_VALIDATE_DOMAIN)) {	break; }			continue 2;
 			case 'email'	:	if (FALSE === filter_var($val, FILTER_VALIDATE_EMAIL)) {														break; }			continue 2;
+			case 'explode'	:	$vars[$var] = explode(',', $val);																									continue 2;
 			case 'float'	:	if (FALSE === filter_var($val, FILTER_VALIDATE_FLOAT)) {														break; }			continue 2;
 			case 'integer'	:	if (FALSE === filter_var($val, FILTER_VALIDATE_INT)) {															break; }			continue 2;
 			case 'ip'		:	if (FALSE === filter_var($val, FILTER_VALIDATE_IP)) {															break; }			continue 2;
 			case 'mac'		:	if (FALSE === filter_var($val, FILTER_VALIDATE_MAC)) {															break; }			continue 2;
 			case 'mixed'	:
 			case 'string'	:																																		continue 2;
-			case 'path'		:	if ('/' !== $val[0] || FALSE === filter_var('http://localhost'.$val, FILTER_VALIDATE_URL)) {					break; }			continue 2;
+			case 'path'		:	if (!str_starts_with($val, '/') || FALSE === filter_var('http://localhost'.$val, FILTER_VALIDATE_URL)) {		break; }			continue 2;
 			case 'uri'		:	if (!mb_check_encoding($val, 'ASCII') || FALSE === filter_var('http://localhost'.$val, FILTER_VALIDATE_URL)) {	break; }			continue 2;
 			case 'url'		:	if (!mb_check_encoding($val, 'ASCII') || FALSE === filter_var($val, FILTER_VALIDATE_URL)) {						break; }			continue 2;
 			case 'uuid'		:	if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iD', $val)) {		break; }			continue 2;			
-			default:			$this->error_wsod("Undefined URL variable type, '{$this->settings[$cat][$var]['type']}'"); // type undefined
+			default:			$this->response("Input type impossible, '{$var} = {$this->settings[$cat][$var]['type']}'", ABCMS_LOG_FATAL); // bad settings, fatal
 		}
-		// variable name and type found, but with invalid value
-		$this->set_errors("Ignoring invalid URL variable, '{$this->settings[$cat][$var]['type']}' = '{$var}'");
-		unset($vars[$var]);
+		// value invalid
+		$this->response("Input not valid, '{$var} = {$val}'", ABCMS_LOG_WARN, FALSE, TRUE); unset($vars[$var]); // warn user, unset
 	}
 	return $vars;
 }
@@ -386,6 +392,9 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	// 'P' = $_POST variable
 	$this->error_log('SETUP: Core variables');
 	$this->setup_variable('U', 'debug', 'bool', ABCMS_ROLE_ADMINS); // register URL PATH variables
+	$this->setup_variable('U', 'abcms', 'bool', ABCMS_ROLE_ADMINS); // register URL PATH variables
+	//$this->setup_variable('G', 'debug', 'bool', ABCMS_ROLE_ADMINS); // register URL PATH variables
+	//$this->setup_variable('G', 'abcms', 'bool', ABCMS_ROLE_ADMINS); // register URL PATH variables
 	//$this->setup_variable('G', 'debug', 'bool', ABCMS_ROLE_ADMINS); // register $_GET variables
 	//$this->setup_variable('P', 'debug', 'bool', ABCMS_ROLE_ADMINS); // register $_POST variables
 	// extension controls
@@ -555,7 +564,7 @@ int		$rol,					// min role
 	if (($a=(!is_array($this->compiles))) || // bad context
 		($b=(!in_array($cat, array('U','G','P')))) || // category
 		($c=(!preg_match('/^[a-z0-9\-_.~]+$/uiD', $var))) || // variable
-		($d=(!in_array($typ, array('mixed','string','array','integer','float','bool','boolean','email','domain','uri','url','ip','mac','uuid','path')))) || // type
+		($d=(!in_array($typ, array('array','bool','boolean','domain','email','explode','float','integer','ip','mac','mixed','path','string','uri','url','uuid')))) || // type
 		($e=(!in_array($rol, ABCMS_ROLE_SET))) || // role
 		($f=(!empty($this->compiles[$cat][$var])))) { // duplicate
 		$this->error_log("Invalid extension variable: {$cat} {$var} {$typ} err: bad={$a} cat={$b} var={$c} typ={$d} rol={$e} dup={$f}");
@@ -1245,7 +1254,7 @@ int		$code = 200,		// http code
 			'@timestamp'				=> gmdate('Y-m-d\TH:i:s.000\Z', ($this->boots['time']??time())),
 			'event.sequence'			=> $nums,
 			'log.level'					=> ABCMS_LOG[$levs],
-			'message'					=> $mess,
+			'message'					=> mb_substr($mess, 0, 1024, 'UTF-8'), // json escapes
 			'ext'						=> (empty($this->stackwho) ? 'unknown' : end($this->stackwho)),
 			'log.origin.function'		=> $func,
 			'log.origin.file.name'		=> basename(dirname($file)).'/'.basename($file),
@@ -1263,7 +1272,7 @@ int		$code = 200,		// http code
 		$this->resplogs[] = json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
 	}
 	// wrap up
-	if ($user) {						$this->respuser[] = ['level' => ABCMS_LOG[$levs], 'message' => $mess]; } // user format
+	if ($user) {						$this->respuser[] = ['level' => ABCMS_LOG[$levs], 'message' => 	$this->hsc(mb_substr($mess, 0, 256, 'UTF-8'))]; } // user format, escaped
 	if (ABCMS_LOG_FATAL === $levs) {	throw new Exception($mess);	} // throw WSOD
 	return $rets; // return pass thru
 }
@@ -1272,6 +1281,7 @@ public function response_flush() : void { // write reponse logs
 	if ($this->resplogs??NULL) {
 		$file = ($this->settings['core']['translog'] ?? str_replace('\\', '/', __DIR__).'/..'.ABCMS_EXT_PRIVATE.'ABCMS.translog');
 		file_put_contents($file, implode("\n", $this->resplogs)."\n", FILE_APPEND | LOCK_EX);
+		$this->resplogs = [];
 	}
 	return;
 }
@@ -1294,8 +1304,8 @@ bool	$fast = TRUE,			// omit object and args
 	else {
 		$args = $back[2]['args'];
 		array_walk_recursive($args, function (&$value) {
-			if (is_string($value) && mb_strlen($value, 'UTF-8') > 100) {
-				$value = mb_substr($value, 0, 100, 'UTF-8') . '...';
+			if (is_string($value) && mb_strlen($value, 'UTF-8') > 256) {
+				$value = mb_substr($value, 0, 256, 'UTF-8') . '...';
 			}
 		});
 	}
