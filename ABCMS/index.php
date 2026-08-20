@@ -118,7 +118,7 @@ try {						// try output
 catch (\Throwable $e) {		// catch exceptions
 	// gather information
 	$exception = (htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8') ?: 'Unknown exception.'); // thrown error
-	$system = htmlspecialchars((error_get_last() ?? array('message' => 'No system error reported.'))['message']); // system error
+	$system = htmlspecialchars((error_get_last() ?? array('message' => 'No system error reported.'))['message'], ENT_QUOTES, 'UTF-8'); // system error
 	$resplogs = (abcms() ? abcms()->response_user("\n") : $exception."\n".$system)."\n\n"; // response
 	$composer = array(); // composer extensions
 	if (class_exists(\Composer\InstalledVersions::class)) {
@@ -127,7 +127,7 @@ catch (\Throwable $e) {		// catch exceptions
 		}
 	}
 	$buffer = NULL; while(ob_get_level()) { $buffer .= ob_get_clean(); } // retrieve buffer
-	$title = mb_strtolower(htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://').$_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI']), 'UTF-8'); // website title
+	$title = mb_strtolower(htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://').($_SERVER['HTTP_HOST']??'unknown').($_SERVER['REQUEST_URI']??'')), ENT_QUOTES, 'UTF-8'); // website title
 	$nonce = chr(random_int(97,122)).chr(random_int(97,122)).bin2hex(random_bytes(31)); // security nonce
 	// graceful WSOD
 	if ('cli' !== PHP_SAPI) { echo <<<EOF
@@ -135,15 +135,15 @@ catch (\Throwable $e) {		// catch exceptions
 <html lang='en'>
 <head>
 <meta charset='utf-8'>
-<meta name='description' content='<?php echo $title; ?> ERROR'>
+<meta name='description' content='{$title} ERROR'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <meta name='mobile-web-app-capable' content='yes'>
 <meta name='theme-color' content='#336699'>
 <meta name='color-scheme' content='light dark'>
 <meta http-equiv='Content-Security-Policy' content="default-src 'none'; style-src 'nonce-{$nonce}'; img-src 'self';">
-<title><?php echo $title; ?> ERROR</title>
+<title>{$title} ERROR</title>
 <link rel='icon' href='favicon.ico'>
-<style nonce={$nonce}>
+<style nonce='{$nonce}'>
 *, *::before, *::after { box-sizing: border-box; }
 body {	margin:0; padding:0; display:grid; height:100vh; place-items:center; text-align: center; border: 2rem solid #336699;
 		color:#333333; background-color:#FFFFFF; font-size:1.125rem; line-height:1.3; font-family:Arial,sans-serif; }
@@ -182,7 +182,7 @@ EOF;
 }
 
 finally { // clean up
-	if (abcms()) { abcms()->response_flush(); } // write log buffer
+	if (abcms()) { abcms()->response_flush(); } // write and clear log buffer after all
 	session_commit(); $_SESSION = []; // disallow deferred session access
 }
 exit($code); // script return 0 = success or 1 = failure
@@ -340,33 +340,33 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 ) : void {				// return void or WSOD
 	// $this->boots and $this->input not yet initialized
 	// load settings from var_dump() file for speed, beware of injection
-	$this->error_log('SETUP: Begin');
+	$this->response("SETUP: Begin.", ABCMS_LOG_INFO, TRUE, FALSE);
 	$storage = $this->rp(dirname(__DIR__)).ABCMS_EXT_PRIVATE.'ABCMS.settings.php';
 	$this->compiles = array(); // initialize
 	$this->compiles['core']['projectroot'] = $this->rp(dirname(__DIR__)); // projectroot, needed early for chk_file()
 	$data = [];
 	if ($boot && $this->get_dump($storage, $data)) {
-		if (!is_array($data) || empty($data['core']['projectroot'])) { $this->error_wsod("Settings file corrupted."); }
+		if (!is_array($data) || empty($data['core']['projectroot'])) { $this->response("SETUP: Settings file corrupted.", ABCMS_LOG_FATAL); }
 		$this->settings = $data;
 		$this->compiles = NULL;
 		return;
 	}
 	// register core settings
-	$this->error_log('SETUP: Core settings');
+	$this->response("SETUP: Core settings.", ABCMS_LOG_INFO, TRUE, FALSE);
 	$this->compiles['core']['filename']			= $this->rp(__FILE__); // my filename
 	$this->compiles['core']['documentroot']		= $this->rp(__DIR__); // my documentroot
-	$corefold = $this->compiles['core']['projectroot'].ABCMS_EXT_PRIVATE;
 	$this->compiles['core']['project']			= (basename(dirname(__DIR__))); // my project name
 	$this->compiles['core']['auto']				= $this->rp(realpath(__DIR__ . '/../vendor/autoload.php')); // auto-loader location
 	$this->compiles['core']['getmyinode']		= getmyinode(); // my inode
 	$this->compiles['core']['getlastmod']		= getlastmod(); // my modified date
 	$password									= $this->get_uniq(); // my clear password
 	$this->compiles['core']['passhash']			= password_hash($password, PASSWORD_DEFAULT); // my password hash
+	$corefold = $this->compiles['core']['projectroot'].ABCMS_EXT_PRIVATE;
 	$this->set_json($corefold.'ABCMS.deleteme', 'DELETE ASAP: '.$password); // temp password storage
 	$password = NULL;
-	$this->error_log("Retrieve new password and delete the file please.");
+	$this->response("SETUP: Retrieve new password and delete file.", ABCMS_LOG_INFO, TRUE, FALSE);
 	$this->compiles['core']['secret']			= $this->get_uniq(); // my hash secret
-	if (!is_dir(($file = ($corefold.'ABCMS.sessions'))) && (!mkdir($file, 0755, true))) { $this->error_wsod("Session folder does not exist."); }
+	if (!is_dir(($file = ($corefold.'ABCMS.sessions'))) && (!mkdir($file, 0755, true))) { $this->response("SETUP: Session folder missing.", ABCMS_LOG_FATAL); }
 	$this->compiles['core']['session_folder']	= $file; // session folder
 	$this->compiles['core']['session_cookie']	= $this->get_uniq(); // session cookie name
 	$this->compiles['core']['session_secret']	= $this->get_uniq(); // session secret name
@@ -390,7 +390,7 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	// 'U' = URL variable
 	// 'G' = $_GET variable
 	// 'P' = $_POST variable
-	$this->error_log('SETUP: Core variables');
+	$this->response("SETUP: Core variables.", ABCMS_LOG_INFO, TRUE, FALSE);
 	$this->setup_variable('U', 'debug', 'bool', ABCMS_ROLE_ADMINS); // register URL PATH variables
 	$this->setup_variable('U', 'abcms', 'bool', ABCMS_ROLE_ADMINS); // register URL PATH variables
 	//$this->setup_variable('G', 'debug', 'bool', ABCMS_ROLE_ADMINS); // register URL PATH variables
@@ -403,7 +403,7 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	// 'U' = Uno/single extension, default multiple extensions cooperate 
 	// 'D' = Default included, default excluded if extended by $ord < 0
 	// HTTP methods, '' = all = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE"
-	$this->error_log('SETUP: Core extensions');
+	$this->response("SETUP: Core extensions.", ABCMS_LOG_INFO, TRUE, FALSE);
 	// register core and command extensions
 	$this->setup_extend(ABCMS_EXT_INITX,	'',			'CLI-GET-POST',	'IEU',	'abcms()->home_theme',		ABCMS_ROLE_PUBLIC,	-10);
 	$this->setup_extend(ABCMS_EXT_INITX,	'console',	'CLI-GET-POST',	'IEU',	'abcms()->console_theme',	ABCMS_ROLE_ADMINS,	-20);
@@ -420,35 +420,37 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	$this->setup_equate(ABCMS_EXT_MAINX,	'console',	'/console');
 	$this->setup_equate(ABCMS_EXT_MAINX,	'console',	'/console/');
 	// run SETUP.php for each extension
-	$this->error_log('SETUP: Contrib extensions');
+	$this->response("SETUP: Contrib extensions.", ABCMS_LOG_INFO, TRUE, FALSE);
 	$exts = glob("{$this->compiles['core']['projectroot']}/private/*/*/");
 	foreach ($exts?:[] as $fold) {
+		// skip myself
+		if (preg_match('|^'.preg_quote($this->compiles['core']['projectroot'],'|').ABCMS_EXT_PRIVATE.'$|uD', $fold)) { continue; }
 		// valid extension name
 		if (!preg_match('|^'.preg_quote($this->compiles['core']['projectroot'],'|').'/private'.ABCMS_REGEX_FOLD.'/$|uD', $fold, $match) || empty($match[1])) {
-			$this->error_log("SETUP: Extension name invalid, {$fold}");
+			$this->response("SETUP: Extension name invalid, '{$fold}'.", ABCMS_LOG_WARN, TRUE, FALSE);
 			continue;
 		}
 		// valid file
 		$temp = $fold . "SETUP.php";
 		if (!is_file($temp)) {
-			$this->error_log("SETUP: Invalid extensions, SETUP.php is not a file, {$temp}");
+			$this->response("SETUP: Invalid extension SETUP.php, '{$temp}'.", ABCMS_LOG_WARN, TRUE, FALSE);
 			continue;
 		}
 		// reject symlinks
 		if (($file = $this->rp(realpath($temp))) !== $this->rp($temp)) {
-			$this->error_log("SETUP: Extension symlinks rejected, {$temp}");
+			$this->response("SETUP: Extension symlinks rejected, '{$temp}'.", ABCMS_LOG_WARN, TRUE, FALSE);
 			continue;
 		}
 		// push extension stackwho so s() returns valid $_SESSION storage
 		$this->stackwho[] = $match[1];
 		try {
 			$this->include($file);
-			$this->error_log("SETUP: Extension setup succeeded, {$file}");
+			$this->response("SETUP: Extension setup success, '{$file}'.", ABCMS_LOG_INFO, TRUE, FALSE);
 		}
 		// failed extension setup
 		catch (Throwable $e) {
 			$exception = ($e->getMessage() ?: 'Unknown exception.');
-			$this->error_log("SETUP: Extension setup failed: {$file} {$exception}");
+			$this->response("SETUP: Extension setup fail, '{$file}', {$exception}.", ABCMS_LOG_ERROR, TRUE, FALSE);
 		}
 		// pop stackwho
 		finally {
@@ -456,9 +458,9 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 		}
 	}
 	// TODO optimize and remove mixed non-exclusive and exclusive routes
-	$this->error_log('SETUP: Optimize settings');
+	$this->response("SETUP: Optimize settings.", ABCMS_LOG_INFO, TRUE, FALSE);
 	// load custom settings from var_dump file for speed, beware of injection
-	$this->error_log('SETUP: Custom overrides');
+	$this->response("SETUP: Custom overrides.", ABCMS_LOG_INFO, TRUE, FALSE);
 	if (function_exists('opcache_invalidate')) { opcache_invalidate($this->compiles['core']['override'], TRUE); } // clear php cache
 	$override = [];
 	if (!$this->get_dump($this->compiles['core']['override'], $override) || !is_array($override)) { $this->error_wsod("Custom settings file missing or corrupted."); }
@@ -477,13 +479,13 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 		}
 	}
 	// save settings as fast op cachable php include file with atomic with rename(), beware of injection
-	$this->error_log('SETUP: Save settings');
+	$this->response("SETUP: Save settings.", ABCMS_LOG_INFO, TRUE, FALSE);
 	$this->set_dump($storage, $this->compiles);
 	if ($boot) { $this->settings = $this->compiles; }
 	$this->compiles = NULL;
 	// warning: op cache setting requires manual cache refresh
 	if (function_exists('opcache_get_configuration') && !ini_get('opcache.validate_timestamps')) {
-		$this->error_log("WARNING: opcache.validate_timestamps=0 — reload PHP-FPM for settings to take effect on the web.");
+		$this->response("SETUP: Reload PHP-FPM to refresh OpCache and update settings.", ABCMS_LOG_WARN, TRUE, FALSE);
 	}
 	return;
 }
