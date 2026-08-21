@@ -210,8 +210,6 @@ private readonly	array	$settings;				// application settings
 private				?array	$compiles	= NULL;		// compile settings
 private				array	$database	= [];		// database
 private				array	$ss			= [];		// core session pointer
-private				array	$errors		= [];		// TODO combine error info
-private				array	$debugs		= [];		// TODO combine debug info
 private				array	$stackarg	= [];		// TODO combine debug stack args
 private				array	$stackwho	= [];		// extension stack
 private				array	$resplogs	= [];		// response log
@@ -462,14 +460,14 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	$this->response("SETUP: Custom overrides.", ABCMS_LOG_INFO, TRUE, FALSE);
 	if (function_exists('opcache_invalidate')) { opcache_invalidate($this->compiles['core']['override'], TRUE); } // clear php cache
 	$override = [];
-	if (!$this->get_dump($this->compiles['core']['override'], $override) || !is_array($override)) { $this->error_wsod("Custom settings file missing or corrupted."); }
+	if (!$this->get_dump($this->compiles['core']['override'], $override) || !is_array($override)) { $this->response("Custom settings file missing or corrupted.", ABCMS_LOG_FATAL); }
 	$this->array_walk_merge($this->compiles, $override);
 	// verify custom session_domain
-	if (!is_string($this->compiles['core']['session_domain'])) { $this->error_wsod("Session domain must be a string."); }
+	if (!is_string($this->compiles['core']['session_domain'])) { $this->response("Override session domain must be a string.", ABCMS_LOG_FATAL); }
 	$dom = $this->compiles['core']['session_domain'] = mb_strtolower(ltrim($this->compiles['core']['session_domain'],'.'), 'UTF-8');
 	$host = mb_strtolower(parse_url('http://'.($_SERVER['HTTP_HOST']??''), PHP_URL_HOST)?:'', 'UTF-8');
 	if ('' !== $dom && '' !== $host && $dom !== $host && !str_ends_with($host, '.'.$dom)) {
-		$this->error_wsod("Session domain '{$dom}' does not match host '{$host}'.");
+		$this->response("Override session domain '{$dom}' does not match host '{$host}'.", ABCMS_LOG_FATAL);
 	}
 	// __Host- prefix locks cookies to this host, browser rejects any subdomain attempt to set them
 	if ('' === $dom) {
@@ -799,7 +797,7 @@ bool	$killit = TRUE,		// kill heed
 	}
 	// failed so unset
 	unset($_COOKIE[$cookie]);
-	$this->error_wsod("Set cookie failed");
+	$this->response("Set cookie failed.", ABCMS_LOG_FATAL);
 	return;
 }
 
@@ -1007,9 +1005,9 @@ mixed	&...$args,		// default arguments
 		if (empty($extin['fun'])) { continue; } // extension only grabs exclusivity or set args
 		// loop only applies to registered extension functions, internal extension dispatch is its own business
 		do { // repeat hook extension until FALSE -OR- NULL || TODO invert the continue test
-			if (FALSE === ob_start()) { $this->error_wsod("Buffer start failure."); } // buffer output, TODO optionally stream or file output
+			if (FALSE === ob_start()) { $this->response("Output buffer start failure.", ABCMS_LOG_FATAL); } // buffer output, TODO optionally stream or file output
 			$more = $this->output_call($extin['who'], $extin['fun'], ...$args); // execute hook extension
-			if (FALSE === ($out = ob_get_clean())) { $this->error_wsod("Buffer clean failure."); } // retrieve buffer, TODO optionally stream or file output
+			if (FALSE === ($out = ob_get_clean())) { $this->response("Output buffer get clean failure.", ABCMS_LOG_FATAL); } // retrieve buffer, TODO optionally stream or file output
 			// output filter extensions by priority
 			foreach($ext['O'] as $extout) {
 				if (!$this->output_doit($extout, $whoami, $flag, TRUE, $exout)) { continue; } // skip for reasons
@@ -1030,7 +1028,7 @@ mixed	&...$args,		// default arguments
 }
 
 private function output_extension() : string { // return callers extension name
-	if (empty($this->stackwho)) { $this->error_wsod("Session stack identity missing."); }
+	if (empty($this->stackwho)) { $this->response("Session stack identity missing.", ABCMS_LOG_FATAL); }
 	return end($this->stackwho);
 }
 
@@ -1044,7 +1042,8 @@ bool	$must,					// must also do default
 	// exit before exclusive selection
 	if (!$must && !$ext['ord']) {																				return FALSE; }	// no default extension
 	if (!empty($ext['met']) && FALSE === stripos($ext['met'], $this->boots['urlmethod'])) { 					return FALSE; }	// HTTP method | TODO consider this instead in_array($method, explode('-', $met)
-	if ($flag < 0 && $whoami !== $ext['who']) { $this->error_log("Extender not self.");							return FALSE; }	// extender match
+	if ($flag < 0 && $whoami !== $ext['who']) {
+		$this->response("Extender not self: {$whoami} !== {$ext['who']}.", ABCMS_LOG_INFO, TRUE, FALSE);		return FALSE; }	// extender no match
 	if (!$flag && isset($ext['ctl']['E'])) {																	return FALSE; }	// non-exclusive, cancel request
 	// exclusive winner or non-exclusive
 	if ($flag > 0) {
@@ -1052,7 +1051,7 @@ bool	$must,					// must also do default
 		if (!$excl && isset($ext['ctl']['E'])) {																return FALSE; }	// non-exclusive, cancel request
 		if ($excl && $ext['who'] !== $excl) {																	return FALSE; }	// exclusive, but not winner
 	}
-	if ($this->input['role'] < $ext['rol']) { $this->set_errors("No permission to resource, {$ext['fun']}.");	return FALSE; }	// No permision
+	if ($this->input['role'] < $ext['rol']) { $this->response("No permission to resource, {$ext['fun']}.", ABCMS_LOG_WARN, FALSE, TRUE); return FALSE; }	// No permision
 	// do it
 	return TRUE;
 }
@@ -1063,7 +1062,7 @@ string	$filefunc,				// includefile?function
 mixed	&...$args,				// arguments passed
 ) : ?bool {						// return function result
 	// parse includefile?function
-	if (!preg_match(ABCMS_REGEX_FUNC, $filefunc, $match)) { $this->error_wsod("Calling invalid function name."); }
+	if (!preg_match(ABCMS_REGEX_FUNC, $filefunc, $match)) { $this->response("Calling invalid function name: {$filefunc}.", ABCMS_LOG_FATAL); }
 	$filepath	= $match[2]; // extension include file
 	$classobject= $match[5]; // class or object
 	$operator	= $match[6]; // operator to function
@@ -1081,30 +1080,30 @@ mixed	&...$args,				// arguments passed
 	if ($funcmeth) { // function attempt
 		if ($classobject) { // class or object method
 			if ("::" === $operator) { // class operator
-				if (!class_exists($classobject) || !method_exists($classobject, $funcmeth)) { $this->error_wsod("Calling invalid class method."); }
+				if (!class_exists($classobject) || !method_exists($classobject, $funcmeth)) { $this->response("Calling invalid class method: {$filefunc}.", ABCMS_LOG_FATAL); }
 				$result = (bool)$classobject::$funcmeth(...$args); // Execute
 			}
 			else { // non-class methods
 				if ("->" === $operator) { // instance or object operator
-					if (!isset($GLOBALS[$classobject]) || !is_object($GLOBALS[$classobject])) { $this->error_wsod("Calling invalid object."); }
+					if (!isset($GLOBALS[$classobject]) || !is_object($GLOBALS[$classobject])) { $this->response("Calling invalid object: {$filefunc}.", ABCMS_LOG_FATAL); }
 					$newobject = $GLOBALS[$classobject];
 				}
 				else if ("()->" === $operator) { // function returned object operator
-					if (!function_exists($classobject)) { $this->error_wsod("Calling invalid function to object."); }
-					if (!is_object(($newobject = $classobject()))) { $this->error_wsod("Calling invalid function object."); }
+					if (!function_exists($classobject)) { $this->response("Calling invalid function to object: {$filefunc}.", ABCMS_LOG_FATAL); }
+					if (!is_object(($newobject = $classobject()))) { $this->response("Calling invalid function object: {$filefunc}.", ABCMS_LOG_FATAL); }
 				}
-				else { $this->error_wsod("Calling invalid operator."); }
+				else { $this->response("Calling invalid operator: {$filefunc}.", ABCMS_LOG_FATAL); }
 				// execute function/method
-				if (!method_exists($newobject, $funcmeth)) { $this->error_wsod("Calling invalid object method: {$funcmeth}"); }
+				if (!method_exists($newobject, $funcmeth)) { $this->response("Calling invalid object method: {$filefunc}.", ABCMS_LOG_FATAL); }
 				if (ABCMS_EXT_SELF != $who && $newobject === $this) { // disallow abcms() privates unless extension is ABCMS
 					$reflection = new ReflectionClass($this);
-					if (!$reflection->getMethod($funcmeth)->isPublic()) { $this->error_wsod("Calling private/protected method disallowed."); }
+					if (!$reflection->getMethod($funcmeth)->isPublic()) { $this->response("Calling private/protected method disallowed: {$filefunc}.", ABCMS_LOG_FATAL); }
 				}
 				$result = (bool)$newobject->$funcmeth(...$args); // execute
 			}
 		}
 		else {
-			if (!function_exists($funcmeth)) { $this->error_wsod("Calling invalid function."); }
+			if (!function_exists($funcmeth)) { $this->response("Calling invalid function: {$filefunc}.", ABCMS_LOG_FATAL); }
 			$result = (bool)$funcmeth(...$args); // execute
 		}
 	}
@@ -1117,18 +1116,18 @@ private function output_security(	// inject html form security with fast regex i
 string &$html,						// inject into output HTML || TODO not all output is HTML
 ) : void {							// return void
 	// failure or no form so skip
-	if (FALSE === ($num = preg_match_all(ABCMS_REGEX_FORM, $html))) { $this->error_wsod("Form security failed initialization."); }
+	if (FALSE === ($num = preg_match_all(ABCMS_REGEX_FORM, $html))) { $this->response("Form security failed initialization.", ABCMS_LOG_FATAL); }
 	if (!$num) { return; }
 	// start session
 	if (!$this->session_start(1)) {
 		// session failed, disable forms with <fieldset> and CSS with missing CSRF as safety net
-		$this->set_errors("Forms disabled, security failed.");
+		$this->response("Forms disabled, security failed.", ABCMS_LOG_ERROR, TRUE, TRUE);
 		if (!($html = preg_replace(ABCMS_REGEX_FORM, '$1<fieldset disabled class="disable">$2</fieldset>$3', $html, -1, $count)) || $count !== $num) {
-			$this->error_wsod("Form security entirely failed.");
+			$this->response("Form security entirely failed.", ABCMS_LOG_FATAL);
 		}
 		$regex_safe = str_replace(['\\', '$'], ['\\\\', '\\$'], $this->input['nonce']);
 		if (!($html = preg_replace('/<\/head>/ui', "\n<style nonce='{$regex_safe}'>form { pointer-events: none; opacity: 0.5; }\n</style>\n</head>", $html, 1, $count)) || 1 !== $count) {
-			$this->error_log("Form security css failed.");
+			$this->response("Form security css fallback failed.", ABCMS_LOG_ERROR, TRUE, FALSE);
 		}
 		return;
 	}
@@ -1170,7 +1169,7 @@ EOF;
 	// inject javascript
 	$inject_script = str_replace(['\\', '$'], ['\\\\', '\\$'], $inject_script);
 	if (!($html = preg_replace('/<\/head>/ui', $inject_script, $html, 1, $count)) || 1 !== $count) { // inject
-		$this->error_wsod("Form security javascript injection failed.");
+		$this->response("Form security javascript injection failed.", ABCMS_LOG_FATAL);
 	}
 	// form security tokens
 	$inject_tokens = <<<EOF
@@ -1197,14 +1196,14 @@ EOF
 			if ($inject_captcha &&
 				(!($replace = preg_replace('/(<button(?=[\s])[^>]*?\stype\s*=(\s*submit|\s*\'submit\'|\s*"submit"))(.+?<\/button>)/uis', $inject_captcha, $replace, 1, $one)) ||
 				(1 !== $one && (!($replace = preg_replace('/(<input(?=[\s])[^>]*?\stype\s*=(\s*submit|\s*\'submit\'|\s*"submit"))(>|\s+[^>]*?>)/uis', $inject_captcha, $replace, 1, $one)) || 1 !== $one)))) {
-				$this->error_wsod("Form security CAPTCHA injection failed, button or input type=submit required.");
+				$this->response("Form security CAPTCHA injection failed.", ABCMS_LOG_FATAL);
 			}
 			// security tokens injection
 			$replace .= $inject_tokens.$matches[3];
 			return $replace;
 		},
 		$html, -1, $count)) || $count !== $num) {
-		$this->error_wsod("Form security tokens injection failed.");
+		$this->response("Form security tokens injection failed.", ABCMS_LOG_FATAL);
 	}
 	return;
 }
@@ -1215,7 +1214,7 @@ string &$html,					// inject into HTML output string
 	if (!$html || $this->input['role'] !== ABCMS_ROLE_ADMINS) { return; }
 	$injection = "<pre class='debug'><h2>Coredump</h2>".print_r(array('ABCMS_OBJECT'=>$this, 'ABCMS_GLOBALS'=>$GLOBALS),TRUE)."</pre></body>";
 	$injection = str_replace(['\\', '$'], ['\\\\', '\\$'], $injection);
-	if (!($html = preg_replace('/<\/body>/ui', $injection, $html, 1))) { $this->error_wsod("Debug injection for admin failed."); }
+	if (!($html = preg_replace('/<\/body>/ui', $injection, $html, 1))) { $this->response("Debug injection for admin failed.", ABCMS_LOG_FATAL); }
 	return;
 }
 
@@ -1251,13 +1250,13 @@ int		$code = 200,		// http request code returned
 		static $rids = NULL;
 		static $nums = 1;
 		if (NULL === $rids) { $rids = $this->get_dbid(); } else { ++$nums; }
-		[$file, $line, $func, $args] = $this->error_trace();
+		[$file, $line, $func, $args] = $this->response_trace();
 		$entry = [
 			'@timestamp'				=> gmdate('Y-m-d\TH:i:s.000\Z', ($this->boots['time']??time())),
 			'event.sequence'			=> $nums,
 			'log.level'					=> ABCMS_LOG[$levs],
 			'message'					=> mb_substr($mess, 0, 1024, 'UTF-8'), // json escapes
-			'ext'						=> (empty($this->stackwho) ? 'unknown' : end($this->stackwho)),
+			'ext'						=> (empty($this->stackwho) ? 'unknown' : end($this->stackwho)), // prevents recursion loop
 			'log.origin.function'		=> $func,
 			'log.origin.file.name'		=> basename(dirname($file)).'/'.basename($file),
 			'log.origin.file.line'		=> $line,
@@ -1293,7 +1292,7 @@ public function response_user(string $delimiter = "<br>\n") : ?string { // retur
 	return implode($delimiter, array_map(function($row) { return implode(': ', $row); }, $this->respuser));
 }
 
-private function error_trace(	// get backtrace info
+private function response_trace(	// get backtrace info
 bool	$fast = TRUE,			// omit object and args
 ) : array {						// return info
 	// 3 levels back
@@ -1313,30 +1312,6 @@ bool	$fast = TRUE,			// omit object and args
 	}
 	// return
 	return [$file, $line, $func, $args];
-}
-
-public function error_wsod(	// throw exception
-string $mess,				// message
-) : void {					// never returns
-	[$file, $line, $function, $args] = $this->error_trace();
-	error_log("{$function}->error_wsod() {$mess}\n".print_r($args,TRUE));
-	throw new Exception($mess);
-	return;
-}
-
-public function error_log(	// log error
-string $mess,				// message
-) : void {					// return void
-	[$file, $line, $function, $args] = $this->error_trace();
-	error_log(($mess = "{$function}->error_log() {$mess}\n".print_r($args,TRUE)));
-	return;
-}
-
-public function set_errors(	// set user errors
-	string ...$errors,		// message
-) : void {					// return void
-	array_push($this->errors, ...$errors);
-	return;
 }
 
 public function error_get_last() : ?string { // return last error message
@@ -1435,7 +1410,7 @@ public function home_account(mixed &...$unused) : void { // home register, login
 	$mess = $email = $email2 = $subject = $body = NULL;
 	// switch
 	switch ($switch) {
-		case 'nosession':	$this->set_errors('Login system is unavailable. Try again.'); return;
+		case 'nosession':	$this->response("Login session is unavailable. Try again.", ABCMS_LOG_ERROR, TRUE, TRUE); return;
 		case 'invalid':		$mess = "Suspect form submital. Try again."; break;
 		case 'inhuman':		$mess = "CAPTCHA or form security alert. Try again."; break;
 		case 'login':		if (!empty($_POST['Account_Email']) && !empty($_POST['Account_Email2']) &&
@@ -1452,7 +1427,7 @@ public function home_account(mixed &...$unused) : void { // home register, login
 							}
 							else if (++$this->ss['trys'] > ABCMS_SES_LOGI) {
 								$this->session_start(-1);
-								$this->error_wsod("Too many failed logins, good bye.");
+								$this->response("Too many failed logins, good bye.", ABCMS_LOG_FATAL);
 							}
 							else {
 								$mess = "Login failure, please try again.";
@@ -1761,10 +1736,10 @@ private function command_setup(mixed &...$unused) : void { // command setup
 	// op cache warning
 	$mess = NULL;
 	if (function_exists('opcache_get_configuration') && !ini_get('opcache.validate_timestamps')) {
-		$mess = "WARNING: opcache.validate_timestamps=0, manually reload PHP/FPM to realize changes.\n\n";
-		$this->error_log($mess);
+		$mess = "SETUP: Reload PHP-FPM to refresh OpCache and update settings.";
+		$this->response($mess, ABCMS_LOG_WARN, TRUE, FALSE);
 	}
-	echo "ABCMS settings:\n\nrefresh screen to see updated settings changes\n\n{$mess}Done.\n\n";
+	echo "ABCMS settings:\n\nrefresh screen to see updated settings changes\n\n{$mess}\n\nDone.\n\n";
 	return;
 }
 
@@ -1802,10 +1777,11 @@ public function rp(string|false $path) : string|false { // linux style slashes f
 }
 
 private function chk_file(string $filename, bool $must = FALSE) : bool {// check file valid in in my extension folder
+	$safename = basename(dirname($filename)).'/'.basename($filename);
 	$starts = ($this->compiles['core']['projectroot']??$this->settings['core']['projectroot']).'/private'.$this->output_extension().'/';
-	if (!str_starts_with($filename, $starts)) { $this->error_wsod("Access outside of extension folder disallowed: {$filename}"); }
-	if (preg_match('/(^|[\/\\\\])\.\.([\/\\\\]|$)/', $filename)) { $this->error_wsod("Relative filenames disallowed: {$filename}"); }
-	if (is_link($filename)) { $this->error_wsod("Symbolic link filenames disallowed: {$filename}"); }
+	if (!str_starts_with($filename, $starts)) { $this->response("Access outside of extension folder disallowed: chk_file({$safename}).", ABCMS_LOG_FATAL); }
+	if (preg_match('/(^|[\/\\\\])\.\.([\/\\\\]|$)/', $filename)) { $this->response("Relative filenames disallowed: chk_file({$safename}).", ABCMS_LOG_FATAL); }
+	if (is_link($filename)) { $this->response("Symbolic link filenames disallowed: chk_file({$safename}).", ABCMS_LOG_FATAL); }
 	if ($must && ($this->rp(realpath($filename)) !== $filename || !is_file($filename) || !is_readable($filename))) { return FALSE; }
 	return TRUE;
 }
@@ -1815,40 +1791,51 @@ public function set_file(string $filename, string $value) : void { // write file
 	$temp = "{$filename}.".getmypid();
 	if (FALSE === file_put_contents($temp, $value) || !chmod($temp, 0640) || !rename($temp, $filename)) {
 		if (file_exists($temp)) { unlink($temp); }
-		$this->error_wsod("System, ".$this->error_get_last());
+		$safename = basename(dirname($filename)).'/'.basename($filename);
+		$this->response("System error: set_file({$safename}), ".$this->error_get_last(), ABCMS_LOG_FATAL);
 	}
 	return;
 }
 
 public function get_file(string $filename, string &$data) : void { // read file
-	if (!$this->chk_file($filename, TRUE)) { $this->error_wsod("Filename does not exist or not readable: {$filename}"); }
-	if (FALSE === ($data = file_get_contents($filename))) { $this->error_wsod("System, ".$this->error_get_last()); }
+	$safename = basename(dirname($filename)).'/'.basename($filename);
+	if (!$this->chk_file($filename, TRUE)) { $this->response("Filename does not exist or not readable: get_file({$safename}).", ABCMS_LOG_FATAL); }
+	if (FALSE === ($data = file_get_contents($filename))) { $this->response("System error: get_file({$safename}), ".$this->error_get_last(), ABCMS_LOG_FATAL); }
 	return;
 }
 
 public function touch(string $filename) : void { // touch/create file with permissions
 	$this->chk_file($filename);
-	if (!touch($filename) || !chmod($filename, 0640)) { $this->error_wsod("Touch file failed: {$filename}"); }
+	if (!touch($filename) || !chmod($filename, 0640)) {
+		$safename = basename(dirname($filename)).'/'.basename($filename);
+		$this->response("Failure: touch({$safename}).", ABCMS_LOG_FATAL);
+	}
 	return;
 }
 
 public function set_json(string $filename, mixed $value) : void { // write json
 	$this->set_file($filename, json_encode($value, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
 	if (json_last_error() !== JSON_ERROR_NONE) {
-		$this->error_wsod("System json_encode(), ".json_last_error_msg());
+		$safename = basename(dirname($filename)).'/'.basename($filename);
+		$this->response("System error: json_encode({$safename}), ".json_last_error_msg(), ABCMS_LOG_FATAL);
 	}
 	return;
 }
 
 public function get_json(string $filename, mixed &$data) : void { // read json
-	if (!$this->chk_file($filename, TRUE)) { $this->error_wsod("Filename does not exist or not readable: {$filename}"); }
-	if (NULL === ($data = json_decode(file_get_contents($filename), TRUE))) { $this->error_wsod("System, ".json_last_error_msg().", ".$this->error_get_last()); }
+	$safename = basename(dirname($filename)).'/'.basename($filename);
+	if (!$this->chk_file($filename, TRUE)) { $this->response("Filename does not exist or not readable: get_json({$safename}).", ABCMS_LOG_FATAL); }
+	if (FALSE === ($data = file_get_contents($filename))) { $this->response("System error: get_json(file_get_contents({$safename})), ".$this->error_get_last(), ABCMS_LOG_FATAL); }
+	if (NULL === ($data = json_decode($data, TRUE))) { $this->response("System error: get_json(json_decode({$safename})), ".json_last_error_msg(), ABCMS_LOG_FATAL); }
 	return;
 }
 
 public function set_dump(string $filename, mixed $data) : void { // write var_dump
 	// partial validity check at top level, nested elements unvalidated
-	if (is_object($data) || is_resource($data)) { $this->error_wsod("set_dump() supports scalars, arrays, and NULL only."); }
+	if (is_object($data) || is_resource($data)) {
+		$safename = basename(dirname($filename)).'/'.basename($filename);
+		$this->response("Var_dump supports scalars, arrays, and NULL only: set_dump({$safename}).", ABCMS_LOG_FATAL);
+	}
 	$this->set_file($filename, "<?php return " . var_export($data, TRUE) . ";\n");
 	if (function_exists('opcache_invalidate')) { opcache_invalidate($filename, TRUE); }
 }
@@ -1862,7 +1849,10 @@ public function get_dump(string $filename, mixed &$data) : bool { // read var_du
 }
 
 public function include(string $filename, ...$args) : mixed { // include always
-	if (!$this->chk_file($filename, TRUE)) { $this->error_wsod("Filename does not exist or not readable: {$filename}"); }
+	if (!$this->chk_file($filename, TRUE)) {
+		$safename = basename(dirname($filename)).'/'.basename($filename);
+		$this->response("Filename does not exist or not readable: include({$safename}).", ABCMS_LOG_FATAL);
+	}
 	// beware, failed include() = FALSE = successful include() returning FALSE
 	// anonymous scopes $args within include, hides $this, and protects abmcs() privates
 	$anonymous = Closure::bind(function($filename, ...$args) { return include($filename); }, NULL, NULL);
@@ -1872,7 +1862,10 @@ public function include(string $filename, ...$args) : mixed { // include always
 public function include_once(string $filename, ...$args) : mixed { // PHP should have no fault include_once()
 	static $included = array();
 	if (!isset($included[$filename])) {
-		if (!$this->chk_file($filename, TRUE)) { $this->error_wsod("Filename does not exist or not readable: {$filename}"); }
+		if (!$this->chk_file($filename, TRUE)) {
+			$safename = basename(dirname($filename)).'/'.basename($filename);
+			$this->response("Filename does not exist or not readable: include_once({$safename}).", ABCMS_LOG_FATAL);
+		}
 		$included[$filename] = TRUE;
 		// anonymous scopes $args within include, hides $this, and protects abmcs() privates
 		$anonymous = Closure::bind(function($filename, ...$args) { return include($filename); }, NULL, NULL);
@@ -1897,7 +1890,7 @@ public function array_walk_merge(array &$destiny, array $source) : void { // arr
 public function get_uuid() : string { // RFC 4122 compliant Version 4 UUIDs, globally unique
 	// generate 16 bytes (128 bits) of random data
 	$data = random_bytes(16);
-	if (strlen($data) !== 16) { $this->error_wsod("Sixteen bytes unavailable for uuidv4."); }
+	if (strlen($data) !== 16) { $this->response("Sixteen bytes unavailable for uuidv4.", ABCMS_LOG_FATAL); }
     // set version to 0100
     $data[6] = chr(ord($data[6]) & 0x0f | 0x40);
     // set bits 6-7 to 10
@@ -2012,7 +2005,7 @@ array				$options=[],// options
 	};
 	$fail = function (string $result) use (&$socket, $command, &$log) {
 		if ($socket) { $command('QUIT'); fclose($socket); }
-		$this->error_log($log."\r\nABCMS SMTP FAIL: {$result}");
+		$this->response($log."\r\nABCMS SMTP FAIL: {$result}", ABCMS_LOG_WARN, TRUE, FALSE);
 		return $result;
 	};
 	// configuration abuse
@@ -2176,7 +2169,7 @@ array				$options=[],// options
 	// finish
 	$command('QUIT');
 	fclose($socket);
-	if ($options['debug']) { $this->error_log($log."\r\nABCMS SMTP EXIT: success"); }
+	if ($options['debug']) { $this->response($log."\r\nABCMS SMTP EXIT: success", ABCMS_LOG_INFO, TRUE, FALSE); }
 	return TRUE;
 }
 
