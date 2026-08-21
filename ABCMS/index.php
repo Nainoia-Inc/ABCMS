@@ -591,7 +591,7 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 ) : bool {						// return TRUE=started, FALSE=destroyed
 	// initialize
 	$active = (session_status() === PHP_SESSION_ACTIVE ? TRUE : FALSE);
-	$slap = 0;
+	$slap = FALSE;
 	static $now = NULL;
 	static $posthandled = FALSE; // post already handled
 	static $deny = FALSE; // deny further session whether bad actor or failed session_destroy()
@@ -635,27 +635,27 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 	// validate session
 	if (!$this->ss) {
 		// cannot POST without session
-		if ($post) {																									$error = 'Session ended, POST requires session.';	$slap = 400; }
+		if ($post) {																									$error = 'Session ended, POST requires session.';	$slap = TRUE; }
 	}
 	else {
 		// hit counter
 		$gothits = FALSE; $this->ss['counts'][] = $now; if (count($this->ss['counts']) > ABCMS_SES_HITS) { array_shift($this->ss['counts']); $gothits = TRUE; }
 		// uagent inconsistent
-		if ($this->ss['uagent'] !== $this->boots['uagent']) {															$error = 'Session ended, IP/Agent or core reset.';	$slap = 400; }
+		if ($this->ss['uagent'] !== $this->boots['uagent']) {															$error = 'Session ended, IP/Agent or core reset.';	$slap = TRUE; }
 		// secrets differ
-		else if (!hash_equals($this->ss['secret'], ($_COOKIE[$this->settings['core']['session_secret']]??'x'))) {		$error = 'Session ended, secrets differ.';			$slap = 400; }
+		else if (!hash_equals($this->ss['secret'], ($_COOKIE[$this->settings['core']['session_secret']]??'x'))) {		$error = 'Session ended, secrets differ.';			$slap = TRUE; }
 		// rapid hits
-		else if ($gothits && $this->ss['counts'][ABCMS_SES_HITS-1] - $this->ss['counts'][0] < ABCMS_SES_TIME) {			$error = 'Session ended, rapid hits.';				$slap = 429; }
+		else if ($gothits && $this->ss['counts'][ABCMS_SES_HITS-1] - $this->ss['counts'][0] < ABCMS_SES_TIME) {			$error = 'Session ended, rapid hits.';				$slap = TRUE; }
 		// POST CSRF1
-		else if ($post && (!$csrf || !hash_equals($this->ss['csrf_valu'], $csrf))) {									$error = 'Session ended, CSRF1 error.';				$slap = 400; }
+		else if ($post && (!$csrf || !hash_equals($this->ss['csrf_valu'], $csrf))) {									$error = 'Session ended, CSRF1 error.';				$slap = TRUE; }
 		// POST CSRF2
-		else if ($csrf && !hash_equals($this->ss['csrf_valu'], (($_POST[$this->ss['csrf_name']]??'x')?:'x'))) {			$error = 'Session ended, CSRF2 error.';				$slap = 400; }
+		else if ($csrf && !hash_equals($this->ss['csrf_valu'], (($_POST[$this->ss['csrf_name']]??'x')?:'x'))) {			$error = 'Session ended, CSRF2 error.';				$slap = TRUE; }
 		// POST !HONEY populated
-		else if ($csrf && !empty($_POST[$this->ss['void_name']])) {														$error = "Session ended, CAPTCHA1 error.";			$slap = 400; }
+		else if ($csrf && !empty($_POST[$this->ss['void_name']])) {														$error = "Session ended, CAPTCHA1 error.";			$slap = TRUE; }
 		// POST HONEY differs
-		else if ($csrf && !hash_equals($this->ss['full_valu'], (($_POST[$this->ss['full_name']]??'x')?:'x'))) {			$error = 'Session ended, CAPTCHA2 error.';			$slap = 400; }
+		else if ($csrf && !hash_equals($this->ss['full_valu'], (($_POST[$this->ss['full_name']]??'x')?:'x'))) {			$error = 'Session ended, CAPTCHA2 error.';			$slap = TRUE; }
 		// POST rapid
-		else if ($csrf && ($now - $this->ss['active']) < ABCMS_SES_WAIT) {												$error = "Session ended, rapid submission.";		$slap = 400; }
+		else if ($csrf && ($now - $this->ss['active']) < ABCMS_SES_WAIT) {												$error = "Session ended, rapid submission.";		$slap = TRUE; }
 		// fail resume login, cookies or session expired, always reload user to confirm permissions
 		else if (isset($_COOKIE[$this->settings['core']['session_logins']]) &&
 			(($_COOKIE[$this->settings['core']['session_logins']]?:'x') !== $this->ss['logins'] || empty($this->ss['user']) ||
@@ -681,14 +681,14 @@ KILL:	// start session to destroy it, weird
 		$this->set_cookie($this->settings['core']['session_logins'], '', 1); // login
 		// PHP says mark for garbage collection, but I don't want garbage laying around
 		$_SESSION = $this->ss = []; // access directly exception to clear entire session
-		if ($active && !session_destroy()) { $deny = TRUE; $this->error_log("Session destroy failed.");	}
-		// slap evil and assign bad actor cookie
+		if ($active && !session_destroy()) { $deny = TRUE; $this->response("Session destroy failed.", ABCMS_LOG_WARN, TRUE, FALSE);	}
+		// slap all evil with same 429 + bad actor cookie
 		if ($slap) {
 			$deny = TRUE;
 			$this->set_cookie($this->settings['core']['session_badact'], $this->get_uniq(), $now + ABCMS_SES_BADA, FALSE);
-			http_response_code($slap);
+			http_response_code(429);
 			header('Retry-After: ' . ABCMS_SES_BADA);
-			$this->response($error, ABCMS_LOG_FATAL);
+			$this->response($error, ABCMS_LOG_FATAL, TRUE, TRUE, NULL, 429);
 		}
 		else {
 			$this->response($error, ABCMS_LOG_WARN, FALSE, TRUE);
@@ -762,11 +762,11 @@ bool $assign = FALSE,	// TRUE to initialize $_SESSION[extension]
 	$ext = $this->output_extension(); // segregation key
 	$bad = TRUE; // allow only one call to session_status()
 	if ($assign) {
-		if (($bad = (session_status() !== PHP_SESSION_ACTIVE))) { $this->error_wsod("Session assignment but session doesn't exist."); }
+		if (($bad = (session_status() !== PHP_SESSION_ACTIVE))) { $this->response("Session assignment without existing session.", ABCMS_LOG_FATAL); }
 		if (!isset($_SESSION[$ext])) { $_SESSION[$ext] = []; } // assignment expected
 	}
 	if ((!$bad || (session_status() === PHP_SESSION_ACTIVE)) && isset($_SESSION[$ext])) {
-		if (!is_array($_SESSION[$ext])) { $this->error_wsod("Session extension corrupted: {$ext}."); }
+		if (!is_array($_SESSION[$ext])) { $this->response("Session extension corrupted: {$ext}.", ABCMS_LOG_FATAL); }
 		return $_SESSION[$ext]; // return extension element
 	}
 	$empty = []; return $empty; // return fail-safe emptiness
@@ -779,7 +779,7 @@ int		$expires,			// expiration
 bool	$killit = TRUE,		// kill heed
 ) : void {					// return void or WSOD
 	// headers sent error and kill cookie on close browser
-	if (headers_sent()) { $this->error_wsod("Set cookie headers already sent"); }
+	if (headers_sent()) { $this->response("Set cookie headers already sent.", ABCMS_LOG_FATAL); }
 	if ($killit && $expires > 1 && $this->settings['core']['session_killit']) { $expires = 0; }
 	// set cookie
 	if (!empty($cookie) && setcookie(
@@ -793,9 +793,8 @@ bool	$killit = TRUE,		// kill heed
 			'httponly'	=> TRUE,										// no js prevents XSS
 			'samesite'	=> 'Strict',									// avoid CSRF attacks
 		])) {
-		// expire unset or set
-		if ($expires && $expires < $this->boots['time']) {	unset($_COOKIE[$cookie]); }
-		else {												$_COOKIE[$cookie] = $value; }
+		if ($expires && $expires < $this->boots['time']) {	unset($_COOKIE[$cookie]); } // expire unset
+		else { $_COOKIE[$cookie] = $value; } // set for remainder
 		return;
 	}
 	// failed so unset
@@ -817,9 +816,10 @@ SECTION DATABASE: Store data in VAR_DUMP, JSON, CSV, SQLite, and MySQL.
 public function new_database(	// create new database
 string $file,					// filename within extension
 ) : void {						// return void or WSOD
-	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->error_wsod("Database name invalid: {$file}"); } // invalid file
-	$fold = ($this->compiles['core']['projectroot']??$this->settings['core']['projectroot']).'/private'.$this->output_extension().'/ABCMS.database';
-	if (!is_dir($fold) && !mkdir($fold, 0750, true)) { $this->error_wsod("Database folder does not exist: {$fold}"); }
+	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->response("Database new name invalid: {$file}.", ABCMS_LOG_FATAL); } // invalid file
+	$ext = $this->output_extension();
+	$fold = ($this->compiles['core']['projectroot']??$this->settings['core']['projectroot'])."/private{$ext}/ABCMS.database";
+	if (!is_dir($fold) && !mkdir($fold, 0750, true)) { $this->response("Database folder does not exist: {$ext}.", ABCMS_LOG_FATAL); }
 	$file = $fold.'/'.$file;
 	$this->touch($file);
 	$this->touch($file.'.lock');
@@ -832,7 +832,7 @@ public function set_database(	// write to database
 	bool	$new = TRUE,		// TRUE to add new record (fails if exists), FALSE to update existing (fails if doesn't exist)
 ) : bool {						// return success or failure
 	// errors
-	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->error_wsod("Database name invalid: {$file}"); } // invalid file
+	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->response("Database set name invalid: {$file}.", ABCMS_LOG_FATAL); } // invalid file
 	if ($new && NULL === $data) { return FALSE; } // may not new NULL
 	// initialize update element
 	$file = $this->output_extension().'/ABCMS.database/'.$file;
@@ -847,19 +847,19 @@ public function set_database(	// write to database
 	// exclusive lock
 	if (!($lockfd = fopen($base.'.lock', 'r+')) || !flock($lockfd, LOCK_EX)) { // assume filesystem support
 		if ($lockfd) { fclose($lockfd); }
-		$this->error_wsod("Database exclusive lock failure");
+		$this->response("Database set exclusive lock failure: {$file}.", ABCMS_LOG_FATAL);
 	}
 	// read
 	if (FALSE === ($raw = file_get_contents($base))) {
 		flock($lockfd, LOCK_UN); fclose($lockfd);
-		$this->error_wsod("Database read failure");
+		$this->response("Database set read failure: {$file}.", ABCMS_LOG_FATAL);
 	}
 	else if ('' === $raw) {
 		$this->database[$file] = [];
 	}
 	else if (!is_array($raw = json_decode($raw, TRUE))) {
 		flock($lockfd, LOCK_UN); fclose($lockfd);
-		$this->error_wsod("Database json corrupted");
+		$this->response("Database set json corrupted: {$file}.", ABCMS_LOG_FATAL);
 	}
 	else {
 		$this->database[$file] = $raw;
@@ -906,7 +906,7 @@ string	$file,					// filename within extension
 array	$keys,					// read element from key path or [] returns whole database
 ) : mixed {						// return element or NULL for failure
 	// errors
-	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->error_wsod("Database name invalid: {$file}"); } // invalid file
+	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->response("Database get name invalid: {$file}.", ABCMS_LOG_FATAL); } // invalid file
 	// cached or not cached
 	$file = $this->output_extension().'/ABCMS.database/'.$file;
 	if (!isset($this->database[$file])) {
@@ -914,19 +914,19 @@ array	$keys,					// read element from key path or [] returns whole database
 		$base = ($this->compiles['core']['projectroot']??$this->settings['core']['projectroot']).'/private'.$file;
 		if (!($lockfd = fopen($base.'.lock', 'r')) || !flock($lockfd, LOCK_SH)) { // assume filesystem support
 			if ($lockfd) { fclose($lockfd); }
-			$this->error_wsod("Database shared lock failure");
+			$this->response("Database get shared lock failure: {$file}.", ABCMS_LOG_FATAL);
 		}
 		// read
 		if (FALSE === ($raw = file_get_contents($base))) {
 			flock($lockfd, LOCK_UN); fclose($lockfd);
-			$this->error_wsod("Database read failure");
+			$this->response("Database get read failure: {$file}.", ABCMS_LOG_FATAL);
 		}
 		else if ('' === $raw) {
 			$this->database[$file] = [];
 		}
 		else if (!is_array($raw = json_decode($raw, TRUE))) {
 			flock($lockfd, LOCK_UN); fclose($lockfd);
-			$this->error_wsod("Database corrupted");
+			$this->response("Database get json corrupted: {$file}.", ABCMS_LOG_FATAL);
 		}
 		else {
 			$this->database[$file] = $raw;
@@ -1235,7 +1235,7 @@ int		$levs,				// level
 bool	$logs = TRUE,		// to logs
 bool	$user = TRUE,		// to user
 mixed	$rets = NULL,		// return pass thru
-int		$code = 200,		// http code
+int		$code = 200,		// http request code returned
 ) : mixed {
 	// fix levels
 	if (ABCMS_LOG_DEBUG === $levs) { // debug?
