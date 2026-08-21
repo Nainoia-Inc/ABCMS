@@ -618,16 +618,16 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 			];
 	}
 	// early exit
-	if ($deny || isset($_COOKIE[$this->settings['core']['session_badact']])) { if (!($deny)) { $this->set_errors('Session denied to suspected bad actor.'); } $deny = TRUE; return FALSE; } // bad actor
+	if ($deny || isset($_COOKIE[$this->settings['core']['session_badact']])) { if (!($deny)) { $this->response("Session denied to suspected bad actor.", ABCMS_LOG_WARN, FALSE, TRUE); } $deny = TRUE; return FALSE; } // bad actor
 	if ($cmd < 0) { $error = 'You are logged out.'; goto KILL; } // destroy session
-	if ($active) { if (0 === $cmd) { $this->error_wsod("Session started to early."); } return TRUE; } // already started, but ABCMS must start
-	if (headers_sent()) { $this->error_wsod("Session start failed, headers already sent.");	} // already headers
+	if ($active) { if (0 === $cmd) { $this->response("Session already started unauthorized.", ABCMS_LOG_FATAL); } return TRUE; } // already started, but ABCMS must start
+	if (headers_sent()) { $this->response("Session start failed, headers already sent.", ABCMS_LOG_FATAL); } // already headers
 	if (!isset($_COOKIE[$this->settings['core']['session_allows']])) { $this->set_cookie($this->settings['core']['session_allows'], ABCMS_COOK_NAVS, $now + ABCMS_COOK_LIFE, FALSE); }	// TODO TEMP CODE TO ALLOW COOKIES
-	if (empty($_COOKIE[$this->settings['core']['session_allows']])) {	$this->set_errors('Session denied without your cookie approval.'); return FALSE; } // cookies not approved
+	if (empty($_COOKIE[$this->settings['core']['session_allows']])) {	$this->response("Session denied without your cookie approval.", ABCMS_LOG_WARN, FALSE, TRUE); return FALSE; } // cookies not approved
 	$post = ('POST' === $this->boots['urlmethod'] && !$posthandled ? TRUE : FALSE); // is this a POST?
 	if (0 === $cmd && !isset($_COOKIE[$this->settings['core']['session_logins']]) && !$post) { return FALSE; } // conditional start
 	// start session, more variables
-	if (!session_start($options) || !($_COOKIE[$options['name']] = session_id())) { $this->error_wsod("Session start failed, unknown reason.");	}
+	if (!session_start($options) || !($_COOKIE[$options['name']] = session_id())) { $this->response("Session start failed for an unknown reason.", ABCMS_LOG_FATAL); }
 	$active = $posthandled = TRUE;
 	$error = $gauntlet = NULL;
 	$csrf = ($post && !empty($_POST['csrf']) ? $_POST['csrf'] : '');
@@ -667,15 +667,13 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 		// time exceeded
 		else if ($now > ($this->ss['create'] + ABCMS_SES_LIFE)) {														$error = 'Session ended, maxtime threshold.'; }
 		// POST image mismatch
-		else if ($csrf && empty($this->ss['user']) && ($this->ss['test_valu'] !== (($_POST[$this->ss['test_name']]??'x')?:'x'))) {	$this->set_errors('CAPTCHA failure, please try again.'); }
+		else if ($csrf && empty($this->ss['user']) && ($this->ss['test_valu'] !== (($_POST[$this->ss['test_name']]??'x')?:'x'))) {	$this->response("CAPTCHA failure, please try again.", ABCMS_LOG_WARN, FALSE, TRUE); }
 		// Passed gauntlet so maybe human
 		else {																											$gauntlet = TRUE; }
 	}
 	// destroy by request or for corruption
 	if ($error) {
-KILL:	// set errors
-		$this->set_errors($error);
-		// start session to destroy it, weird
+KILL:	// start session to destroy it, weird
 		if (!$active) { $active = session_start($options); }
 		// remove cookies
 		$this->set_cookie($options['name'], '', 1); // session
@@ -690,7 +688,10 @@ KILL:	// set errors
 			$this->set_cookie($this->settings['core']['session_badact'], $this->get_uniq(), $now + ABCMS_SES_BADA, FALSE);
 			http_response_code($slap);
 			header('Retry-After: ' . ABCMS_SES_BADA);
-			$this->error_wsod($error);
+			$this->response($error, ABCMS_LOG_FATAL);
+		}
+		else {
+			$this->response($error, ABCMS_LOG_WARN, FALSE, TRUE);
 		}
 		return FALSE;
 	}
@@ -704,7 +705,7 @@ KILL:	// set errors
 		// rotate session and CSRF if exceed rotate time or $user role changed
 		if ($now > ($this->ss['rotate'] + ABCMS_SES_ROTA) || $this->ss['role'] !== ($this->ss['user']['role']??NULL)) {
 			// session cookie
-			if (!session_regenerate_id(TRUE) || !($_COOKIE[$options['name']] = session_id())) { $this->error_wsod("Session regeneration failed."); }
+			if (!session_regenerate_id(TRUE) || !($_COOKIE[$options['name']] = session_id())) { $this->response("Session regeneration failed.", ABCMS_LOG_FATAL); }
 			// secret cookie
 			$this->ss['secret'] = $this->get_uniq();
 			$this->set_cookie($this->settings['core']['session_secret'], $this->ss['secret'], $this->ss['create'] + ABCMS_SES_LIFE);
