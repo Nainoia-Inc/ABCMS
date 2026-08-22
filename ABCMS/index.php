@@ -445,6 +445,7 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 		}
 		// push extension stackwho so s() returns valid $_SESSION storage
 		$this->stackwho[] = $match[1];
+		$respmark = count($this->respuser); // mark the user error stack
 		try {
 			$this->include($file);
 			$this->response("SETUP: extension setup ok, file={$file}", ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
@@ -457,6 +458,8 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 		// pop stackwho
 		finally {
 			array_pop($this->stackwho);
+			// trim user error stack in finally so extension setup cannot message end users
+			if (($remove = ($respmark - count($this->respuser))) < 0) { array_splice($this->respuser, $remove); }
 		}
 	}
 	// TODO optimize and remove mixed non-exclusive and exclusive routes
@@ -638,27 +641,27 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 	// validate session
 	if (!$this->ss) {
 		// cannot POST without session
-		if ($post) {																									$error = 'SESSION: ended, post-without-session';	$slap = TRUE; }
+		if ($post) {																									$error = 'SESSION: ended, reason=post-without-session';		$slap = TRUE; }
 	}
 	else {
 		// hit counter
 		$gothits = FALSE; $this->ss['counts'][] = $now; if (count($this->ss['counts']) > ABCMS_SES_HITS) { array_shift($this->ss['counts']); $gothits = TRUE; }
 		// uagent inconsistent
-		if ($this->ss['uagent'] !== $this->boots['uagent']) {															$error = 'SESSION: ended, agent-mismatch';	$slap = TRUE; }
+		if ($this->ss['uagent'] !== $this->boots['uagent']) {															$error = 'SESSION: ended, reason=agent-mismatch';			$slap = TRUE; }
 		// secrets differ
-		else if (!hash_equals($this->ss['secret'], ($_COOKIE[$this->settings['core']['session_secret']]??'x'))) {		$error = 'SESSION: ended, secret-mismatch';			$slap = TRUE; }
+		else if (!hash_equals($this->ss['secret'], ($_COOKIE[$this->settings['core']['session_secret']]??'x'))) {		$error = 'SESSION: ended, reason=secret-mismatch';			$slap = TRUE; }
 		// rapid hits
-		else if ($gothits && $this->ss['counts'][ABCMS_SES_HITS-1] - $this->ss['counts'][0] < ABCMS_SES_TIME) {			$error = 'SESSION: ended, rate-hits';				$slap = TRUE; }
+		else if ($gothits && $this->ss['counts'][ABCMS_SES_HITS-1] - $this->ss['counts'][0] < ABCMS_SES_TIME) {			$error = 'SESSION: ended, reason=rapid-hits';				$slap = TRUE; }
 		// POST CSRF1
-		else if ($post && (!$csrf || !hash_equals($this->ss['csrf_valu'], $csrf))) {									$error = 'SESSION: ended, csrf-missing';				$slap = TRUE; }
+		else if ($post && (!$csrf || !hash_equals($this->ss['csrf_valu'], $csrf))) {									$error = 'SESSION: ended, reason=csrf-missing';				$slap = TRUE; }
 		// POST CSRF2
-		else if ($csrf && !hash_equals($this->ss['csrf_valu'], (($_POST[$this->ss['csrf_name']]??'x')?:'x'))) {			$error = 'SESSION: ended, csrf-mismatch';				$slap = TRUE; }
+		else if ($csrf && !hash_equals($this->ss['csrf_valu'], (($_POST[$this->ss['csrf_name']]??'x')?:'x'))) {			$error = 'SESSION: ended, reason=csrf-mismatch';			$slap = TRUE; }
 		// POST !HONEY populated
-		else if ($csrf && !empty($_POST[$this->ss['void_name']])) {														$error = 'SESSION: ended, reverse-honeypot';			$slap = TRUE; }
+		else if ($csrf && !empty($_POST[$this->ss['void_name']])) {														$error = 'SESSION: ended, reason=reverse-honeypot-filled';	$slap = TRUE; }
 		// POST HONEY differs
-		else if ($csrf && !hash_equals($this->ss['full_valu'], (($_POST[$this->ss['full_name']]??'x')?:'x'))) {			$error = 'SESSION: ended, mismatch-honeypot';			$slap = TRUE; }
+		else if ($csrf && !hash_equals($this->ss['full_valu'], (($_POST[$this->ss['full_name']]??'x')?:'x'))) {			$error = 'SESSION: ended, reason=honeypot-mismatched';		$slap = TRUE; }
 		// POST rapid
-		else if ($csrf && ($now - $this->ss['active']) < ABCMS_SES_WAIT) {												$error = 'SESSION: ended, rapid-submit';		$slap = TRUE; }
+		else if ($csrf && ($now - $this->ss['active']) < ABCMS_SES_WAIT) {												$error = 'SESSION: ended, reason=rapid-submit';				$slap = TRUE; }
 		// fail resume login, cookies or session expired, always reload user to confirm permissions
 		else if (isset($_COOKIE[$this->settings['core']['session_logins']]) &&
 			(($_COOKIE[$this->settings['core']['session_logins']]?:'x') !== $this->ss['logins'] || empty($this->ss['user']) ||
@@ -670,7 +673,9 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 		// time exceeded
 		else if ($now > ($this->ss['create'] + ABCMS_SES_LIFE)) {														$error = 'Your session reached its time limit. Please log in again.'; }
 		// POST image mismatch
-		else if ($csrf && empty($this->ss['user']) && ($this->ss['test_valu'] !== (($_POST[$this->ss['test_name']]??'x')?:'x'))) {	$this->response('That CAPTCHA answer was not correct. Please try again.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER); }
+		else if ($csrf && empty($this->ss['user']) && ($this->ss['test_valu'] !== (($_POST[$this->ss['test_name']]??'x')?:'x'))) {
+			$this->response('That CAPTCHA answer was not correct. Please try again.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER);
+		}
 		// Passed gauntlet so maybe human
 		else {																											$gauntlet = TRUE; }
 	}
@@ -2133,8 +2138,13 @@ array				$options=[],// options
 	$this->response('EMAIL: message, status=ok', ABCMS_LOG_DEBUG); // log
 	// add attachments
 	foreach (($attach??[]) as $filePath) {
+		$respmark = count($this->respuser);
 		try { if (!$this->chk_file($filePath, TRUE)) { return $fail("attachment not readable, file={$filePath}"); } }
-		catch (Throwable $e) { return $fail("attachment disallowed, file={$filePath}"); } // chk_file() already logged detail
+		catch (Throwable $e) {
+			// trim user error stack in catch because chk_file is the only actor and catch returns immediately
+			if (($remove = ($respmark - count($this->respuser))) < 0) { array_splice($this->respuser, $remove); } // trim user error stack
+			return $fail("attachment disallowed, file={$filePath}"); // chk_file() already logged detail
+		}
 		$fileName = preg_replace('/[\r\n]+/', '', basename($filePath));
 		$fileName = str_replace('"', '', $fileName); // keep the Content-Disposition value well-formed
 		$fileNameEncoded = rawurlencode($fileName);
