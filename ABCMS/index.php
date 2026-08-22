@@ -124,6 +124,7 @@ catch (\Throwable $e) {		// catch exceptions
 	$title = mb_strtolower(htmlspecialchars(((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://').($_SERVER['HTTP_HOST']??'unknown').($_SERVER['REQUEST_URI']??'')), ENT_QUOTES, 'UTF-8')); // title
 	$nonce = chr(random_int(97,122)).chr(random_int(97,122)).bin2hex(random_bytes(31)); // security nonce
 	$exception = htmlspecialchars(($e->getMessage() ?: 'Fatal exception, details logged.'), ENT_QUOTES, 'UTF-8'); // thrown error
+	$buffer = NULL; while(ob_get_level()) { $buffer .= ob_get_clean(); } // retrieve buffer
 	if ('cli' !== PHP_SAPI) { echo <<<EOF
 <!DOCTYPE html>
 <html lang='en'>
@@ -163,7 +164,6 @@ EOF;
 		echo (abcms() ? abcms()->response_plain() : $exception)."\n\n";
 	}
 	// file output
-	$buffer = NULL; while(ob_get_level()) { $buffer .= ob_get_clean(); } // retrieve buffer
 	$composer = array(); // composer extensions
 	if (class_exists(\Composer\InstalledVersions::class)) {
 		foreach (Composer\InstalledVersions::getInstalledPackagesByType('abcms-extension') as $name) {
@@ -376,7 +376,7 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	$this->compiles['core']['session_badact']	= $this->get_uniq(); // bad actor cookie name
 	$this->compiles['core']['session_allows']	= $this->get_uniq(); // user allows cookie name
 	$this->compiles['core']['session_killit']	= TRUE; // kill on close browser
-	$this->compiles['core']['session_domain']	= ''; // '' = host-only; or 'example.com' shared across subdomains
+	$this->compiles['core']['session_domain']	= NULL; // NULL || '' = host-only; or 'example.com' shared across subdomains
 	$this->compiles['core']['smtp_host']		= NULL; // SMTP server
 	$this->compiles['core']['smtp_port']		= NULL; // SMTP port
 	$this->compiles['core']['smtp_name']		= NULL; // SMTP name
@@ -387,7 +387,6 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	$this->compiles['core']['translog']			= $corefold.'ABCMS.translog'; // transaction log
 	$this->touch($this->compiles['core']['translog']);
 	$this->compiles['core']['override']			= $corefold.'ABCMS.override.php'; // overrides
-	if (!file_exists($this->compiles['core']['override'])) { $this->set_dump($this->compiles['core']['override'], []); }
 	// register variables
 	// 'U' = URL variable
 	// 'G' = $_GET variable
@@ -445,7 +444,7 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 		}
 		// push extension stackwho so s() returns valid $_SESSION storage
 		$this->stackwho[] = $match[1];
-		$respmark = count($this->respuser); // mark the user error stack
+		$mark = $this->response_splice();
 		try {
 			$this->include($file);
 			$this->response("SETUP: extension setup ok, file={$file}", ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
@@ -458,8 +457,7 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 		// pop stackwho
 		finally {
 			array_pop($this->stackwho);
-			// trim user error stack in finally so extension setup cannot message end users
-			if (($remove = ($respmark - count($this->respuser))) < 0) { array_splice($this->respuser, $remove); }
+			$this->response_splice($mark); // splice off $this->respuser in finally so extension SETUP.php cannot message end users
 		}
 	}
 	// TODO optimize and remove mixed non-exclusive and exclusive routes
@@ -468,9 +466,27 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	$this->response('SETUP: custom overrides', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
 	if (function_exists('opcache_invalidate')) { opcache_invalidate($this->compiles['core']['override'], TRUE); } // clear php cache
 	$override = [];
-	if (!$this->get_dump($this->compiles['core']['override'], $override) || !is_array($override)) { $this->response("SETUP: override file missing or corrupted, file={$this->compiles['core']['override']}", ABCMS_LOG_FATAL); }
+	// read override settings
+	if (file_exists($this->compiles['core']['override'])) {
+		if (!$this->get_dump($this->compiles['core']['override'], $override) || !is_array($override)) {
+			$this->response("SETUP: override file unreadable or corrupted, file={$this->compiles['core']['override']}", ABCMS_LOG_FATAL);
+		}
+	}
+	// build default override settings TODO fix once $this->settings array is segregated by extension
+	else {
+		$override['core']['session_killit']	= $this->compiles['core']['session_killit'];
+		$override['core']['session_domain']	= $this->compiles['core']['session_domain'];
+		$override['core']['smtp_host']		= $this->compiles['core']['smtp_host'];
+		$override['core']['smtp_port']		= $this->compiles['core']['smtp_port'];
+		$override['core']['smtp_name']		= $this->compiles['core']['smtp_name'];
+		$override['core']['smtp_user']		= $this->compiles['core']['smtp_user'];
+		$override['core']['smtp_pass']		= $this->compiles['core']['smtp_pass'];
+		$override['core']['smtp_ehlo']		= $this->compiles['core']['smtp_ehlo'];
+		$this->set_dump($this->compiles['core']['override'], $override);
+	}
 	$this->array_walk_merge($this->compiles, $override);
 	// verify custom session_domain
+	if (NULL === ($this->compiles['core']['session_domain']??NULL)) { $this->compiles['core']['session_domain'] = ''; }
 	if (!is_string($this->compiles['core']['session_domain'])) { $this->response('SETUP: override session_domain not a string', ABCMS_LOG_FATAL); }
 	$dom = $this->compiles['core']['session_domain'] = mb_strtolower(ltrim($this->compiles['core']['session_domain'],'.'), 'UTF-8');
 	$host = mb_strtolower(parse_url('http://'.($_SERVER['HTTP_HOST']??''), PHP_URL_HOST)?:'', 'UTF-8');
@@ -605,22 +621,22 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 	if (NULL === $options) {
 		$now = $this->boots['time'];
 		$options = [
-			'save_path'			=> $this->settings['core']['session_folder'],	// or .htaccess: php_value session.save_path '/path'
-			'name'				=> $this->settings['core']['session_cookie'],	// custom name
-			'save_handler'		=> 'files',										// session files
-			'gc_probability'	=> '1',											// garbage collection, turn off and replace with cron!
-			'gc_divisor'		=> '100',										// garbage collection, turn off and replace with cron!
-			'gc_maxlifetime'	=> ABCMS_SES_LIFE,								// garbage collection, turn off and replace with cron!
+			'save_path'			=> $this->settings['core']['session_folder'],		// or .htaccess: php_value session.save_path '/path'
+			'name'				=> $this->settings['core']['session_cookie'],		// custom name
+			'save_handler'		=> 'files',											// session files
+			'gc_probability'	=> '1',												// garbage collection, turn off and replace with cron!
+			'gc_divisor'		=> '100',											// garbage collection, turn off and replace with cron!
+			'gc_maxlifetime'	=> ABCMS_SES_LIFE,									// garbage collection, turn off and replace with cron!
 			'cookie_lifetime'	=> ($this->settings['core']['session_killit'] ? 0 : ABCMS_SES_LIFE), // cookie lifetime, kill when close browser
-			'cookie_path'		=> '/',											// whole domain
-			'cookie_domain'		=> $this->settings['core']['session_domain'],	// '' = host-only; or 'example.com' shared across subdomains
-			'cookie_secure'		=> '1',											// HTTPS only
-			'cookie_httponly'	=> '1',											// No JS
-			'cookie_samesite'	=> 'Strict',									// No cross-site
-			'use_strict_mode'	=> '1',											// Reject unknown SIDs
-			'use_cookies'		=> '1',											// No SID in URL
-			'use_only_cookies'	=> '1',											// No SID in URL
-			'use_trans_sid'		=> '0',											// Disable URL rewriting
+			'cookie_path'		=> '/',												// whole domain
+			'cookie_domain'		=> $this->settings['core']['session_domain']?:'',	// '' = host-only; or 'example.com' shared across subdomains
+			'cookie_secure'		=> '1',												// HTTPS only
+			'cookie_httponly'	=> '1',												// No JS
+			'cookie_samesite'	=> 'Strict',										// No cross-site
+			'use_strict_mode'	=> '1',												// Reject unknown SIDs
+			'use_cookies'		=> '1',												// No SID in URL
+			'use_only_cookies'	=> '1',												// No SID in URL
+			'use_trans_sid'		=> '0',												// Disable URL rewriting
 			];
 	}
 	// early exit
@@ -794,12 +810,12 @@ bool	$killit = TRUE,		// kill heed
 		$cookie,
 		$value,
 		[
-			'expires'	=> $expires,									// expiration
-			'path'		=> '/',											// entire website
-			'domain'	=> $this->settings['core']['session_domain'],	// '' = host-only; or 'example.com' shared across subdomains
-			'secure'	=> TRUE,										// only HTTPS
-			'httponly'	=> TRUE,										// no js prevents XSS
-			'samesite'	=> 'Strict',									// avoid CSRF attacks
+			'expires'	=> $expires,										// expiration
+			'path'		=> '/',												// entire website
+			'domain'	=> $this->settings['core']['session_domain']?:'',	// '' = host-only; or 'example.com' shared across subdomains
+			'secure'	=> TRUE,											// only HTTPS
+			'httponly'	=> TRUE,											// no js prevents XSS
+			'samesite'	=> 'Strict',										// avoid CSRF attacks
 		])) {
 		if ($expires && $expires < $this->boots['time']) {	unset($_COOKIE[$cookie]); } // expire unset
 		else { $_COOKIE[$cookie] = $value; } // set for remainder
@@ -1279,7 +1295,10 @@ int		$code = 200,				// log the http request code returned
 		$this->resplogs[] = json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
 	}
 	// stop message leaks, user entry not escaped, throw entry
-	if (ABCMS_LOG_FATAL === $levs && !$this->iamsuper()) { $mess = 'Fatal exception, details logged.'; }
+	if (ABCMS_LOG_FATAL === $levs) {
+		if (!$this->iamsuper()) { $mess = 'Fatal exception, details logged.'; }
+		if (!isset($this->input)) { $this->response_flush(); } // boot fatal, finally cannot flush
+	}
 	if (ABCMS_LOGTO_BOTH === $goto || ABCMS_LOGTO_USER === $goto) { $this->respuser[] = ['level' => ABCMS_LOG[$levs], 'message' => $mess]; }
 	if (ABCMS_LOG_FATAL === $levs) { throw new Exception($mess); }
 	return;
@@ -1288,7 +1307,9 @@ int		$code = 200,				// log the http request code returned
 public function response_flush() : void { // write response logs
 	if ($this->resplogs??NULL) {
 		$file = ($this->settings['core']['translog'] ?? str_replace('\\', '/', __DIR__).'/..'.ABCMS_EXT_PRIVATE.'ABCMS.translog');
-		file_put_contents($file, implode("\n", $this->resplogs)."\n", FILE_APPEND | LOCK_EX);
+		if (FALSE === file_put_contents($file, implode("\n", $this->resplogs)."\n", FILE_APPEND | LOCK_EX)) {
+			error_log(print_r($this->resplogs,TRUE)); // fallback
+		}
 		$this->resplogs = [];
 	}
 	return;
@@ -1300,6 +1321,12 @@ public function response_plain() : string { // return formatted log
 
 public function response_html() : string { // return formatted log
 	return implode("<br>\n", array_map(function($row) { return $this->hsc(implode(': ', $row)); }, $this->respuser));
+}
+
+public function response_splice(?int $mark = NULL) : int|array { // first mark $this->respuser, then splice off additional and return them
+	if (NULL === $mark) { return count($this->respuser); }
+	else if (($splice = ($mark - count($this->respuser))) < 0) { return array_splice($this->respuser, $splice); }
+	return [];
 }
 
 private function response_trace(	// get backtrace info
@@ -1493,10 +1520,13 @@ public function home_account(mixed &...$unused) : void { // home register, login
 	// send email
 	$emailerror = 'No email sent';
 	if ($subject) {
-		$emailerror = $this->email(
-			$this->settings['core']['smtp_user'],								// from
-			($this->settings['core']['smtp_name']??$this->boots['urldomain']),	// name
-			$this->settings['core']['smtp_user'],								// recipients
+		if (!($this->settings['core']['smtp_user']?:FALSE)) {
+			$emailerror = 'Email not available';
+		}
+		else if ($this->email(
+			$this->settings['core']['smtp_user']?:'',							// from
+			($this->settings['core']['smtp_name']?:$this->boots['urldomain']),	// name
+			$this->settings['core']['smtp_user']?:'',							// recipients
 			NULL,																// cc
 			$this->settings['core']['smtp_user'],								// bcc
 			$subject,															// subject
@@ -1509,8 +1539,10 @@ public function home_account(mixed &...$unused) : void { // home register, login
 				'pass'	=> $this->settings['core']['smtp_pass'],				// SMTP pass
 				'ehlo'	=> $this->boots['urldomain'],							// SMTP EHLO
 			],
-		);
-		$emailerror = ($emailerror ? 'Email sent' : 'Email not sent');
+			)) {
+			$emailerror = 'Email sent';
+		}
+		else { $emailerror = 'Email not sent'; }
 	}
 	// display account
 	$stat = (empty($this->ss['user']) ? 'Logged out' : (empty($this->ss['user']['valid']) ? 'Logged in validating' : 'Logged in validated'));
@@ -1878,12 +1910,12 @@ public function include_once(string $filename, ...$args) : mixed { // PHP should
 
 public function array_walk_merge(array &$destiny, array $source) : void { // array_walk_recursive() cannot copy multi-dimensional source, array_map() cannot edit destination
 	foreach($destiny as $key => $value) { // overwrite
-		if (!isset($source[$key])) { continue; } // no source
+		if (!array_key_exists($key, $source)) { continue; } // no source
 		else if (is_array($destiny[$key]) && is_array($source[$key])) { $this->array_walk_merge($destiny[$key], $source[$key]); } // recurse branch
 		else { $destiny[$key] = $source[$key]; } // overwrite leaf
 	}
 	foreach($source as $key => $value) { // extend
-		if (!isset($destiny[$key])) { $destiny[$key] = $source[$key]; continue; } // extend branch/leaf
+		if (!array_key_exists($key, $destiny)) { $destiny[$key] = $source[$key]; continue; } // extend branch/leaf
 		else if (is_array($destiny[$key]) && is_array($source[$key])) { $this->array_walk_merge($destiny[$key], $source[$key]); } // recurse branch
 	}
 	return;
@@ -2138,11 +2170,10 @@ array				$options=[],// options
 	$this->response('EMAIL: message, status=ok', ABCMS_LOG_DEBUG); // log
 	// add attachments
 	foreach (($attach??[]) as $filePath) {
-		$respmark = count($this->respuser);
+		$mark = $this->response_splice(); // mark the keepers
 		try { if (!$this->chk_file($filePath, TRUE)) { return $fail("attachment not readable, file={$filePath}"); } }
 		catch (Throwable $e) {
-			// trim user error stack in catch because chk_file is the only actor and catch returns immediately
-			if (($remove = ($respmark - count($this->respuser))) < 0) { array_splice($this->respuser, $remove); } // trim user error stack
+			$this->response_splice($mark); // splice off $this->respuser in catch because chk_file() is only actor and catch returns
 			return $fail("attachment disallowed, file={$filePath}"); // chk_file() already logged detail
 		}
 		$fileName = preg_replace('/[\r\n]+/', '', basename($filePath));
