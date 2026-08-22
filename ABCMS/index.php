@@ -525,19 +525,28 @@ int		$rol = ABCMS_ROLE_PUBLIC,	// minimum role permission
 int		$ord = 0,					// order considered, PHP_INT_MIN >= $ord <= PHP_INT_MAX 
 mixed	...$arg,					// argument alternatives
 ) : bool {							// return success or failure
-	// wrong context or parse control string
+	// initialize control string and result array
 	$ctl = ('' === $str ? array() : array_flip(str_split(strtoupper($str))));
 	$key = array_diff_key($ctl, array('I'=>0,'O'=>0,'E'=>0,'U'=>0,'D'=>0));
 	// validate
-	$a = $b = $c = $d = $e = $f = $g = 0;
-	if (($a=(!is_array($this->compiles))) || // bad context
-		($b=(!preg_match(ABCMS_REGEX_HOOK, $hok))) || // hook
-		($c=('' !== $ext && !preg_match(ABCMS_REGEX_NICK, $ext))) || // extension
-		($d=(!empty($met) && array_diff(explode('-', $met), array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE')))) || // method
-		($e=(isset($ctl['I']) && isset($ctl['O']))) || // input or output
-		($f=(!empty($key))) || // control
-		($g=(!empty($fun) && !preg_match(ABCMS_REGEX_FUNC, $fun)))) { // function
-		$this->response("SETUP: setup_extend invalid, hok={$hok} ext={$ext} fun={$fun}, bad={$a} hok={$b} ext={$c} met={$d} exc={$e} con={$f} fun={$g}", ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+	$n = [];
+	if (($n[]=(!is_array($this->compiles))) || // bad context
+		($n[]=(!preg_match(ABCMS_REGEX_HOOK, $hok))) || // hook
+		($n[]=('' !== $ext && !preg_match(ABCMS_REGEX_NICK, $ext))) || // extension
+		($n[]=(!empty($met) && array_diff(explode('-', $met), array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE')))) || // method
+		($n[]=(isset($ctl['I']) && isset($ctl['O']))) || // input or output
+		($n[]=(!empty($key))) || // control
+		($n[]=(!empty($fun) && !preg_match(ABCMS_REGEX_FUNC, $fun)))) { // function
+		$e = [
+			'context',
+			'hook',
+			'extension',
+			'method, '.$met,
+			'control-io, '.$str,
+			'control, '.$str,
+			'function',
+		];
+		$this->response("SETUP: setup_extend invalid, hook={$hok} ext={$ext} func={$fun}, invalid=".($e[count($n)-1]??'unknown'), ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 		return FALSE;
 	}
 	// assign extension
@@ -560,14 +569,22 @@ string	$ext,					// extension or '' for all
 string	$pat,					// unique URL path, trailing '/' for 1st segment only, otherwise no trailing slash
 ) : bool {						// return success or failure
 	// validate
-	$a = $b = $c = $d = $e = $f = 0;
-	if (($a=(!is_array($this->compiles))) || // bad context
-		($b=(!preg_match(ABCMS_REGEX_HOOK, $hok))) || // hook
-		($c=('' !== $ext && !preg_match(ABCMS_REGEX_NICK, $ext))) || // extension
-		($d=(substr_count($pat, '/')>2 && str_ends_with($pat, '/'))) || // trailing slash matches 1st path segment only
-		($e=('' !== $pat && (!str_starts_with($pat, '/') || FALSE === filter_var('http://localhost'.$pat, FILTER_VALIDATE_URL)))) || // path
-		($f=isset($this->compiles['route'][$hok]['eq'][$pat]))) { // duplicate
-		$this->response("SETUP: setup_equate invalid, hok={$hok} ext={$ext} pat={$pat}, bad={$a} hok={$b} ext={$c} p//={$d} pat={$e} dup={$f}", ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+	$n = [];
+	if (($n[]=(!is_array($this->compiles))) || // bad context
+		($n[]=(!preg_match(ABCMS_REGEX_HOOK, $hok))) || // hook
+		($n[]=('' !== $ext && !preg_match(ABCMS_REGEX_NICK, $ext))) || // extension
+		($n[]=(substr_count($pat, '/')>2 && str_ends_with($pat, '/'))) || // trailing slash matches 1st path segment only
+		($n[]=('' !== $pat && (!str_starts_with($pat, '/') || FALSE === filter_var('http://localhost'.$pat, FILTER_VALIDATE_URL)))) || // path
+		($n[]=isset($this->compiles['route'][$hok]['eq'][$pat]))) { // duplicate
+		$e = [
+			'context',
+			'hook',
+			'extension',
+			'slash',
+			'path',
+			'duplicate',
+		];
+		$this->response("SETUP: setup_equate invalid, hook={$hok} ext={$ext} path={$pat}, invalid=".($e[count($n)-1]??'unknown'), ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 		return FALSE;
 	}
 	// assign equate path
@@ -583,14 +600,22 @@ int		$rol,					// min role
 ?array	$reg = NULL,			// regex validation
 ) : bool {						// return success or failure
 	// validate
-	$a = $b = $c = $d = $e = $f = 0;
-	if (($a=(!is_array($this->compiles))) || // bad context
-		($b=(!in_array($cat, array('U','G','P')))) || // category
-		($c=(!preg_match('/^[a-z0-9\-_.~]+$/uiD', $var))) || // variable
-		($d=(!in_array($typ, array('array','bool','boolean','domain','email','explode','float','integer','ip','mac','mixed','path','string','uri','url','uuid')))) || // type
-		($e=(!in_array($rol, ABCMS_ROLE_SET))) || // role
-		($f=(!empty($this->compiles[$cat][$var])))) { // duplicate
-		$this->response("SETUP: setup_variable invalid, cat={$cat} var={$var} typ={$typ}, bad={$a} cat={$b} var={$c} typ={$d} rol={$e} dup={$f}", ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+	$n = [];
+	if (($n[]=(!is_array($this->compiles))) || // bad context
+		($n[]=(!in_array($cat, array('U','G','P')))) || // category
+		($n[]=(!preg_match('/^[a-z0-9\-_.~]+$/uiD', $var))) || // variable
+		($n[]=(!in_array($typ, array('array','bool','boolean','domain','email','explode','float','integer','ip','mac','mixed','path','string','uri','url','uuid')))) || // type
+		($n[]=(!in_array($rol, ABCMS_ROLE_SET))) || // role
+		($n[]=(!empty($this->compiles[$cat][$var])))) { // duplicate
+		$e = [
+			'context',
+			'category',
+			'var',
+			'type',
+			'role, '.$rol,
+			'duplicate',
+		];
+		$this->response("SETUP: setup_variable invalid, category={$cat} var={$var} type={$typ}, invalid=".($e[count($n)-1]??'unknown'), ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 		return FALSE;
 	}
 	// assign variable
