@@ -4,15 +4,15 @@
 SECTION INTRO: A Basic Content Management System and PHP toolkit.
 
 Copyright (c) 2026 Nainoia Inc. All rights reserved.
-Search for "SECTION" and "function" below for documentation.
-Copy index.php to a docroot or run "composer install nainoia-inc/abcms".
-Visit index.php in a browser or run "php index.php /command/help".
-Download the super user password from "ABMCS.deleteme", then delete.
+Search for 'SECTION' and 'function' below for documentation.
+Copy index.php to a docroot or run 'composer install nainoia-inc/abcms'.
+Visit index.php in a browser or run 'php index.php /command/help'.
+Download the super user password from 'ABMCS.deleteme', then delete.
 Extend imitating setup(), home_*(), webfiles_*(), console_*(), command_*().
 Everything is a routed extension, but extensions also do their own routing.
 Access $_SESSION[extension] with s() API, but $_SESSION remains exposed.
 Run extension SETUP.php with /command/setup and CRON.php with /command/cron.
-Schedule "php index.php /command/cron" every 15 minutes to 1x per day.
+Schedule 'php index.php /command/cron' every 15 minutes to 1x per day.
 */
 
 
@@ -79,6 +79,10 @@ const ABCMS_LOG_WARN	= 3;				// log || echo user
 const ABCMS_LOG_ERROR	= 4;				// log || echo user
 const ABCMS_LOG_FATAL	= 5;				// log && echo user
 const ABCMS_LOG			= array('Debug','Trace','Info','Warning','Error','Fatal'); // log type map
+const ABCMS_LOGTO_LOGS	= 0;				// to logs
+const ABCMS_LOGTO_USER	= 1;				// to user
+const ABCMS_LOGTO_BOTH	= 2;				// to both
+const ABCMS_LOGTO		= array('Logs','User','Both'); // logto map
 // session controls, TODO - move to overridable $settings
 const ABCMS_SES_ROTA	= 60*15;			// rotate session after 15 minutes
 const ABCMS_SES_IDLE	= 60*60*24*1;		// destroy session after 1 day idle
@@ -116,20 +120,10 @@ try {						// try output
 }
 
 catch (\Throwable $e) {		// catch exceptions
-	// gather information
-	$exception = (htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8') ?: 'Unknown exception.'); // thrown error
-	$system = htmlspecialchars((error_get_last() ?? array('message' => 'No system error reported.'))['message'], ENT_QUOTES, 'UTF-8'); // system error
-	$resplogs = (abcms() ? abcms()->response_user("\n") : $exception."\n".$system)."\n\n"; // response
-	$composer = array(); // composer extensions
-	if (class_exists(\Composer\InstalledVersions::class)) {
-		foreach (Composer\InstalledVersions::getInstalledPackagesByType('abcms-extension') as $name) {
-			$composer[$name] = Composer\InstalledVersions::getInstallPath($name);
-		}
-	}
-	$buffer = NULL; while(ob_get_level()) { $buffer .= ob_get_clean(); } // retrieve buffer
-	$title = mb_strtolower(htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://').($_SERVER['HTTP_HOST']??'unknown').($_SERVER['REQUEST_URI']??'')), ENT_QUOTES, 'UTF-8'); // website title
-	$nonce = chr(random_int(97,122)).chr(random_int(97,122)).bin2hex(random_bytes(31)); // security nonce
 	// graceful WSOD
+	$title = mb_strtolower(htmlspecialchars(((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://').($_SERVER['HTTP_HOST']??'unknown').($_SERVER['REQUEST_URI']??'')), ENT_QUOTES, 'UTF-8')); // title
+	$nonce = chr(random_int(97,122)).chr(random_int(97,122)).bin2hex(random_bytes(31)); // security nonce
+	$exception = htmlspecialchars(($e->getMessage() ?: 'Fatal exception, details logged.'), ENT_QUOTES, 'UTF-8'); // thrown error
 	if ('cli' !== PHP_SAPI) { echo <<<EOF
 <!DOCTYPE html>
 <html lang='en'>
@@ -159,19 +153,28 @@ Try again, wait, or contact webmaster.<br>
 <br>
 URL: "{$title}"<br>
 ERR: "{$exception}"<br>
-SYS: "{$system}"<br>
 <br>
 <a href='/'>Try again from the homepage</a>.
 </p></div></body></html>
 EOF;
 	}
-	else { echo $resplogs; } // CLI echo
+	// CLI echo
+	else {
+		echo (abcms() ? abcms()->response_plain() : $exception)."\n\n";
+	}
 	// file output
+	$buffer = NULL; while(ob_get_level()) { $buffer .= ob_get_clean(); } // retrieve buffer
+	$composer = array(); // composer extensions
+	if (class_exists(\Composer\InstalledVersions::class)) {
+		foreach (Composer\InstalledVersions::getInstalledPackagesByType('abcms-extension') as $name) {
+			$composer[$name] = Composer\InstalledVersions::getInstallPath($name);
+		}
+	}
 	file_put_contents( // dump corefile
 		str_replace('\\', '/', __DIR__).'/..'.ABCMS_EXT_PRIVATE.'ABCMS.coredump',
 		print_r(array(
 			'ABCMS_EXCEPTION'	=> $exception,
-			'ABCMS_SYSTEM'		=> $system,
+			'ABCMS_SYSTEM'		=> error_get_last(),
 			'ABCMS_OBJECT'		=> (abcms()?:'Constructor failed.'),
 			'ABCMS_GLOBALS'		=> $GLOBALS,
 			'ABCMS_BUFFER'		=> $buffer,
@@ -223,8 +226,8 @@ private function input_construct() { // 2nd construct object properties
 	// initialize
 	$this->stackwho[] = ABCMS_EXT_SELF; // push core on extension stack
 	$this->setup(TRUE); // assign $settings
-	if (FALSE === ini_set('error_log', $this->settings['core']['translog'])) { $this->response("Set error_log() location failed.", ABCMS_LOG_ERROR, TRUE, FALSE); } // set log destination after setup
-	while(ob_get_level() > 0) { if (FALSE !== ($buf = ob_get_clean()) && '' !== $buf) { $this->response("Unexpected ob_get_clean() buffers discarded.", ABCMS_LOG_ERROR, TRUE, FALSE); } } // empty buffers
+	if (FALSE === ini_set('error_log', $this->settings['core']['translog'])) { $this->response('CORE: ini_set error_log failed, '.$this->error_get_last(), ABCMS_LOG_ERROR); } // set log destination after setup
+	while(ob_get_level() > 0) { if (FALSE !== ($buf = ob_get_clean()) && '' !== $buf) { $this->response('CORE: unexpected output buffers discarded', ABCMS_LOG_ERROR); } } // empty buffers
 	// bootstrap inputs for session_start(), then session user validates remaining inputs
 	$this->boots = array(
 		'time'			=> time(), // execution time()
@@ -269,14 +272,16 @@ private function input_construct() { // 2nd construct object properties
 	);
 	// initialize completion
 	if ($this->boots['auto']) { require_once($this->boots['auto']); } // require composer
-	if (!str_starts_with($urldecoded, $urlpathall)) { $this->response("Input variables misplaced in path.", ABCMS_LOG_WARN, FALSE, TRUE); } // warn user, if !str_starts_with() URL is externally constructed
+	if (!str_starts_with($urldecoded, $urlpathall)) { $this->response('Some settings in that link were out of place and may be ignored.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER); } // warn user, if !str_starts_with() URL is externally constructed
 	array_pop($this->stackwho); // pop core off extension stack
 	return;
 }
 
-public function __set(string $name, mixed $value) : void { $this->response("Dynamic properties disallowed.", ABCMS_LOG_FATAL); } // disallow dynamic properties
+public function __set(string $name, mixed $value) : void { $this->response("CORE: dynamic property disallowed, name={$name}", ABCMS_LOG_FATAL); } // disallow dynamic properties
 
-public function __clone() { $this->response("Cloning object disallowed.", ABCMS_LOG_FATAL); } // disallow cloning
+public function __clone() { $this->response('CORE: clone disallowed', ABCMS_LOG_FATAL); } // disallow cloning
+
+private function iamsuper() : bool { return (PHP_SAPI === 'cli' || (isset($this->input['role']) && $this->input['role'] >= ABCMS_ROLE_ADMINS)); } // user is admin
 
 private function input_valid(	// validate input variables
 string	$cat,					// 'U'=URL, 'G'=$_GET, 'P'=$_POST
@@ -286,16 +291,16 @@ int		$role,					// user role
 	// loop input variables
 	$last = NULL;
 	foreach($vars as $var => $val) {
-		if ($var < $last) { $this->response("Input not alphabetical, '{$var}'", ABCMS_LOG_WARN, FALSE, TRUE); } // warn user, continue
+		if ($var < $last) { $this->response("Link settings must be in alphabetical order: '{$var}'.", ABCMS_LOG_WARN, ABCMS_LOGTO_USER); } // warn user, continue
 		$last = $var;
 		// security, do not distinguish between not found and no permissions
 		if (empty($this->settings[$cat][$var]['type']) || $role < $this->settings[$cat][$var]['role']) {
-			$this->response("Input undefined, ignored '{$var}'", ABCMS_LOG_WARN, FALSE, TRUE);	unset($vars[$var]);	continue; // warn user, unset
+			$this->response("Unknown link setting ignored: '{$var}'.", ABCMS_LOG_WARN, ABCMS_LOGTO_USER);	unset($vars[$var]);	continue; // warn user, unset
 		}
 		// $val type checks
 		if (is_string($val) && 'null' == mb_strtolower($val, 'UTF-8')) { $vars[$var] = NULL; continue; } // NULL special case
 		if (!is_string($val) && ('array' !== $this->settings[$cat][$var]['type'])) {
-			$this->response("Input not valid, '{$var} = !string'", ABCMS_LOG_WARN, FALSE, TRUE); unset($vars[$var]); continue; // warn user, unset
+			$this->response("Link setting is not text: '{$var}'.", ABCMS_LOG_WARN, ABCMS_LOGTO_USER); unset($vars[$var]); continue; // warn user, unset
 		}
 		// switch possibilities
 		switch($this->settings[$cat][$var]['type']) {
@@ -315,10 +320,10 @@ int		$role,					// user role
 			case 'uri'		:	if (!mb_check_encoding($val, 'ASCII') || FALSE === filter_var('http://localhost'.$val, FILTER_VALIDATE_URL)) {	break; }			continue 2;
 			case 'url'		:	if (!mb_check_encoding($val, 'ASCII') || FALSE === filter_var($val, FILTER_VALIDATE_URL)) {						break; }			continue 2;
 			case 'uuid'		:	if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iD', $val)) {		break; }			continue 2;			
-			default:			$this->response("Input type impossible, '{$var} = {$this->settings[$cat][$var]['type']}'", ABCMS_LOG_FATAL); // bad settings, fatal
+			default:			$this->response("INPUT: settings type unknown, var={$var} type={$this->settings[$cat][$var]['type']}", ABCMS_LOG_FATAL); // bad settings, fatal
 		}
 		// value invalid
-		$this->response("Input not valid, '{$var} = {$val}'", ABCMS_LOG_WARN, FALSE, TRUE); unset($vars[$var]); // warn user, unset
+		$this->response("Link setting value is not valid: '{$var}'.", ABCMS_LOG_WARN, ABCMS_LOGTO_USER); unset($vars[$var]); // warn user, unset
 	}
 	return $vars;
 }
@@ -343,13 +348,13 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	$this->compiles['core']['projectroot'] = $this->rp(dirname(__DIR__)); // projectroot, needed early for chk_file()
 	$data = [];
 	if ($boot && $this->get_dump($storage, $data)) {
-		if (!is_array($data) || empty($data['core']['projectroot'])) { $this->response("SETUP: Settings file corrupted.", ABCMS_LOG_FATAL); }
+		if (!is_array($data) || empty($data['core']['projectroot'])) { $this->response("SETUP: settings file corrupted, storage={$storage}", ABCMS_LOG_FATAL); }
 		$this->settings = $data;
 		$this->compiles = NULL;
 		return;
 	}
 	// register core settings
-	$this->response("SETUP: Begin.", ABCMS_LOG_INFO, TRUE, FALSE);
+	$this->response('SETUP: begin', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
 	$this->compiles['core']['filename']			= $this->rp(__FILE__); // my filename
 	$this->compiles['core']['documentroot']		= $this->rp(__DIR__); // my documentroot
 	$this->compiles['core']['project']			= (basename(dirname(__DIR__))); // my project name
@@ -361,9 +366,9 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	$corefold = $this->compiles['core']['projectroot'].ABCMS_EXT_PRIVATE;
 	$this->set_json($corefold.'ABCMS.deleteme', 'DELETE ASAP: '.$password); // temp password storage
 	$password = NULL;
-	$this->response("SETUP: Retrieve new password and delete file.", ABCMS_LOG_INFO, TRUE, FALSE);
+	$this->response('SETUP: superuser password written, retrieve and delete file', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
 	$this->compiles['core']['secret']			= $this->get_uniq(); // my hash secret
-	if (!is_dir(($file = ($corefold.'ABCMS.sessions'))) && (!mkdir($file, 0755, true))) { $this->response("SETUP: Session folder missing.", ABCMS_LOG_FATAL); }
+	if (!is_dir(($file = ($corefold.'ABCMS.sessions'))) && (!mkdir($file, 0755, true))) { $this->response("SETUP: session folder missing, file={$file}, ".$this->error_get_last(), ABCMS_LOG_FATAL); }
 	$this->compiles['core']['session_folder']	= $file; // session folder
 	$this->compiles['core']['session_cookie']	= $this->get_uniq(); // session cookie name
 	$this->compiles['core']['session_secret']	= $this->get_uniq(); // session secret name
@@ -387,7 +392,7 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	// 'U' = URL variable
 	// 'G' = $_GET variable
 	// 'P' = $_POST variable
-	$this->response("SETUP: Core variables.", ABCMS_LOG_INFO, TRUE, FALSE);
+	$this->response('SETUP: core variables', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
 	$this->setup_variable('U', 'debug', 'bool', ABCMS_ROLE_ADMINS); // register URL PATH variables
 	$this->setup_variable('U', 'abcms', 'bool', ABCMS_ROLE_ADMINS); // register URL PATH variables
 	//$this->setup_variable('G', 'debug', 'bool', ABCMS_ROLE_ADMINS); // register URL PATH variables
@@ -399,8 +404,8 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	// 'E' = Exclusive to my extension or omit me, default anyone
 	// 'U' = Uno/single extension, default multiple extensions cooperate 
 	// 'D' = Default included, default excluded if extended by $ord < 0
-	// HTTP methods, '' = all = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE"
-	$this->response("SETUP: Core extensions.", ABCMS_LOG_INFO, TRUE, FALSE);
+	// HTTP methods, '' = all = 'CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE'
+	$this->response('SETUP: core extensions', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
 	// register core and command extensions
 	$this->setup_extend(ABCMS_EXT_INITX,	'',			'CLI-GET-POST',	'IEU',	'abcms()->home_theme',		ABCMS_ROLE_PUBLIC,	-10);
 	$this->setup_extend(ABCMS_EXT_INITX,	'console',	'CLI-GET-POST',	'IEU',	'abcms()->console_theme',	ABCMS_ROLE_ADMINS,	-20);
@@ -417,37 +422,37 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	$this->setup_equate(ABCMS_EXT_MAINX,	'console',	'/console');
 	$this->setup_equate(ABCMS_EXT_MAINX,	'console',	'/console/');
 	// run SETUP.php for each extension
-	$this->response("SETUP: Contrib extensions.", ABCMS_LOG_INFO, TRUE, FALSE);
+	$this->response('SETUP: contrib extensions', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
 	$exts = glob("{$this->compiles['core']['projectroot']}/private/*/*/");
 	foreach ($exts?:[] as $fold) {
 		// skip myself
 		if (preg_match('|^'.preg_quote($this->compiles['core']['projectroot'],'|').ABCMS_EXT_PRIVATE.'$|uD', $fold)) { continue; }
 		// valid extension name
 		if (!preg_match('|^'.preg_quote($this->compiles['core']['projectroot'],'|').'/private'.ABCMS_REGEX_FOLD.'/$|uD', $fold, $match) || empty($match[1])) {
-			$this->response("SETUP: Extension name invalid, '{$fold}'.", ABCMS_LOG_WARN, TRUE, FALSE);
+			$this->response("SETUP: extension name invalid, folder={$fold}", ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS);
 			continue;
 		}
 		// valid file
-		$temp = $fold . "SETUP.php";
+		$temp = $fold . 'SETUP.php';
 		if (!is_file($temp)) {
-			$this->response("SETUP: Invalid extension SETUP.php, '{$temp}'.", ABCMS_LOG_WARN, TRUE, FALSE);
+			$this->response("SETUP: extension SETUP.php invalid, file={$temp}", ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS);
 			continue;
 		}
 		// reject symlinks
 		if (($file = $this->rp(realpath($temp))) !== $this->rp($temp)) {
-			$this->response("SETUP: Extension symlinks rejected, '{$temp}'.", ABCMS_LOG_WARN, TRUE, FALSE);
+			$this->response("SETUP: extension symlink rejected, file={$temp}", ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS);
 			continue;
 		}
 		// push extension stackwho so s() returns valid $_SESSION storage
 		$this->stackwho[] = $match[1];
 		try {
 			$this->include($file);
-			$this->response("SETUP: Extension setup success, '{$file}'.", ABCMS_LOG_INFO, TRUE, FALSE);
+			$this->response("SETUP: extension setup ok, file={$file}", ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
 		}
 		// failed extension setup
 		catch (Throwable $e) {
-			$exception = ($e->getMessage() ?: 'Unknown exception.');
-			$this->response("SETUP: Extension setup fail, '{$file}', {$exception}.", ABCMS_LOG_ERROR, TRUE, FALSE);
+			$exception = ($e->getMessage() ?: 'Unknown extension SETUP.php exception.');
+			$this->response("SETUP: extension setup failed, file={$file}, {$exception}", ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 		}
 		// pop stackwho
 		finally {
@@ -455,19 +460,19 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 		}
 	}
 	// TODO optimize and remove mixed non-exclusive and exclusive routes
-	$this->response("SETUP: Optimize settings.", ABCMS_LOG_INFO, TRUE, FALSE);
+	$this->response('SETUP: optimize settings', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
 	// load custom settings from var_dump file for speed, beware of injection
-	$this->response("SETUP: Custom overrides.", ABCMS_LOG_INFO, TRUE, FALSE);
+	$this->response('SETUP: custom overrides', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
 	if (function_exists('opcache_invalidate')) { opcache_invalidate($this->compiles['core']['override'], TRUE); } // clear php cache
 	$override = [];
-	if (!$this->get_dump($this->compiles['core']['override'], $override) || !is_array($override)) { $this->response("Custom settings file missing or corrupted.", ABCMS_LOG_FATAL); }
+	if (!$this->get_dump($this->compiles['core']['override'], $override) || !is_array($override)) { $this->response("SETUP: override file missing or corrupted, file={$this->compiles['core']['override']}", ABCMS_LOG_FATAL); }
 	$this->array_walk_merge($this->compiles, $override);
 	// verify custom session_domain
-	if (!is_string($this->compiles['core']['session_domain'])) { $this->response("Override session domain must be a string.", ABCMS_LOG_FATAL); }
+	if (!is_string($this->compiles['core']['session_domain'])) { $this->response('SETUP: override session_domain not a string', ABCMS_LOG_FATAL); }
 	$dom = $this->compiles['core']['session_domain'] = mb_strtolower(ltrim($this->compiles['core']['session_domain'],'.'), 'UTF-8');
 	$host = mb_strtolower(parse_url('http://'.($_SERVER['HTTP_HOST']??''), PHP_URL_HOST)?:'', 'UTF-8');
 	if ('' !== $dom && '' !== $host && $dom !== $host && !str_ends_with($host, '.'.$dom)) {
-		$this->response("Override session domain '{$dom}' does not match host '{$host}'.", ABCMS_LOG_FATAL);
+		$this->response("SETUP: override session_domain mismatch, domain={$dom} host={$host}", ABCMS_LOG_FATAL);
 	}
 	// __Host- prefix locks cookies to this host, browser rejects any subdomain attempt to set them
 	if ('' === $dom) {
@@ -476,13 +481,13 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 		}
 	}
 	// save settings as fast op cachable php include file with atomic with rename(), beware of injection
-	$this->response("SETUP: Save settings.", ABCMS_LOG_INFO, TRUE, FALSE);
+	$this->response('SETUP: save settings', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
 	$this->set_dump($storage, $this->compiles);
 	if ($boot) { $this->settings = $this->compiles; }
 	$this->compiles = NULL;
 	// warning: op cache setting requires manual cache refresh
 	if (function_exists('opcache_get_configuration') && !ini_get('opcache.validate_timestamps')) {
-		$this->response("SETUP: Reload PHP-FPM to refresh OpCache and update settings.", ABCMS_LOG_WARN, TRUE, FALSE);
+		$this->response('SETUP: opcache stale, reload php-fpm to apply settings', ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS);
 	}
 	return;
 }
@@ -490,7 +495,7 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 public function setup_extend(		// register hook extension
 string	$hok,						// /vendor/package/hook | TODO combine $hok & $ext ?
 string	$ext,						// extension or '' for all
-string	$met,						// HTTP methods, '' = all = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE" | TODO make $met and $str similar structure?
+string	$met,						// HTTP methods, '' = all = 'CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE' | TODO make $met and $str similar structure?
 string	$str,						// control string | TODO constants?
 									// 'I' = input -OR- 'O' = output filter, default input
 									// 'E' = exclusive to my extension or omit me, default anyone
@@ -513,7 +518,7 @@ mixed	...$arg,					// argument alternatives
 		($e=(isset($ctl['I']) && isset($ctl['O']))) || // input or output
 		($f=(!empty($key))) || // control
 		($g=(!empty($fun) && !preg_match(ABCMS_REGEX_FUNC, $fun)))) { // function
-		$this->response("SETUP: Invalid setup_extend(): {$hok} {$ext} {$fun}, err: bad={$a} hok={$b} ext={$c} met={$d} exc={$e} con={$f} fun={$g}.", ABCMS_LOG_ERROR, TRUE, FALSE);
+		$this->response("SETUP: setup_extend invalid, hok={$hok} ext={$ext} fun={$fun}, bad={$a} hok={$b} ext={$c} met={$d} exc={$e} con={$f} fun={$g}", ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 		return FALSE;
 	}
 	// assign extension
@@ -543,7 +548,7 @@ string	$pat,					// unique URL path, trailing '/' for 1st segment only, otherwis
 		($d=(substr_count($pat, '/')>2 && str_ends_with($pat, '/'))) || // trailing slash matches 1st path segment only
 		($e=('' !== $pat && (!str_starts_with($pat, '/') || FALSE === filter_var('http://localhost'.$pat, FILTER_VALIDATE_URL)))) || // path
 		($f=isset($this->compiles['route'][$hok]['eq'][$pat]))) { // duplicate
-		$this->response("SETUP: Invalid setup_equate(): {$hok} {$ext} {$pat} err: bad={$a} hok={$b} ext={$c} p//={$d} pat={$e} dup={$f}.", ABCMS_LOG_ERROR, TRUE, FALSE);
+		$this->response("SETUP: setup_equate invalid, hok={$hok} ext={$ext} pat={$pat}, bad={$a} hok={$b} ext={$c} p//={$d} pat={$e} dup={$f}", ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 		return FALSE;
 	}
 	// assign equate path
@@ -566,7 +571,7 @@ int		$rol,					// min role
 		($d=(!in_array($typ, array('array','bool','boolean','domain','email','explode','float','integer','ip','mac','mixed','path','string','uri','url','uuid')))) || // type
 		($e=(!in_array($rol, ABCMS_ROLE_SET))) || // role
 		($f=(!empty($this->compiles[$cat][$var])))) { // duplicate
-		$this->response("SETUP: Invalid setup_variable(): {$cat} {$var} {$typ} err: bad={$a} cat={$b} var={$c} typ={$d} rol={$e} dup={$f}.", ABCMS_LOG_ERROR, TRUE, FALSE);
+		$this->response("SETUP: setup_variable invalid, cat={$cat} var={$var} typ={$typ}, bad={$a} cat={$b} var={$c} typ={$d} rol={$e} dup={$f}", ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 		return FALSE;
 	}
 	// assign variable
@@ -616,16 +621,16 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 			];
 	}
 	// early exit
-	if ($deny || isset($_COOKIE[$this->settings['core']['session_badact']])) { if (!($deny)) { $this->response("Session denied to suspected bad actor.", ABCMS_LOG_WARN, FALSE, TRUE); } $deny = TRUE; return FALSE; } // bad actor
+	if ($deny || isset($_COOKIE[$this->settings['core']['session_badact']])) { if (!($deny)) { $this->response('Access is temporarily blocked. Please try again later.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER); } $deny = TRUE; return FALSE; } // bad actor
 	if ($cmd < 0) { $error = 'You are logged out.'; goto KILL; } // destroy session
-	if ($active) { if (0 === $cmd) { $this->response("Session already started unauthorized.", ABCMS_LOG_FATAL); } return TRUE; } // already started, but ABCMS must start
-	if (headers_sent()) { $this->response("Session start failed, headers already sent.", ABCMS_LOG_FATAL); } // already headers
+	if ($active) { if (0 === $cmd) { $this->response('SESSION: unauthorized start encountered', ABCMS_LOG_FATAL); } return TRUE; } // already started, but ABCMS must start
+	if (headers_sent()) { $this->response('SESSION: start failed, headers already sent', ABCMS_LOG_FATAL); } // already headers
 	if (!isset($_COOKIE[$this->settings['core']['session_allows']])) { $this->set_cookie($this->settings['core']['session_allows'], ABCMS_COOK_NAVS, $now + ABCMS_COOK_LIFE, FALSE); }	// TODO TEMP CODE TO ALLOW COOKIES
-	if (empty($_COOKIE[$this->settings['core']['session_allows']])) {	$this->response("Session denied without your cookie approval.", ABCMS_LOG_WARN, FALSE, TRUE); return FALSE; } // cookies not approved
+	if (empty($_COOKIE[$this->settings['core']['session_allows']])) {	$this->response('Cookies must be accepted before you can submit forms or login.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER); return FALSE; } // cookies not approved
 	$post = ('POST' === $this->boots['urlmethod'] && !$posthandled ? TRUE : FALSE); // is this a POST?
 	if (0 === $cmd && !isset($_COOKIE[$this->settings['core']['session_logins']]) && !$post) { return FALSE; } // conditional start
 	// start session, more variables
-	if (!session_start($options) || !($_COOKIE[$options['name']] = session_id())) { $this->response("Session start failed for an unknown reason.", ABCMS_LOG_FATAL); }
+	if (!session_start($options) || !($_COOKIE[$options['name']] = session_id())) { $this->response('SESSION: start failed, '.$this->error_get_last(), ABCMS_LOG_FATAL); }
 	$active = $posthandled = TRUE;
 	$error = $gauntlet = NULL;
 	$csrf = ($post && !empty($_POST['csrf']) ? $_POST['csrf'] : '');
@@ -633,39 +638,39 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 	// validate session
 	if (!$this->ss) {
 		// cannot POST without session
-		if ($post) {																									$error = 'Session ended, POST requires session.';	$slap = TRUE; }
+		if ($post) {																									$error = 'SESSION: ended, post-without-session';	$slap = TRUE; }
 	}
 	else {
 		// hit counter
 		$gothits = FALSE; $this->ss['counts'][] = $now; if (count($this->ss['counts']) > ABCMS_SES_HITS) { array_shift($this->ss['counts']); $gothits = TRUE; }
 		// uagent inconsistent
-		if ($this->ss['uagent'] !== $this->boots['uagent']) {															$error = 'Session ended, IP/Agent or core reset.';	$slap = TRUE; }
+		if ($this->ss['uagent'] !== $this->boots['uagent']) {															$error = 'SESSION: ended, agent-mismatch';	$slap = TRUE; }
 		// secrets differ
-		else if (!hash_equals($this->ss['secret'], ($_COOKIE[$this->settings['core']['session_secret']]??'x'))) {		$error = 'Session ended, secrets differ.';			$slap = TRUE; }
+		else if (!hash_equals($this->ss['secret'], ($_COOKIE[$this->settings['core']['session_secret']]??'x'))) {		$error = 'SESSION: ended, secret-mismatch';			$slap = TRUE; }
 		// rapid hits
-		else if ($gothits && $this->ss['counts'][ABCMS_SES_HITS-1] - $this->ss['counts'][0] < ABCMS_SES_TIME) {			$error = 'Session ended, rapid hits.';				$slap = TRUE; }
+		else if ($gothits && $this->ss['counts'][ABCMS_SES_HITS-1] - $this->ss['counts'][0] < ABCMS_SES_TIME) {			$error = 'SESSION: ended, rate-hits';				$slap = TRUE; }
 		// POST CSRF1
-		else if ($post && (!$csrf || !hash_equals($this->ss['csrf_valu'], $csrf))) {									$error = 'Session ended, CSRF1 error.';				$slap = TRUE; }
+		else if ($post && (!$csrf || !hash_equals($this->ss['csrf_valu'], $csrf))) {									$error = 'SESSION: ended, csrf-missing';				$slap = TRUE; }
 		// POST CSRF2
-		else if ($csrf && !hash_equals($this->ss['csrf_valu'], (($_POST[$this->ss['csrf_name']]??'x')?:'x'))) {			$error = 'Session ended, CSRF2 error.';				$slap = TRUE; }
+		else if ($csrf && !hash_equals($this->ss['csrf_valu'], (($_POST[$this->ss['csrf_name']]??'x')?:'x'))) {			$error = 'SESSION: ended, csrf-mismatch';				$slap = TRUE; }
 		// POST !HONEY populated
-		else if ($csrf && !empty($_POST[$this->ss['void_name']])) {														$error = "Session ended, CAPTCHA1 error.";			$slap = TRUE; }
+		else if ($csrf && !empty($_POST[$this->ss['void_name']])) {														$error = 'SESSION: ended, reverse-honeypot';			$slap = TRUE; }
 		// POST HONEY differs
-		else if ($csrf && !hash_equals($this->ss['full_valu'], (($_POST[$this->ss['full_name']]??'x')?:'x'))) {			$error = 'Session ended, CAPTCHA2 error.';			$slap = TRUE; }
+		else if ($csrf && !hash_equals($this->ss['full_valu'], (($_POST[$this->ss['full_name']]??'x')?:'x'))) {			$error = 'SESSION: ended, mismatch-honeypot';			$slap = TRUE; }
 		// POST rapid
-		else if ($csrf && ($now - $this->ss['active']) < ABCMS_SES_WAIT) {												$error = "Session ended, rapid submission.";		$slap = TRUE; }
+		else if ($csrf && ($now - $this->ss['active']) < ABCMS_SES_WAIT) {												$error = 'SESSION: ended, rapid-submit';		$slap = TRUE; }
 		// fail resume login, cookies or session expired, always reload user to confirm permissions
 		else if (isset($_COOKIE[$this->settings['core']['session_logins']]) &&
 			(($_COOKIE[$this->settings['core']['session_logins']]?:'x') !== $this->ss['logins'] || empty($this->ss['user']) ||
-			!($this->ss['user'] = $this->get_database('BASIC.json', array('user',$this->ss['user']['email']))))) {		$error = 'Session ended, resume login failed.'; }
+			!($this->ss['user'] = $this->get_database('BASIC.json', array('user',$this->ss['user']['email']))))) {		$error = 'Your login could not be resumed. Please log in again.'; }
 		// login expired
-		else if (!isset($_COOKIE[$this->settings['core']['session_logins']]) && !empty($this->ss['user'])) {			$error = 'Session ended, login expired.'; }
+		else if (!isset($_COOKIE[$this->settings['core']['session_logins']]) && !empty($this->ss['user'])) {			$error = 'Your login expired. Please log in again.'; }
 		// idle time exceeded
-		else if ($now > ($this->ss['active'] + ABCMS_SES_IDLE)) {														$error = 'Session ended, inactivity threshold.'; }
+		else if ($now > ($this->ss['active'] + ABCMS_SES_IDLE)) {														$error = 'Your session ended after inactivity. Please log in again.'; }
 		// time exceeded
-		else if ($now > ($this->ss['create'] + ABCMS_SES_LIFE)) {														$error = 'Session ended, maxtime threshold.'; }
+		else if ($now > ($this->ss['create'] + ABCMS_SES_LIFE)) {														$error = 'Your session reached its time limit. Please log in again.'; }
 		// POST image mismatch
-		else if ($csrf && empty($this->ss['user']) && ($this->ss['test_valu'] !== (($_POST[$this->ss['test_name']]??'x')?:'x'))) {	$this->response("CAPTCHA failure, please try again.", ABCMS_LOG_WARN, FALSE, TRUE); }
+		else if ($csrf && empty($this->ss['user']) && ($this->ss['test_valu'] !== (($_POST[$this->ss['test_name']]??'x')?:'x'))) {	$this->response('That CAPTCHA answer was not correct. Please try again.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER); }
 		// Passed gauntlet so maybe human
 		else {																											$gauntlet = TRUE; }
 	}
@@ -679,17 +684,17 @@ KILL:	// start session to destroy it, weird
 		$this->set_cookie($this->settings['core']['session_logins'], '', 1); // login
 		// PHP says mark for garbage collection, but I don't want garbage laying around
 		$_SESSION = $this->ss = []; // access directly exception to clear entire session
-		if ($active && !session_destroy()) { $deny = TRUE; $this->response("Session destroy failed.", ABCMS_LOG_WARN, TRUE, FALSE);	}
+		if ($active && !session_destroy()) { $deny = TRUE; $this->response('SESSION: destroy failed, '.$this->error_get_last(), ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS);	}
 		// slap all evil with same 429 + bad actor cookie
 		if ($slap) {
 			$deny = TRUE;
 			$this->set_cookie($this->settings['core']['session_badact'], $this->get_uniq(), $now + ABCMS_SES_BADA, FALSE);
 			http_response_code(429);
 			header('Retry-After: ' . ABCMS_SES_BADA);
-			$this->response($error, ABCMS_LOG_FATAL, TRUE, TRUE, NULL, 429);
+			$this->response($error, ABCMS_LOG_FATAL, ABCMS_LOGTO_BOTH, 429); // TODO beware log flooding, might change to ABCMS_LOGTO_USER
 		}
 		else {
-			$this->response($error, ABCMS_LOG_WARN, FALSE, TRUE);
+			$this->response($error, ABCMS_LOG_WARN, ABCMS_LOGTO_USER); // dont log rifraf
 		}
 		return FALSE;
 	}
@@ -703,7 +708,7 @@ KILL:	// start session to destroy it, weird
 		// rotate session and CSRF if exceed rotate time or $user role changed
 		if ($now > ($this->ss['rotate'] + ABCMS_SES_ROTA) || $this->ss['role'] !== ($this->ss['user']['role']??NULL)) {
 			// session cookie
-			if (!session_regenerate_id(TRUE) || !($_COOKIE[$options['name']] = session_id())) { $this->response("Session regeneration failed.", ABCMS_LOG_FATAL); }
+			if (!session_regenerate_id(TRUE) || !($_COOKIE[$options['name']] = session_id())) { $this->response('SESSION: regenerate failed, '.$this->error_get_last(), ABCMS_LOG_FATAL); }
 			// secret cookie
 			$this->ss['secret'] = $this->get_uniq();
 			$this->set_cookie($this->settings['core']['session_secret'], $this->ss['secret'], $this->ss['create'] + ABCMS_SES_LIFE);
@@ -760,11 +765,11 @@ bool $assign = FALSE,	// TRUE to initialize $_SESSION[extension]
 	$ext = $this->output_extension(); // segregation key
 	$bad = TRUE; // allow only one call to session_status()
 	if ($assign) {
-		if (($bad = (session_status() !== PHP_SESSION_ACTIVE))) { $this->response("Session assignment without existing session.", ABCMS_LOG_FATAL); }
+		if (($bad = (session_status() !== PHP_SESSION_ACTIVE))) { $this->response('SESSION: access without existing session', ABCMS_LOG_FATAL); }
 		if (!isset($_SESSION[$ext])) { $_SESSION[$ext] = []; } // assignment expected
 	}
 	if ((!$bad || (session_status() === PHP_SESSION_ACTIVE)) && isset($_SESSION[$ext])) {
-		if (!is_array($_SESSION[$ext])) { $this->response("Session extension corrupted: {$ext}.", ABCMS_LOG_FATAL); }
+		if (!is_array($_SESSION[$ext])) { $this->response("SESSION: extension storage corrupted, ext={$ext}", ABCMS_LOG_FATAL); }
 		return $_SESSION[$ext]; // return extension element
 	}
 	$empty = []; return $empty; // return fail-safe emptiness
@@ -777,7 +782,7 @@ int		$expires,			// expiration
 bool	$killit = TRUE,		// kill heed
 ) : void {					// return void or WSOD
 	// headers sent error and kill cookie on close browser
-	if (headers_sent()) { $this->response("Set cookie headers already sent.", ABCMS_LOG_FATAL); }
+	if (headers_sent()) { $this->response('COOKIE: set failed, headers already sent', ABCMS_LOG_FATAL); }
 	if ($killit && $expires > 1 && $this->settings['core']['session_killit']) { $expires = 0; }
 	// set cookie
 	if (!empty($cookie) && setcookie(
@@ -797,7 +802,7 @@ bool	$killit = TRUE,		// kill heed
 	}
 	// failed so unset
 	unset($_COOKIE[$cookie]);
-	$this->response("Set cookie failed.", ABCMS_LOG_FATAL);
+	$this->response('COOKIE: set failed', ABCMS_LOG_FATAL);
 	return;
 }
 
@@ -814,10 +819,10 @@ SECTION DATABASE: Store data in VAR_DUMP, JSON, CSV, SQLite, and MySQL.
 public function new_database(	// create new database
 string $file,					// filename within extension
 ) : void {						// return void or WSOD
-	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->response("Database new name invalid: {$file}.", ABCMS_LOG_FATAL); } // invalid file
+	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->response("DATABASE: new name invalid, file={$file}", ABCMS_LOG_FATAL); } // invalid file
 	$ext = $this->output_extension();
 	$fold = ($this->compiles['core']['projectroot']??$this->settings['core']['projectroot'])."/private{$ext}/ABCMS.database";
-	if (!is_dir($fold) && !mkdir($fold, 0750, true)) { $this->response("Database folder does not exist: {$ext}.", ABCMS_LOG_FATAL); }
+	if (!is_dir($fold) && !mkdir($fold, 0750, true)) { $this->response("DATABASE: folder create failed, folder={$fold}, ".$this->error_get_last(), ABCMS_LOG_FATAL); }
 	$file = $fold.'/'.$file;
 	$this->touch($file);
 	$this->touch($file.'.lock');
@@ -830,7 +835,7 @@ public function set_database(	// write to database
 	bool	$new = TRUE,		// TRUE to add new record (fails if exists), FALSE to update existing (fails if doesn't exist)
 ) : bool {						// return success or failure
 	// errors
-	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->response("Database set name invalid: {$file}.", ABCMS_LOG_FATAL); } // invalid file
+	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->response("DATABASE: set name invalid, file={$file}", ABCMS_LOG_FATAL); } // invalid file
 	if ($new && NULL === $data) { return FALSE; } // may not new NULL
 	// initialize update element
 	$file = $this->output_extension().'/ABCMS.database/'.$file;
@@ -845,19 +850,19 @@ public function set_database(	// write to database
 	// exclusive lock
 	if (!($lockfd = fopen($base.'.lock', 'r+')) || !flock($lockfd, LOCK_EX)) { // assume filesystem support
 		if ($lockfd) { fclose($lockfd); }
-		$this->response("Database set exclusive lock failure: {$file}.", ABCMS_LOG_FATAL);
+		$this->response("DATABASE: set exclusive lock failed, base={$base}, ".$this->error_get_last(), ABCMS_LOG_FATAL);
 	}
 	// read
 	if (FALSE === ($raw = file_get_contents($base))) {
 		flock($lockfd, LOCK_UN); fclose($lockfd);
-		$this->response("Database set read failure: {$file}.", ABCMS_LOG_FATAL);
+		$this->response("DATABASE: set read failed, base={$base}, ".$this->error_get_last(), ABCMS_LOG_FATAL);
 	}
 	else if ('' === $raw) {
 		$this->database[$file] = [];
 	}
 	else if (!is_array($raw = json_decode($raw, TRUE))) {
 		flock($lockfd, LOCK_UN); fclose($lockfd);
-		$this->response("Database set json corrupted: {$file}.", ABCMS_LOG_FATAL);
+		$this->response("DATABASE: set json corrupted, base={$base}, ".$this->error_get_last(), ABCMS_LOG_FATAL);
 	}
 	else {
 		$this->database[$file] = $raw;
@@ -904,7 +909,7 @@ string	$file,					// filename within extension
 array	$keys,					// read element from key path or [] returns whole database
 ) : mixed {						// return element or NULL for failure
 	// errors
-	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->response("Database get name invalid: {$file}.", ABCMS_LOG_FATAL); } // invalid file
+	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->response("DATABASE: get name invalid, file={$file}", ABCMS_LOG_FATAL); } // invalid file
 	// cached or not cached
 	$file = $this->output_extension().'/ABCMS.database/'.$file;
 	if (!isset($this->database[$file])) {
@@ -912,19 +917,19 @@ array	$keys,					// read element from key path or [] returns whole database
 		$base = ($this->compiles['core']['projectroot']??$this->settings['core']['projectroot']).'/private'.$file;
 		if (!($lockfd = fopen($base.'.lock', 'r')) || !flock($lockfd, LOCK_SH)) { // assume filesystem support
 			if ($lockfd) { fclose($lockfd); }
-			$this->response("Database get shared lock failure: {$file}.", ABCMS_LOG_FATAL);
+			$this->response("DATABASE: get shared lock failed, base={$base}, ".$this->error_get_last(), ABCMS_LOG_FATAL);
 		}
 		// read
 		if (FALSE === ($raw = file_get_contents($base))) {
 			flock($lockfd, LOCK_UN); fclose($lockfd);
-			$this->response("Database get read failure: {$file}.", ABCMS_LOG_FATAL);
+			$this->response("DATABASE: get read failed, base={$base}, ".$this->error_get_last(), ABCMS_LOG_FATAL);
 		}
 		else if ('' === $raw) {
 			$this->database[$file] = [];
 		}
 		else if (!is_array($raw = json_decode($raw, TRUE))) {
 			flock($lockfd, LOCK_UN); fclose($lockfd);
-			$this->response("Database get json corrupted: {$file}.", ABCMS_LOG_FATAL);
+			$this->response("DATABASE: get json corrupted, base={$base}, ".$this->error_get_last(), ABCMS_LOG_FATAL);
 		}
 		else {
 			$this->database[$file] = $raw;
@@ -953,7 +958,7 @@ SECTION OUTPUT: Everything is a routed extension.
 
 public function output(	// hookable output path router extension function manager
 string	$hook,			// /vendor/extension/$hook name, only create hooks for your own extension
-string	$meth,			// HTTP methods, '' = ALL = "CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE"
+string	$meth,			// HTTP methods, '' = ALL = 'CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE'
 string	$default,		// default function, '' = no default
 int		$role,			// minimum role permissions
 int		$flag,			// <0 = extender exclusive, 0 = anyone, 1 = extender exclusive allowed
@@ -1000,14 +1005,14 @@ mixed	&...$args,		// default arguments
 	foreach($ext['I'] as $extin) { // input extensions by priority
 		if (!$this->output_doit($extin, $whoami, $flag, ($must || $dopt), $exin)) { continue; } // skip for reasons
 		if (!$must && $extin['ord'] < 0 && !isset($extin['ctl']['D'])) { $dopt = FALSE; } // omit default if hook and one extension says not required
-		if ($this->input['role'] >= ABCMS_ROLE_ADMINS) { $this->stackarg[] = func_get_args(); } // log the exension stack for administrator
+		if ($this->input['role'] >= ABCMS_ROLE_ADMINS) { $this->stackarg[] = func_get_args(); } // log the extension stack for administrator
 		if (isset($extin['arg'])) { $this->array_walk_merge($args, $extin['arg']); } // extend arguments
 		if (empty($extin['fun'])) { continue; } // extension only grabs exclusivity or set args
 		// loop only applies to registered extension functions, internal extension dispatch is its own business
 		do { // repeat hook extension until FALSE -OR- NULL || TODO invert the continue test
-			if (FALSE === ob_start()) { $this->response("Output buffer start failure.", ABCMS_LOG_FATAL); } // buffer output, TODO optionally stream or file output
+			if (FALSE === ob_start()) { $this->response('OUTPUT: buffer start failed, '.$this->error_get_last(), ABCMS_LOG_FATAL); } // buffer output, TODO optionally stream or file output
 			$more = $this->output_call($extin['who'], $extin['fun'], ...$args); // execute hook extension
-			if (FALSE === ($out = ob_get_clean())) { $this->response("Output buffer get clean failure.", ABCMS_LOG_FATAL); } // retrieve buffer, TODO optionally stream or file output
+			if (FALSE === ($out = ob_get_clean())) { $this->response('OUTPUT: buffer get clean failed, '.$this->error_get_last(), ABCMS_LOG_FATAL); } // retrieve buffer, TODO optionally stream or file output
 			// output filter extensions by priority
 			foreach($ext['O'] as $extout) {
 				if (!$this->output_doit($extout, $whoami, $flag, TRUE, $exout)) { continue; } // skip for reasons
@@ -1028,7 +1033,7 @@ mixed	&...$args,		// default arguments
 }
 
 private function output_extension() : string { // return callers extension name
-	if (empty($this->stackwho)) { $this->response("Session stack identity missing.", ABCMS_LOG_FATAL); }
+	if (empty($this->stackwho)) { $this->response('DISPATCH: extension stack identity missing', ABCMS_LOG_FATAL); }
 	return end($this->stackwho);
 }
 
@@ -1043,7 +1048,7 @@ bool	$must,					// must also do default
 	if (!$must && !$ext['ord']) {																				return FALSE; }	// no default extension
 	if (!empty($ext['met']) && FALSE === stripos($ext['met'], $this->boots['urlmethod'])) { 					return FALSE; }	// HTTP method | TODO consider this instead in_array($method, explode('-', $met)
 	if ($flag < 0 && $whoami !== $ext['who']) {
-		$this->response("Extender not self: {$whoami} !== {$ext['who']}.", ABCMS_LOG_INFO, TRUE, FALSE);		return FALSE; }	// extender no match
+		$this->response("DISPATCH: extender not self, whoami={$whoami} who={$ext['who']}", ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);	return FALSE; }	// extender no match
 	if (!$flag && isset($ext['ctl']['E'])) {																	return FALSE; }	// non-exclusive, cancel request
 	// exclusive winner or non-exclusive
 	if ($flag > 0) {
@@ -1051,7 +1056,7 @@ bool	$must,					// must also do default
 		if (!$excl && isset($ext['ctl']['E'])) {																return FALSE; }	// non-exclusive, cancel request
 		if ($excl && $ext['who'] !== $excl) {																	return FALSE; }	// exclusive, but not winner
 	}
-	if ($this->input['role'] < $ext['rol']) { $this->response("No permission to resource, {$ext['fun']}.", ABCMS_LOG_WARN, FALSE, TRUE); return FALSE; }	// No permision
+	if ($this->input['role'] < $ext['rol']) { $this->response('You do not have permission to a requested resource.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER); return FALSE; }	// No permission, TODO might change to ABCMS_LOGTO_BOTH
 	// do it
 	return TRUE;
 }
@@ -1062,7 +1067,7 @@ string	$filefunc,				// includefile?function
 mixed	&...$args,				// arguments passed
 ) : ?bool {						// return function result
 	// parse includefile?function
-	if (!preg_match(ABCMS_REGEX_FUNC, $filefunc, $match)) { $this->response("Calling invalid function name: {$filefunc}.", ABCMS_LOG_FATAL); }
+	if (!preg_match(ABCMS_REGEX_FUNC, $filefunc, $match)) { $this->response("DISPATCH: invalid function name, who={$who} func={$filefunc}", ABCMS_LOG_FATAL); }
 	$filepath	= $match[2]; // extension include file
 	$classobject= $match[5]; // class or object
 	$operator	= $match[6]; // operator to function
@@ -1079,31 +1084,31 @@ mixed	&...$args,				// arguments passed
 	// call function
 	if ($funcmeth) { // function attempt
 		if ($classobject) { // class or object method
-			if ("::" === $operator) { // class operator
-				if (!class_exists($classobject) || !method_exists($classobject, $funcmeth)) { $this->response("Calling invalid class method: {$filefunc}.", ABCMS_LOG_FATAL); }
+			if ('::' === $operator) { // class operator
+				if (!class_exists($classobject) || !method_exists($classobject, $funcmeth)) { $this->response("DISPATCH: invalid class method, who={$who} func={$filefunc}", ABCMS_LOG_FATAL); }
 				$result = (bool)$classobject::$funcmeth(...$args); // Execute
 			}
 			else { // non-class methods
-				if ("->" === $operator) { // instance or object operator
-					if (!isset($GLOBALS[$classobject]) || !is_object($GLOBALS[$classobject])) { $this->response("Calling invalid object: {$filefunc}.", ABCMS_LOG_FATAL); }
+				if ('->' === $operator) { // instance or object operator
+					if (!isset($GLOBALS[$classobject]) || !is_object($GLOBALS[$classobject])) { $this->response("DISPATCH: invalid object, who={$who} func={$filefunc}", ABCMS_LOG_FATAL); }
 					$newobject = $GLOBALS[$classobject];
 				}
-				else if ("()->" === $operator) { // function returned object operator
-					if (!function_exists($classobject)) { $this->response("Calling invalid function to object: {$filefunc}.", ABCMS_LOG_FATAL); }
-					if (!is_object(($newobject = $classobject()))) { $this->response("Calling invalid function object: {$filefunc}.", ABCMS_LOG_FATAL); }
+				else if ('()->' === $operator) { // function returned object operator
+					if (!function_exists($classobject)) { $this->response("DISPATCH: invalid function to object, who={$who} func={$filefunc}", ABCMS_LOG_FATAL); }
+					if (!is_object(($newobject = $classobject()))) { $this->response("DISPATCH: invalid function object, who={$who} func={$filefunc}", ABCMS_LOG_FATAL); }
 				}
-				else { $this->response("Calling invalid operator: {$filefunc}.", ABCMS_LOG_FATAL); }
+				else { $this->response("DISPATCH: invalid operator, who={$who} func={$filefunc}", ABCMS_LOG_FATAL); }
 				// execute function/method
-				if (!method_exists($newobject, $funcmeth)) { $this->response("Calling invalid object method: {$filefunc}.", ABCMS_LOG_FATAL); }
+				if (!method_exists($newobject, $funcmeth)) { $this->response("DISPATCH: invalid object method, who={$who} func={$filefunc}", ABCMS_LOG_FATAL); }
 				if (ABCMS_EXT_SELF != $who && $newobject === $this) { // disallow abcms() privates unless extension is ABCMS
 					$reflection = new ReflectionClass($this);
-					if (!$reflection->getMethod($funcmeth)->isPublic()) { $this->response("Calling private/protected method disallowed: {$filefunc}.", ABCMS_LOG_FATAL); }
+					if (!$reflection->getMethod($funcmeth)->isPublic()) { $this->response("DISPATCH: private method disallowed, who={$who} func={$filefunc}", ABCMS_LOG_FATAL); }
 				}
 				$result = (bool)$newobject->$funcmeth(...$args); // execute
 			}
 		}
 		else {
-			if (!function_exists($funcmeth)) { $this->response("Calling invalid function: {$filefunc}.", ABCMS_LOG_FATAL); }
+			if (!function_exists($funcmeth)) { $this->response("DISPATCH: invalid function, who={$who} func={$filefunc}", ABCMS_LOG_FATAL); }
 			$result = (bool)$funcmeth(...$args); // execute
 		}
 	}
@@ -1116,18 +1121,19 @@ private function output_security(	// inject html form security with fast regex i
 string &$html,						// inject into output HTML || TODO not all output is HTML
 ) : void {							// return void
 	// failure or no form so skip
-	if (FALSE === ($num = preg_match_all(ABCMS_REGEX_FORM, $html))) { $this->response("Form security failed initialization.", ABCMS_LOG_FATAL); }
+	if (FALSE === ($num = preg_match_all(ABCMS_REGEX_FORM, $html))) { $this->response('FORM: security init failed', ABCMS_LOG_FATAL); }
 	if (!$num) { return; }
 	// start session
 	if (!$this->session_start(1)) {
 		// session failed, disable forms with <fieldset> and CSS with missing CSRF as safety net
-		$this->response("Forms disabled, security failed.", ABCMS_LOG_ERROR, TRUE, TRUE);
+		$this->response('FORM: security failed, forms disabled', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+		$this->response('Forms are temporarily disabled. Please try again later.', ABCMS_LOG_ERROR, ABCMS_LOGTO_USER);
 		if (!($html = preg_replace(ABCMS_REGEX_FORM, '$1<fieldset disabled class="disable">$2</fieldset>$3', $html, -1, $count)) || $count !== $num) {
-			$this->response("Form security entirely failed.", ABCMS_LOG_FATAL);
+			$this->response('FORM: security fallback failed', ABCMS_LOG_FATAL);
 		}
 		$regex_safe = str_replace(['\\', '$'], ['\\\\', '\\$'], $this->input['nonce']);
 		if (!($html = preg_replace('/<\/head>/ui', "\n<style nonce='{$regex_safe}'>form { pointer-events: none; opacity: 0.5; }\n</style>\n</head>", $html, 1, $count)) || 1 !== $count) {
-			$this->response("Form security css fallback failed.", ABCMS_LOG_ERROR, TRUE, FALSE);
+			$this->response('FORM: security css fallback failed', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 		}
 		return;
 	}
@@ -1169,7 +1175,7 @@ EOF;
 	// inject javascript
 	$inject_script = str_replace(['\\', '$'], ['\\\\', '\\$'], $inject_script);
 	if (!($html = preg_replace('/<\/head>/ui', $inject_script, $html, 1, $count)) || 1 !== $count) { // inject
-		$this->response("Form security javascript injection failed.", ABCMS_LOG_FATAL);
+		$this->response('FORM: javascript injection failed', ABCMS_LOG_FATAL);
 	}
 	// form security tokens
 	$inject_tokens = <<<EOF
@@ -1196,14 +1202,14 @@ EOF
 			if ($inject_captcha &&
 				(!($replace = preg_replace('/(<button(?=[\s])[^>]*?\stype\s*=(\s*submit|\s*\'submit\'|\s*"submit"))(.+?<\/button>)/uis', $inject_captcha, $replace, 1, $one)) ||
 				(1 !== $one && (!($replace = preg_replace('/(<input(?=[\s])[^>]*?\stype\s*=(\s*submit|\s*\'submit\'|\s*"submit"))(>|\s+[^>]*?>)/uis', $inject_captcha, $replace, 1, $one)) || 1 !== $one)))) {
-				$this->response("Form security CAPTCHA injection failed.", ABCMS_LOG_FATAL);
+				$this->response('FORM: captcha injection failed', ABCMS_LOG_FATAL);
 			}
 			// security tokens injection
 			$replace .= $inject_tokens.$matches[3];
 			return $replace;
 		},
 		$html, -1, $count)) || $count !== $num) {
-		$this->response("Form security tokens injection failed.", ABCMS_LOG_FATAL);
+		$this->response('FORM: token injection failed', ABCMS_LOG_FATAL);
 	}
 	return;
 }
@@ -1212,9 +1218,9 @@ private function output_debug(	// inject debug info for admin
 string &$html,					// inject into HTML output string
 ) : void {						// return void
 	if (!$html || $this->input['role'] !== ABCMS_ROLE_ADMINS) { return; }
-	$injection = "<pre class='debug'><h2>Coredump</h2>".print_r(array('ABCMS_OBJECT'=>$this, 'ABCMS_GLOBALS'=>$GLOBALS),TRUE)."</pre></body>";
+	$injection = '<pre class="debug"><h2>Coredump</h2>'.print_r(array('ABCMS_OBJECT'=>$this, 'ABCMS_GLOBALS'=>$GLOBALS),TRUE).'</pre></body>';
 	$injection = str_replace(['\\', '$'], ['\\\\', '\\$'], $injection);
-	if (!($html = preg_replace('/<\/body>/ui', $injection, $html, 1))) { $this->response("Debug injection for admin failed.", ABCMS_LOG_FATAL); }
+	if (!($html = preg_replace('/<\/body>/ui', $injection, $html, 1))) { $this->response('OUTPUT: admin coredump injection failed', ABCMS_LOG_FATAL); }
 	return;
 }
 
@@ -1228,25 +1234,20 @@ string &$html,					// inject into HTML output string
 SECTION RESPONSE: Return request response.
 */
 
-public function response(	// request response
-string	$mess,				// message
-int		$levs,				// level
-bool	$logs = TRUE,		// to logs
-bool	$user = TRUE,		// to user
-mixed	$rets = NULL,		// return pass thru
-int		$code = 200,		// http request code returned
-) : mixed {
-	// fix levels
-	if (ABCMS_LOG_DEBUG === $levs) { // debug?
-		if (!($this->input['urlvars']['debug']??FALSE)) { return $rets; } // nope
-		$logs = TRUE; $user = FALSE; // silent log
-	}
-	else if (!isset(ABCMS_LOG[$levs])) {	$levs = ABCMS_LOG_FATAL; } // bad level elevates to fatal
-	if (ABCMS_LOG_TRACE === $levs) {		$logs = TRUE; $user = FALSE; } // silent log
-	else if (ABCMS_LOG_FATAL === $levs) {	$logs = $user = TRUE; } // get noisy
-	else if (!$logs && !$user) {			$logs = TRUE; } // do something
+public function response(			// request response
+string	$mess,						// message
+int		$levs,						// level is ABCMS_LOG_(DEBUG||TRACE||INFO||WARN||ERROR||FATAL)
+int		$goto = ABCMS_LOGTO_LOGS,	// ABCMS_LOGTO_(LOGS||USER||BOTH)
+int		$code = 200,				// log the http request code returned
+) : void {
+	// fix levs and goto
+	if (ABCMS_LOG_DEBUG === $levs) {	if (!($this->input['urlvars']['debug']??FALSE)) { return; } $goto = ABCMS_LOGTO_LOGS; } // debug early exit or log only
+	else if (ABCMS_LOG_TRACE === $levs) {	$goto = ABCMS_LOGTO_LOGS; } // log only
+	else if (ABCMS_LOG_FATAL === $levs) {	if (ABCMS_LOGTO_USER !== $goto) { $goto = ABCMS_LOGTO_BOTH; } } // both, role filtered later
+	else if (!isset(ABCMS_LOG[$levs])) {	$levs = ABCMS_LOG_FATAL; $goto = ABCMS_LOGTO_BOTH; } // bad level fatal
+	else if (!isset(ABCMS_LOGTO[$goto])) {	$goto = ABCMS_LOGTO_LOGS; } // bad goto, log only
 	// logs entry
-	if ($logs) {
+	if (ABCMS_LOGTO_BOTH === $goto || ABCMS_LOGTO_LOGS === $goto) {
 		static $rids = NULL;
 		static $nums = 1;
 		if (NULL === $rids) { $rids = $this->get_dbid(); } else { ++$nums; }
@@ -1254,7 +1255,7 @@ int		$code = 200,		// http request code returned
 		$entry = [
 			'@timestamp'				=> gmdate('Y-m-d\TH:i:s.000\Z', ($this->boots['time']??time())),
 			'event.sequence'			=> $nums,
-			'log.level'					=> ABCMS_LOG[$levs],
+			'log.level'					=> ABCMS_LOG[$levs].'-'.ABCMS_LOGTO[$goto],
 			'message'					=> mb_substr($mess, 0, 1024, 'UTF-8'), // json escapes
 			'ext'						=> (empty($this->stackwho) ? 'unknown' : end($this->stackwho)), // prevents recursion loop
 			'log.origin.function'		=> $func,
@@ -1272,13 +1273,14 @@ int		$code = 200,		// http request code returned
 		];
 		$this->resplogs[] = json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
 	}
-	// wrap up
-	if ($user) {						$this->respuser[] = ['level' => ABCMS_LOG[$levs], 'message' => 	$this->hsc(mb_substr($mess, 0, 256, 'UTF-8'))]; } // user format, escaped
-	if (ABCMS_LOG_FATAL === $levs) {	throw new Exception($mess);	} // throw WSOD
-	return $rets; // return pass thru
+	// stop message leaks, user entry not escaped, throw entry
+	if (ABCMS_LOG_FATAL === $levs && !$this->iamsuper()) { $mess = 'Fatal exception, details logged.'; }
+	if (ABCMS_LOGTO_BOTH === $goto || ABCMS_LOGTO_USER === $goto) { $this->respuser[] = ['level' => ABCMS_LOG[$levs], 'message' => $mess]; }
+	if (ABCMS_LOG_FATAL === $levs) { throw new Exception($mess); }
+	return;
 }
 
-public function response_flush() : void { // write reponse logs
+public function response_flush() : void { // write response logs
 	if ($this->resplogs??NULL) {
 		$file = ($this->settings['core']['translog'] ?? str_replace('\\', '/', __DIR__).'/..'.ABCMS_EXT_PRIVATE.'ABCMS.translog');
 		file_put_contents($file, implode("\n", $this->resplogs)."\n", FILE_APPEND | LOCK_EX);
@@ -1287,9 +1289,12 @@ public function response_flush() : void { // write reponse logs
 	return;
 }
 
-public function response_user(string $delimiter = "<br>\n") : ?string { // return formatted log
-	if (empty($this->respuser??NULL)) { return NULL; }
-	return implode($delimiter, array_map(function($row) { return implode(': ', $row); }, $this->respuser));
+public function response_plain() : string { // return formatted log
+	return implode("\n", array_map(function($row) { return implode(': ', $row); }, $this->respuser));
+}
+
+public function response_html() : string { // return formatted log
+	return implode("<br>\n", array_map(function($row) { return $this->hsc(implode(': ', $row)); }, $this->respuser));
 }
 
 private function response_trace(	// get backtrace info
@@ -1314,9 +1319,9 @@ bool	$fast = TRUE,			// omit object and args
 	return [$file, $line, $func, $args];
 }
 
-public function error_get_last() : ?string { // return last error message
+public function error_get_last() : string { // return last error message
 	$error = error_get_last();
-	return ($error ? "{$error['message']} [type={$error['type']}] in {$error['file']} on line {$error['line']}" : NULL);
+	return $error['message']??'';
 }
 
 
@@ -1335,7 +1340,7 @@ private function home_theme(mixed &...$unused) : ?bool { // default home theme
  / <a href='/account'>Account</a>
  / <a href='/contact'>Contact</a>
 EOF
-. ($this->input['role'] < ABCMS_ROLE_ADMINS ? NULL : " / <a href='/console'>Console</a>");
+. ($this->input['role'] < ABCMS_ROLE_ADMINS ? NULL : ' / <a href="/console">Console</a>');
 // TODO, the above line is wrong when first logging in because don't know I am authenticated till later...
 // TODO where do I inject user error results into HTML display?
 // how can I do that without putting the authentication into session_start()????
@@ -1400,7 +1405,7 @@ EOF;
 
 public function home_account(mixed &...$unused) : void { // home register, login, logout, update, delete
 	// initialize
-	echo "<h2>Account</h2>";
+	echo '<h2>Account</h2>';
 	$switch =
 		(!$this->session_start(1) ? 'nosession' :
 		('POST' !== $this->boots['urlmethod'] ? 'form' :
@@ -1410,27 +1415,28 @@ public function home_account(mixed &...$unused) : void { // home register, login
 	$mess = $email = $email2 = $subject = $body = NULL;
 	// switch
 	switch ($switch) {
-		case 'nosession':	$this->response("Login session is unavailable. Try again.", ABCMS_LOG_ERROR, TRUE, TRUE); return;
-		case 'invalid':		$mess = "Suspect form submital. Try again."; break;
-		case 'inhuman':		$mess = "CAPTCHA or form security alert. Try again."; break;
+		case 'nosession':	$this->response('ACCOUNT: login unavailable, session start failed', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+							$this->response('The login system is unavailable. Please try again later.', ABCMS_LOG_ERROR, ABCMS_LOGTO_USER); return;
+		case 'invalid':		$mess = 'That form submission looked suspect. Please try again.'; break;
+		case 'inhuman':		$mess = 'CAPTCHA or form security check failed. Please try again.'; break;
 		case 'login':		if (!empty($_POST['Account_Email']) && !empty($_POST['Account_Email2']) &&
 								password_verify($_POST['Account_Password'], $this->settings['core']['passhash']) &&
 								($this->ss['user'] = $this->get_database('BASIC.json', array('user', $_POST['Account_Email'])))) {
 								$this->ss['trys'] = 0;
 								$this->ss['logins'] = $this->get_uniq();
 								$this->set_cookie($this->settings['core']['session_logins'], $this->ss['logins'], $this->ss['create'] + ABCMS_SES_LIFE);
-								$mess = "Login success.";
+								$mess = 'Login successful.';
 								$email = $this->hsc($_POST['Account_Email']);
 								$email2 = $this->hsc($_POST['Account_Email2']);
 								$subject = "ABCMS Login Success by {$_POST['Account_Email']}";
-								$body = "<h4>Hello</h4>You are logged into " . $this->boots['urldomain'];
+								$body = '<h4>Hello</h4>You are logged into ' . $this->boots['urldomain'];
 							}
 							else if (++$this->ss['trys'] > ABCMS_SES_LOGI) {
 								$this->session_start(-1);
-								$this->response("Too many failed logins, good bye.", ABCMS_LOG_FATAL);
+								$this->response('Too many failed login attempts. Please try again later.', ABCMS_LOG_FATAL, ABCMS_LOGTO_USER); // TODO might change to ABCMS_LOGTO_BOTH
 							}
 							else {
-								$mess = "Login failure, please try again.";
+								$mess = 'Login failed. Please try again.';
 							}
 							break;
 
@@ -1443,29 +1449,29 @@ public function home_account(mixed &...$unused) : void { // home register, login
 								$this->ss['logins'] = $this->get_uniq();
 								$this->set_cookie($this->settings['core']['session_logins'], $this->ss['logins'], $this->ss['create'] + ABCMS_SES_LIFE);
 								$this->ss['user'] = $user;
-								$mess = "Registration success.";
+								$mess = 'Registration successful.';
 								$email = $this->hsc($_POST['Account_Email']);
 								$email2 = $this->hsc($_POST['Account_Email2']);
 								$subject = "ABCMS Registration Success by {$_POST['Account_Email']}";
-								$body = "<h4>Hello</h4>You are registered and logged into " . $this->boots['urldomain'];
+								$body = '<h4>Hello</h4>You are registered and logged into ' . $this->boots['urldomain'];
 							}
-							else if (!$okay) {	$mess = "Registration database failure, please try again."; }
-							else {				$mess = "Registration failure, please try again."; }
+							else if (!$okay) {	$mess = 'Registration could not be saved. Please try again.'; }
+							else {				$mess = 'Registration failed. Please try again.'; }
 							break;
 
 		case 'delete':		if (empty($this->ss['user']['email']) ||
 								empty($_POST['Account_Email']) ||
 								$_POST['Account_Email'] !== $this->ss['user']['email'] ||
 								!$this->set_database('BASIC.json', array('user', $this->ss['user']['email']), NULL, FALSE)) {
-								$mess = "Delete failure, please try again.";
+								$mess = 'Account could not be deleted. Please try again.';
 								break;
 							}
-							$mess = "Account deleted.";
+							$mess = 'Account deleted.';
 							$subject = "ABCMS Account Deleted: {$_POST['Account_Email']}";
-							$body = "<h4>Hello</h4>Your account is deleted at " . $this->boots['urldomain'];
+							$body = '<h4>Hello</h4>Your account is deleted at ' . $this->boots['urldomain'];
 
 		case 'logout':		$this->session_start(-1);
-							$mess = ($mess??"You are logged out.");
+							$mess = ($mess??'You are logged out.');
 							break;
 
 		case 'reset':
@@ -1476,11 +1482,11 @@ public function home_account(mixed &...$unused) : void { // home register, login
 								$email = $this->hsc($this->ss['user']['email']);
 								$email2 = $this->hsc($this->ss['user']['email2']);
 							}
-							$mess = "Login or register below.";
+							$mess = 'Login or register below.';
 							break;
 	}
 	// send email
-	$emailerror = "No email sent";
+	$emailerror = 'No email sent';
 	if ($subject) {
 		$emailerror = $this->email(
 			$this->settings['core']['smtp_user'],								// from
@@ -1499,10 +1505,10 @@ public function home_account(mixed &...$unused) : void { // home register, login
 				'ehlo'	=> $this->boots['urldomain'],							// SMTP EHLO
 			],
 		);
-		$emailerror = (TRUE === $emailerror ? "Email sent" : $emailerror);
+		$emailerror = ($emailerror ? 'Email sent' : 'Email not sent');
 	}
 	// display account
-	$stat = (empty($this->ss['user']) ? "Logged out" : (empty($this->ss['user']['valid']) ? "Logged in validating" : "Logged in validated"));
+	$stat = (empty($this->ss['user']) ? 'Logged out' : (empty($this->ss['user']['valid']) ? 'Logged in validating' : 'Logged in validated'));
 	echo <<<EOF
 <form action='' method='post' accept-charset='UTF-8' class='form-grid'>
 <label							>Status:</label>		<span>{$stat}</span>
@@ -1528,7 +1534,7 @@ EOF;
 <button type='submit' name='delete'		value='delete'	>Delete</button>
 EOF;
 }
-	echo "</div></form>";
+	echo '</div></form>';
 	return;
 }
 
@@ -1709,7 +1715,7 @@ private function command_code(mixed &...$unused) : void { // command code
 }
 
 private function command_coredump(mixed &...$unused) : void { // command code
-	$this->response("Forced coredump.", ABCMS_LOG_FATAL);
+	$this->response('CORE: forced coredump', ABCMS_LOG_FATAL);
 	return;
 }
 
@@ -1734,12 +1740,12 @@ private function command_setup(mixed &...$unused) : void { // command setup
 	if (!headers_sent()) { header('Content-Type: text/plain; charset=utf-8'); }
 	$this->setup(); // recreate settings
 	// op cache warning
-	$mess = NULL;
+	$mess = '';
 	if (function_exists('opcache_get_configuration') && !ini_get('opcache.validate_timestamps')) {
-		$mess = "SETUP: Reload PHP-FPM to refresh OpCache and update settings.";
-		$this->response($mess, ABCMS_LOG_WARN, TRUE, FALSE);
+		$this->response('SETUP: opcache stale, reload php-fpm to apply settings', ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS);
+		$mess = "Reload PHP-FPM to refresh OpCache and apply these settings.\n\n";
 	}
-	echo "ABCMS settings:\n\nrefresh screen to see updated settings changes\n\n{$mess}\n\nDone.\n\n";
+	echo "ABCMS settings:\n\nRefresh the screen to see updated settings.\n\n{$mess}Done.\n\n";
 	return;
 }
 
@@ -1776,12 +1782,11 @@ public function rp(string|false $path) : string|false { // linux style slashes f
 	return ($path === FALSE ? FALSE : str_replace('\\', '/', $path));
 }
 
-private function chk_file(string $filename, bool $must = FALSE) : bool {// check file valid in in my extension folder
-	$safename = basename(dirname($filename)).'/'.basename($filename);
+private function chk_file(string $filename, bool $must = FALSE) : bool {// check file valid in my extension folder
 	$starts = ($this->compiles['core']['projectroot']??$this->settings['core']['projectroot']).'/private'.$this->output_extension().'/';
-	if (!str_starts_with($filename, $starts)) { $this->response("Access outside of extension folder disallowed: chk_file({$safename}).", ABCMS_LOG_FATAL); }
-	if (preg_match('/(^|[\/\\\\])\.\.([\/\\\\]|$)/', $filename)) { $this->response("Relative filenames disallowed: chk_file({$safename}).", ABCMS_LOG_FATAL); }
-	if (is_link($filename)) { $this->response("Symbolic link filenames disallowed: chk_file({$safename}).", ABCMS_LOG_FATAL); }
+	if (!str_starts_with($filename, $starts)) { $this->response("FILE: access outside extension folder, file={$filename}", ABCMS_LOG_FATAL); }
+	if (preg_match('/(^|[\/\\\\])\.\.([\/\\\\]|$)/', $filename)) { $this->response("FILE: relative filename disallowed, file={$filename}", ABCMS_LOG_FATAL); }
+	if (is_link($filename)) { $this->response("FILE: symlink disallowed, file={$filename}", ABCMS_LOG_FATAL); }
 	if ($must && ($this->rp(realpath($filename)) !== $filename || !is_file($filename) || !is_readable($filename))) { return FALSE; }
 	return TRUE;
 }
@@ -1791,24 +1796,21 @@ public function set_file(string $filename, string $value) : void { // write file
 	$temp = "{$filename}.".getmypid();
 	if (FALSE === file_put_contents($temp, $value) || !chmod($temp, 0640) || !rename($temp, $filename)) {
 		if (file_exists($temp)) { unlink($temp); }
-		$safename = basename(dirname($filename)).'/'.basename($filename);
-		$this->response("System error: set_file({$safename}), ".$this->error_get_last(), ABCMS_LOG_FATAL);
+		$this->response("FILE: write failed, file={$filename}, ".$this->error_get_last(), ABCMS_LOG_FATAL);
 	}
 	return;
 }
 
 public function get_file(string $filename, string &$data) : void { // read file
-	$safename = basename(dirname($filename)).'/'.basename($filename);
-	if (!$this->chk_file($filename, TRUE)) { $this->response("Filename does not exist or not readable: get_file({$safename}).", ABCMS_LOG_FATAL); }
-	if (FALSE === ($data = file_get_contents($filename))) { $this->response("System error: get_file({$safename}), ".$this->error_get_last(), ABCMS_LOG_FATAL); }
+	if (!$this->chk_file($filename, TRUE)) { $this->response("FILE: not readable, file={$filename}", ABCMS_LOG_FATAL); }
+	if (FALSE === ($data = file_get_contents($filename))) { $this->response("FILE: read failed, file={$filename}, ".$this->error_get_last(), ABCMS_LOG_FATAL); }
 	return;
 }
 
 public function touch(string $filename) : void { // touch/create file with permissions
 	$this->chk_file($filename);
 	if (!touch($filename) || !chmod($filename, 0640)) {
-		$safename = basename(dirname($filename)).'/'.basename($filename);
-		$this->response("Failure: touch({$safename}).", ABCMS_LOG_FATAL);
+		$this->response("FILE: touch failed, file={$filename}, ".$this->error_get_last(), ABCMS_LOG_FATAL);
 	}
 	return;
 }
@@ -1816,27 +1818,24 @@ public function touch(string $filename) : void { // touch/create file with permi
 public function set_json(string $filename, mixed $value) : void { // write json
 	$this->set_file($filename, json_encode($value, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
 	if (json_last_error() !== JSON_ERROR_NONE) {
-		$safename = basename(dirname($filename)).'/'.basename($filename);
-		$this->response("System error: json_encode({$safename}), ".json_last_error_msg(), ABCMS_LOG_FATAL);
+		$this->response("FILE: json encode failed, file={$filename}, ".json_last_error_msg(), ABCMS_LOG_FATAL);
 	}
 	return;
 }
 
 public function get_json(string $filename, mixed &$data) : void { // read json
-	$safename = basename(dirname($filename)).'/'.basename($filename);
-	if (!$this->chk_file($filename, TRUE)) { $this->response("Filename does not exist or not readable: get_json({$safename}).", ABCMS_LOG_FATAL); }
-	if (FALSE === ($data = file_get_contents($filename))) { $this->response("System error: get_json(file_get_contents({$safename})), ".$this->error_get_last(), ABCMS_LOG_FATAL); }
-	if (NULL === ($data = json_decode($data, TRUE))) { $this->response("System error: get_json(json_decode({$safename})), ".json_last_error_msg(), ABCMS_LOG_FATAL); }
+	if (!$this->chk_file($filename, TRUE)) { $this->response("FILE: json not readable, file={$filename}", ABCMS_LOG_FATAL); }
+	if (FALSE === ($data = file_get_contents($filename))) { $this->response("FILE: json read failed, file={$filename}, ".$this->error_get_last(), ABCMS_LOG_FATAL); }
+	if (NULL === ($data = json_decode($data, TRUE))) { $this->response("FILE: json decode failed, file={$filename}, ".json_last_error_msg(), ABCMS_LOG_FATAL); }
 	return;
 }
 
-public function set_dump(string $filename, mixed $data) : void { // write var_dump
+public function set_dump(string $filename, mixed $data) : void { // write var_export
 	// partial validity check at top level, nested elements unvalidated
 	if (is_object($data) || is_resource($data)) {
-		$safename = basename(dirname($filename)).'/'.basename($filename);
-		$this->response("Var_dump supports scalars, arrays, and NULL only: set_dump({$safename}).", ABCMS_LOG_FATAL);
+		$this->response("FILE: var_export supports scalars, arrays and NULL only, file={$filename}", ABCMS_LOG_FATAL);
 	}
-	$this->set_file($filename, "<?php return " . var_export($data, TRUE) . ";\n");
+	$this->set_file($filename, '<?php return ' . var_export($data, TRUE) . ";\n");
 	if (function_exists('opcache_invalidate')) { opcache_invalidate($filename, TRUE); }
 }
 
@@ -1850,8 +1849,7 @@ public function get_dump(string $filename, mixed &$data) : bool { // read var_du
 
 public function include(string $filename, ...$args) : mixed { // include always
 	if (!$this->chk_file($filename, TRUE)) {
-		$safename = basename(dirname($filename)).'/'.basename($filename);
-		$this->response("Filename does not exist or not readable: include({$safename}).", ABCMS_LOG_FATAL);
+		$this->response("FILE: include not readable, file={$filename}", ABCMS_LOG_FATAL);
 	}
 	// beware, failed include() = FALSE = successful include() returning FALSE
 	// anonymous scopes $args within include, hides $this, and protects abmcs() privates
@@ -1863,8 +1861,7 @@ public function include_once(string $filename, ...$args) : mixed { // PHP should
 	static $included = array();
 	if (!isset($included[$filename])) {
 		if (!$this->chk_file($filename, TRUE)) {
-			$safename = basename(dirname($filename)).'/'.basename($filename);
-			$this->response("Filename does not exist or not readable: include_once({$safename}).", ABCMS_LOG_FATAL);
+			$this->response("FILE: include_once not readable, file={$filename}", ABCMS_LOG_FATAL);
 		}
 		$included[$filename] = TRUE;
 		// anonymous scopes $args within include, hides $this, and protects abmcs() privates
@@ -1890,7 +1887,7 @@ public function array_walk_merge(array &$destiny, array $source) : void { // arr
 public function get_uuid() : string { // RFC 4122 compliant Version 4 UUIDs, globally unique
 	// generate 16 bytes (128 bits) of random data
 	$data = random_bytes(16);
-	if (strlen($data) !== 16) { $this->response("Sixteen bytes unavailable for uuidv4.", ABCMS_LOG_FATAL); }
+	if (strlen($data) !== 16) { $this->response('CORE: uuid4 random_bytes short', ABCMS_LOG_FATAL); }
     // set version to 0100
     $data[6] = chr(ord($data[6]) & 0x0f | 0x40);
     // set bits 6-7 to 10
@@ -1968,8 +1965,7 @@ array				$options=[],// options
 								// 'time'	=> socket timeout seconds, default php: default_socket_timeout
 								// 'ehlo'	=> EHLO identity
 								// 'ssl'	=> stream SSL context options for STARTTLS, ie. ['verify_peer'=>FALSE]
-								// 'debug'	=> bool, log everything
-) : bool|string {				// TRUE if delivered or error string
+) : bool {						// TRUE if delivered
 	// argument and option defaults
 	if (NULL !== $to && is_string($to)) { $to = array($to); }
 	if (NULL !== $cc && is_string($cc)) { $cc = array($cc); }
@@ -1982,36 +1978,36 @@ array				$options=[],// options
 	$options['ehlo']	??= ($this->settings['core']['smtp_ehlo']??$this->boots['urldomain']);
 	$options['time']	??= (int)ini_get('default_socket_timeout');
 	$options['ssl']		??= [];
-	$options['debug']	??= FALSE;
-	$log = "\r\nABCMS SMTP BEGIN: from={$from}"; // log
+	$this->response("EMAIL: begin, from={$from}", ABCMS_LOG_DEBUG); // log
 	// define done() and SMTP command() functions
 	$socket = NULL;
-	$command = function (?string $line, $logit = TRUE) use (&$socket, &$log, $options) {
-		if ($logit) { $log .= "\r\nABCMS SMTP > {$line}"; } // log
+	$command = function (?string $line, $logit = TRUE) use (&$socket) {
+		if ($logit) { $this->response("EMAIL: > {$line}", ABCMS_LOG_DEBUG); } // log
 		if ($line !== NULL) { fwrite($socket, "{$line}\r\n"); }
 		$status = NULL;
 		$text = [];
 		while (($rline = fgets($socket)) !== FALSE) {
-			$log .= "\r\nABCMS SMTP < {$rline}"; // log
+			$this->response("EMAIL: < {$rline}", ABCMS_LOG_DEBUG); // log
 			$status = substr($rline, 0, 3);
 			$text[] = trim(substr($rline, 4));
 			if (substr($rline, 3, 1) === ' ') { break; } // last line of a multi-line reply
 		}
 		if (stream_get_meta_data($socket)['timed_out']) {
-			$log .= "\r\nABCMS SMTP TIMEOUT: server stopped responding"; // log
+			$this->response('EMAIL: timeout, server stopped responding', ABCMS_LOG_DEBUG); // log
 			$status = NULL;
 		}
 		return [$status, $text];
 	};
-	$fail = function (string $result) use (&$socket, $command, &$log) {
+	$fail = function (string $result) use (&$socket, $command) {
 		if ($socket) { $command('QUIT'); fclose($socket); }
-		$this->response($log."\r\nABCMS SMTP FAIL: {$result}", ABCMS_LOG_WARN, TRUE, FALSE);
-		return $result;
+		$this->response("EMAIL: {$result}", ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS);
+		$this->response('Email could not be sent. Please try again later.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER);
+		return FALSE;
 	};
 	// configuration abuse
 	if (empty($options_user)) {
-		if (!preg_match('/^(tcp:\/\/|tls:\/\/|ssl:\/\/|)(127\.0\.0\.1|localhost|::1|\[::1\])$/uiD', $options['smtp']))  { return $fail("Unauthenticated email can only SMTP from same server."); }
-		if (!preg_match('/^[^@]+@([a-z0-9-]+\.)*'.preg_quote($this->boots['urldomain'], '/').'$/uiD', $from))  { return $fail("Unauthenticated email 'From' domain only from same domain."); }
+		if (!preg_match('/^(tcp:\/\/|tls:\/\/|ssl:\/\/|)(127\.0\.0\.1|localhost|::1|\[::1\])$/uiD', $options['smtp']))  { return $fail('unauthenticated smtp requires same server'); }
+		if (!preg_match('/^[^@]+@([a-z0-9-]+\.)*'.preg_quote($this->boots['urldomain'], '/').'$/uiD', $from))  { return $fail('unauthenticated from domain must match server'); }
 	}
 	// sanitize header-bound fields (defense in depth) even though we base64-encode the
 	// subject and never let addresses touch headers unescaped, strip CR/LF from anything
@@ -2019,31 +2015,31 @@ array				$options=[],// options
 	$name = preg_replace('/[\r\n]+/', '', $name);
 	$subject  = preg_replace('/[\r\n]+/', '', $subject);
 	// SMTP command-injection guard on every address
-	// iIf an address contains an unescaped ">" it could break out of
-	// "RCPT TO:<...>" and inject further SMTP commands.
-	if (empty($to)) { return $fail("Email requires at least one recipient."); }
+	// if an address contains an unescaped '>' it could break out of
+	// 'RCPT TO:<...>' and inject further SMTP commands.
+	if (empty($to)) { return $fail('no recipients'); }
 	$allRecipients = array_unique(array_merge($to, ($cc??[]), ($bcc??[])));
 	foreach (array_merge([$from], $allRecipients) as $addr) {
 		// validate email
-		if (!filter_var($addr, FILTER_VALIDATE_EMAIL)) { return $fail("Invalid email address rejected: '{$addr}'."); }
+		if (!filter_var($addr, FILTER_VALIDATE_EMAIL)) { return $fail("invalid address rejected, addr={$addr}"); }
 		// newlines allow command injection
-		if (preg_match('/[\r\n]+/', $addr)) { return $fail("Unsafe email address rejected: '{$addr}'."); }
+		if (preg_match('/[\r\n]+/', $addr)) { return $fail("unsafe address rejected, addr={$addr}"); }
 	}
-	$log .= "\r\nABCMS SMTP RECIPIENTS:\r\n".implode("\r\n", $allRecipients); // log
+	$this->response('EMAIL: recipients, '.implode(', ', $allRecipients), ABCMS_LOG_DEBUG); // log
 	// connect to SMTP socket
 	if (!($socket = @fsockopen($options['smtp'], $options['port'], $errno, $errstr, $options['time']))) {
-		return $fail("Email SMTP connection failed: {$errstr} ({$errno}).");
+		return $fail("connect failed, errno={$errno}, {$errstr}");
 	}
 	if (!stream_set_timeout($socket, $options['time'])) { // prevent hangs on every read/write
-		return $fail("Email set stream timeout failed.");
+		return $fail('set stream timeout failed');
 	}
-	$log .= "\r\nABCMS SMTP SOCKET:\r\n".print_r($socket,TRUE); // log
+	$this->response('EMAIL: socket, '.(string)$socket, ABCMS_LOG_DEBUG); // log
 	// SMTP Handshake
 	[$status] = $command(NULL); // consume greeting
-	if ($status != 220) { return $fail("Email failed with no greeting from SMTP server."); }
+	if ($status != 220) { return $fail('no server greeting'); }
 	[$status, $capabilities] = $command('EHLO ' . $options['ehlo']);
-	if ($status != 250) { return $fail("Email failed with rejected EHLO."); }
-	$log .= "\r\nABCMS SMTP HANDSHAKE:\r\n".print_r($capabilities,TRUE); // log
+	if ($status != 250) { return $fail('ehlo rejected'); }
+	$this->response('EMAIL: handshake, starttls='.(in_array('STARTTLS', $capabilities, TRUE)?'yes':'no'), ABCMS_LOG_DEBUG); // log
 	// STARTTLS if offered and not already an implicit-TLS transport
 	$encrypted = (FALSE === stripos($options['smtp'],'ssl://') ? FALSE : TRUE);
 	if (!$encrypted && in_array('STARTTLS', $capabilities, TRUE)) {
@@ -2051,63 +2047,63 @@ array				$options=[],// options
 		if ($status == 220) {
 			stream_context_set_option($socket, ['ssl' => $options['ssl']]);
 			if (!stream_socket_enable_crypto($socket, TRUE, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
-				return $fail("Email failed the TLS negotiation.");
+				return $fail('tls negotiation failed');
 			}
 			if (!stream_set_timeout($socket, $options['time'])) { // redo just in case
-				return $fail("Email set 2nd stream timeout failed.");
+				return $fail('set stream timeout failed after starttls');
 			}
 			[$status, $capabilities] = $command('EHLO ' . $options['ehlo']);
-			if ($status != 250) { return $fail("Email failed with rejected EHLO after STARTTLS."); }
+			if ($status != 250) { return $fail('ehlo rejected after starttls'); }
 			$encrypted = TRUE; // security upgraded
 		}
-		else { return $fail("Email STARTTLS security failed."); }
-		$log .= "\r\nABCMS SMTP STARTTLS: success={$status}"; // log
+		else { return $fail('starttls unavailable'); }
+		$this->response("EMAIL: starttls, status={$status}", ABCMS_LOG_DEBUG); // log
 	}
 	// AUTH (PLAIN preferred, LOGIN fallback), only if credentials given
-	if (!empty($options_user) && !$encrypted) { return $fail("Email unencrypted authentication refused."); }
+	if (!empty($options_user) && !$encrypted) { return $fail('unencrypted auth refused'); }
 	if (!empty($options_user) && isset($options_pass)) {
 		$authLine = current(preg_grep('/^auth[\s=]+/i', $capabilities)) ?: '';
 		$methods = array_slice(preg_split('/[\s=]+/', mb_strtolower($authLine, 'UTF-8')), 1);
 		if (in_array('plain', $methods, TRUE)) {
 			[$status] = $command('AUTH PLAIN ' . base64_encode("\0{$options_user}\0{$options_pass}"), FALSE);
-			if ($status != 235) { return $fail('Email AUTH PLAIN rejected.'); }
+			if ($status != 235) { return $fail('auth plain rejected'); }
 		}
 		else if (in_array('login', $methods, TRUE)) {
 			[$status] = $command('AUTH LOGIN');
-			if ($status != 334) { return $fail('Email AUTH LOGIN rejected.'); }
+			if ($status != 334) { return $fail('auth login rejected'); }
 			[$status] = $command(base64_encode($options_user), FALSE);
-			if ($status != 334) { return $fail('Email AUTH username rejected.'); }
+			if ($status != 334) { return $fail('auth username rejected'); }
 			[$status] = $command(base64_encode($options_pass), FALSE);
-			if ($status != 235) { return $fail('Email AUTH password rejected.'); }
+			if ($status != 235) { return $fail('auth password rejected'); }
 		}
 		else {
-			return $fail('Email server offers no supported AUTH method.');
+			return $fail('no supported auth method');
 		}
-		$log .= "\r\nABCMS SMTP AUTHENTICATED: success={$status}"; // log
+		$this->response("EMAIL: authenticated, status={$status}", ABCMS_LOG_DEBUG); // log
 	}
 	// envelope: MAIL FROM + RCPT TO for to+cc+bcc combined
 	[$status] = $command("MAIL FROM:<{$from}>");
-	if ($status != 250) { return $fail('Email MAIL FROM rejected.'); }
+	if ($status != 250) { return $fail('mail from rejected'); }
 	foreach ($allRecipients as $recipient) {
 		[$status] = $command("RCPT TO:<{$recipient}>");
-		if ($status != 250) { return $fail("Email RCPT TO rejected for '{$recipient}'."); }
+		if ($status != 250) { return $fail("rcpt to rejected, addr={$recipient}"); }
 	}
 	[$status] = $command('DATA');
-	if ($status != 354) { return $fail('Email DATA not accepted.'); }
-	$log .= "\r\nABCMS SMTP ENVELOPE: success={$status}"; // log
+	if ($status != 354) { return $fail('data not accepted'); }
+	$this->response("EMAIL: envelope, status={$status}", ABCMS_LOG_DEBUG); // log
 	// build MIME message
 	$mixedBoundary = 'abcms_mixed_' . bin2hex(random_bytes(16));
 	$altBoundary   = 'abcms_alt_'   . bin2hex(random_bytes(16));
 	// header begins
-	$headers  = "Date: " . date('r') . "\r\n";
-	$headers .= "From: =?UTF-8?B?" . base64_encode($name) . "?= <{$from}>\r\n";
+	$headers  = 'Date: ' . date('r') . "\r\n";
+	$headers .= 'From: =?UTF-8?B?' . base64_encode($name) . "?= <{$from}>\r\n";
 	$headers .= 'To: ' . implode(', ', array_map(fn($r) => "<{$r}>", $to)) . "\r\n";
 	if (!empty($cc)) {
 		$headers .= 'Cc: ' . implode(', ', array_map(fn($r) => "<{$r}>", $cc)) . "\r\n";
 	}
 	// Bcc intentionally omitted from headers; recipients already got RCPT TO above.
-	$headers .= "Subject: =?UTF-8?B?" . base64_encode($subject) . "?=\r\n";
-	$headers .= "Message-ID: <" . bin2hex(random_bytes(16)) . '@' . preg_replace('/^(tcp|tls|ssl):\/\//i', '', $options['smtp']) . ">\r\n";
+	$headers .= 'Subject: =?UTF-8?B?' . base64_encode($subject) . "?=\r\n";
+	$headers .= 'Message-ID: <' . bin2hex(random_bytes(16)) . '@' . preg_replace('/^(tcp|tls|ssl):\/\//i', '', $options['smtp']) . ">\r\n";
 	$headers .= "MIME-Version: 1.0\r\n";
 	$headers .= "Content-Type: multipart/mixed; boundary=\"{$mixedBoundary}\"\r\n";
 	// text/html (with optional text/plain alternative)
@@ -2134,16 +2130,16 @@ array				$options=[],// options
 		$body .= "Content-Transfer-Encoding: base64\r\n\r\n";
 		$body .= chunk_split(base64_encode(($text??'')));
 	}
-	$log .= "\r\nABCMS SMTP MESSAGE: success"; // log
+	$this->response('EMAIL: message, status=ok', ABCMS_LOG_DEBUG); // log
 	// add attachments
 	foreach (($attach??[]) as $filePath) {
-		try { if (!$this->chk_file($filePath, TRUE)) { return $fail("Filename does not exist or not readable: {$filePath}"); } }
-		catch (Throwable $e) { return $fail($e->getMessage() ?: "Suspect filename disallowed: {$filePath}"); }
+		try { if (!$this->chk_file($filePath, TRUE)) { return $fail("attachment not readable, file={$filePath}"); } }
+		catch (Throwable $e) { return $fail("attachment disallowed, file={$filePath}"); } // chk_file() already logged detail
 		$fileName = preg_replace('/[\r\n]+/', '', basename($filePath));
 		$fileName = str_replace('"', '', $fileName); // keep the Content-Disposition value well-formed
 		$fileNameEncoded = rawurlencode($fileName);
 		$content  = file_get_contents($filePath);
-		if ($content === FALSE) { return $fail("Email attachment contents not readable: '{$filePath}'."); }
+		if ($content === FALSE) { return $fail("attachment contents not readable, file={$filePath}"); }
 		$finfo    = finfo_open(FILEINFO_MIME_TYPE);
 		$mimeType = ($finfo ? finfo_file($finfo, $filePath) : FALSE) ?: 'application/octet-stream';
 		if ($finfo) finfo_close($finfo);
@@ -2154,22 +2150,22 @@ array				$options=[],// options
 		$body .= chunk_split(base64_encode($content));
 	}
 	$body .= "--{$mixedBoundary}--\r\n";
-	$log .= "\r\nABCMS SMTP ATTACHMENTS: success"; // log
+	$this->response('EMAIL: attachments, status=ok', ABCMS_LOG_DEBUG); // log
 	// normalize line endings and dot-stuff in DATA (RFC 5321 §4.5.2)
 	$payload = $headers . "\r\n" . $body;
 	$payload = preg_replace('/\r\n|\r|\n/', "\r\n", $payload);
 	$payload = preg_replace('/^\./m', '..', $payload);
 	if (substr($payload, -2) !== "\r\n") $payload .= "\r\n";
-	$log .= "\r\nABCMS SMTP NORMALIZE: success"; // log
+	$this->response('EMAIL: normalize, status=ok', ABCMS_LOG_DEBUG); // log
 	// write the email
-	if (FALSE === fwrite($socket, $payload)) { return $fail('Email SMTP send failed.');	}
+	if (FALSE === fwrite($socket, $payload)) { return $fail('send failed');	}
 	[$status] = $command('.');
-	if ($status != 250) { return $fail('Email server rejected the message body.'); }
-	$log .= "\r\nABCMS SMTP SEND: status={$status} bytes=".strlen($payload); // log
+	if ($status != 250) { return $fail('message body rejected'); }
+	$this->response("EMAIL: send, status={$status} bytes=".strlen($payload), ABCMS_LOG_DEBUG); // log
 	// finish
 	$command('QUIT');
 	fclose($socket);
-	if ($options['debug']) { $this->response($log."\r\nABCMS SMTP EXIT: success", ABCMS_LOG_INFO, TRUE, FALSE); }
+	$this->response('EMAIL: exit, status=ok', ABCMS_LOG_DEBUG);
 	return TRUE;
 }
 
@@ -2204,12 +2200,12 @@ $favicon = (is_readable('./favicon.ico') ? '/favicon.ico' : (is_readable('./publ
 <meta name='description' content='<?php echo $title; ?>'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <meta name='mobile-web-app-capable' content='yes'>
-<link rel="manifest" href="/manifest.json">
+<link rel='manifest' href='/manifest.json'>
 <meta name='theme-color' content='#336699'>
 <meta name='color-scheme' content='light dark'>
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'nonce-<?php echo $this->input['nonce']; ?>'; img-src 'self' data:;">
+<meta http-equiv='Content-Security-Policy' content="default-src 'self' 'nonce-<?php echo $this->input['nonce']; ?>'; img-src 'self' data:;">
 <title><?php echo $title; ?></title>
-<link rel="icon" href="<?php echo $favicon; ?>">
+<link rel='icon' href='<?php echo $favicon; ?>'>
 <style nonce='<?php echo $this->input['nonce']; ?>'>
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #page, header, main, footer { margin: 0; padding: 0; width: 100%; text-align: center; }
@@ -2274,7 +2270,7 @@ I just cannot find the page requested.<br>
 EOF;
 }
 $this->output(ABCMS_EXT_MAIN, 'CLI-GET-POST', 'abcms()->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($main));
-echo $this->response_user();
+echo $this->response_html();
 ?>
 </main>
 <footer>
