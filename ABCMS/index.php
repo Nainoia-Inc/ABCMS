@@ -9,7 +9,7 @@ Copy index.php to a docroot or run 'composer install nainoia-inc/abcms'.
 Visit index.php in a browser or run 'php index.php /command/help'.
 Download the super user password from 'ABMCS.deleteme', then delete.
 Extend imitating setup(), home_*(), webfiles_*(), console_*(), command_*().
-Everything is a routed extension, but extensions also do their own routing.
+Everything is a routed extension, but extensions should also do their own routing.
 Access $_SESSION[extension] with s() API, but $_SESSION remains exposed.
 Run extension SETUP.php with /command/setup and CRON.php with /command/cron.
 Schedule 'php index.php /command/cron' every 15 minutes to 1x per day.
@@ -25,6 +25,7 @@ Schedule 'php index.php /command/cron' every 15 minutes to 1x per day.
 SECTION REQUIREMENTS: Minimum requirements for operation.
 
 PHP version 8.1.0 or greater
+PHP GD version 	2.9.1 // tested working
 Filesystem supporting flock($fd, LOCK_EX)
 */
 
@@ -67,7 +68,7 @@ const ABCMS_REGEX_URLV	= '/\/([a-z0-9\-_.~]+)=([a-z0-9\-_.~=]+)/ui';	// URL vari
 const ABCMS_REGEX_FORM	= '/(<form(?=[\s>])[^>]*>)(.+?)(<\/form>)/uis';	// form security injection
 const ABCMS_REGEX_DATA	= '/^[a-z0-9\-_]+\.[a-z0-9\-_]+$/uiD';			// Database filename
 const ABCMS_REGEX_MIME	= '/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*(; ?[a-z0-9-]+=[a-z0-9\-."]+)*$/uiD';	// response mime type
-// cookie permissions, TODO use
+// cookie permissions, TODO end user needs to grant permission
 const ABCMS_COOK_LIFE	= 60*60*24*365;		// choice for 1 year
 const ABCMS_COOK_NONE	= 0;				// none
 const ABCMS_COOK_FORM	= 1;				// security
@@ -85,12 +86,10 @@ const ABCMS_LOGTO_LOGS	= 0;				// to logs
 const ABCMS_LOGTO_USER	= 1;				// to user
 const ABCMS_LOGTO_BOTH	= 2;				// to both
 const ABCMS_LOGTO		= array('Logs','User','Both'); // logto map
-
 // response categories declared by setup_extend(), first output() determines whole request.
-// html injection only runs once over the finished top level buffer
 // html and frag are the same type so either may nest in other, other categories must match parent.
-const ABCMS_TYPE_HTML	= 'html';			// buffered, form security injected, text/html
-const ABCMS_TYPE_FRAG	= 'frag';			// buffered, no injection, text/html, for frags and embeds with no <head>, or extensions handling security themselves
+const ABCMS_TYPE_HTML	= 'html';			// buffered, security injection top level buffer only, text/html
+const ABCMS_TYPE_FRAG	= 'frag';			// buffered, no injection, text/html, for frags/embeds with no <head>, or secured extensions
 const ABCMS_TYPE_TEXT	= 'text';			// buffered, no injection, text/plain
 const ABCMS_TYPE_DATA	= 'data';			// buffered, no injection, application/json, nosniff critical
 const ABCMS_TYPE_FILE	= 'file';			// streamed, no injection, no buffering, no sub-extensions, explicit mime required
@@ -104,31 +103,48 @@ const ABCMS_TYPE		= array(			// category => default mime
 	ABCMS_TYPE_NONE	=> '',
 );
 const ABCMS_TYPE_HTMLS	= array(ABCMS_TYPE_HTML, ABCMS_TYPE_FRAG); // html and frag same type
-// session controls, TODO - move to overridable $settings
+// session controls, TODO - move to overridable $settings?
 const ABCMS_SES_ROTA	= 60*15;			// rotate session after 15 minutes
 const ABCMS_SES_IDLE	= 60*60*24*1;		// destroy session after 1 day idle
 const ABCMS_SES_LIFE	= 60*60*24*3;		// destroy session after 3 days total
 const ABCMS_SES_BADA	= 60*60*24*1;		// bad actor lockout for 1 day
-const ABCMS_SES_FORM	= 60*60;			// remove form security tokens after 1 hour
 const ABCMS_SES_WAIT	= 4;				// javascript form submission delay to stymie robots for 4 seconds
-const ABCMS_SES_OPEN	= 21;				// max number form security token sets open total
 const ABCMS_SES_HITS	= 30;				// number of session hit times to track
 const ABCMS_SES_TIME	= 30;				// max session hit time before suspect
 const ABCMS_SES_LOGI	= 7;				// max login attempts
-const ABCMS_SES_MINT	= 30;				// max CAPTCHA refresh per CSRF token, spent budget answers but stops minting
-// total CAPTCHA symbols per form, TOTL must be 2 or more and TOTH must not be below TOTL
-const ABCMS_SES_TOTL	= 6;				// fewest total symbols requested, valid 2 to 32
-const ABCMS_SES_TOTH	= 12;				// most total symbols requested, valid 2 to 32, never below minimum
-// used CAPTCHA symbol counts, subset of effective totals
-const ABCMS_SES_FEWS	= 4;				// fewest symbols an answer may keep, absolute cap, never below two
-const ABCMS_SES_MANY	= 10;				// most symbols an answer may keep, absolute cap
-const ABCMS_SES_FEWP	= 33;				// fewest symbols an answer may keep, percent of total, rounded up
-const ABCMS_SES_MANP	= 66;				// most symbols an answer may keep, percent of total, rounded up
-// CAPTCHA image and hint specs
-const ABCMS_SES_TALL	= 60;				// CAPTCHA image height in pixels
-const ABCMS_SES_WIDE	= 50;				// CAPTCHA image width in pixels per character
-const ABCMS_SES_YESS	= 6;				// diagram enter marks available, must match the switch arms in session_captcha_mark()
-const ABCMS_SES_NOOS	= 4;				// diagram skip marks available, must match the switch arms in session_captcha_mark()
+// CAPTCHA characters, ASCII only, every byte offset in the CAPTCHA system depends on it
+const ABCMS_CAP_POOL	= 'abcdfhjkmnpqrstwxy345678@#$%&*?'; // no X, uppercase, l, 1, 2, 9, i, o, 0, e, g, u, v, z, avoid confusion, symbols prevent dictionary guessing
+// CAPTCHA controls for one image, answer on top, instruction on bottom, TODO - move to overridable $settings?
+const ABCMS_CAP_MINT	= 7;				// max refreshes per CSRF token, spent budget answers but stops minting, valid 1 to 999
+const ABCMS_CAP_TOTL	= 7;				// min symbols in CAPTCHA, valid 2 to 32 and never above max
+const ABCMS_CAP_TOTH	= 10;				// max symbols in CAPTCHA, valid 2 to 32 and never below min
+const ABCMS_CAP_KEEP	= array(33, 66, 8);	// answer length, fewest percent of the symbols kept, most percent, and a hard cap on characters typed
+											// valid 1 to 99, 1 to 99, and 2 to 32, one symbol is always skipped so instruction shows both marks
+const ABCMS_CAP_TALL	= 60;				// height in pixels of each band, the image is twice this, valid 40 to 200
+const ABCMS_CAP_WIDE	= 50;				// width in pixels per symbol, valid 30 to 200
+const ABCMS_CAP_SPIN	= 10;				// widest symbol spin in degrees + position jitter, valid 0 to 45, readable to unreadable
+const ABCMS_CAP_MESS	= 900;				// one noise stroke per this many pixels of canvas, valid 300 hardest to 3000 easiest, 0 draws none
+// CAPTCHA instruction marks, one row per shape, count() is how many are available so adding a shape needs no constant
+// every pair of an enter and a skip mark must read differently, which is why there is no table of confusable exceptions
+// each op places itself as a fraction of the mark radius, angles in degrees and spun with the mark:
+// 'line', x1, y1, x2, y2, thick
+// 'ring', x, y, size, thick
+// 'disc', x, y, size
+// 'arc',  x, y, wide, tall, from, to, thick
+const ABCMS_CAP_YESS	= array( // yes instruction symbol
+	array(array('disc', 0, 0, 2.0)), // disc
+	array(array('ring', 0, 0, 2.0, 5)), // ring
+	array(array('ring', 0, 0, 2.0, 4), array('disc', 0, 0, 0.75)), // bullseye
+	array(array('line', -1, 0.05, -0.25, 0.75, 6), array('line', -0.25, 0.75, 1, -0.8, 6)),	// check
+	array(array('ring', 0, 0, 2.0, 4), array('disc', -0.35, -0.25, 0.4), array('disc', 0.35, -0.25, 0.4), array('arc', 0, 0.05, 1.2, 1.1, 25, 155, 4)), // happy
+);
+const ABCMS_CAP_NOOS	= array( // no instruction symbol
+	array(array('ring', 0, 0, 2.0, 5), array('line', -1, 0, 1, 0, 7)), // dashed ring
+	array(array('ring', 0, 0, 2.0, 5), array('line', -1, -1, 1, 1, 6)), // slashed ring
+	array(array('line', -1, 0, 1, 0, 7)), // dash minus
+	array(array('ring', 0, 0, 2.0, 3), array('disc', -0.35, -0.25, 0.27), array('disc', 0.35, -0.25, 0.27), array('arc', 0, 0.7, 1.2, 1.1, 205, 335, 3)), // sad
+	array(array('disc', -0.7, 0, 0.5), array('disc', 0, 0, 0.5), array('disc', 0.7, 0, 0.5)), // ellipsis
+);
 
 
 
@@ -205,7 +221,7 @@ EOF;
 			$composer[$name] = Composer\InstalledVersions::getInstallPath($name);
 		}
 	}
-	file_put_contents( // dump corefile
+	if (!file_put_contents( // dump corefile
 		str_replace('\\', '/', __DIR__).'/..'.ABCMS_EXT_PRIVATE.'ABCMS.coredump',
 		print_r(array(
 			'ABCMS_EXCEPTION'	=> $exception,
@@ -215,7 +231,10 @@ EOF;
 			'ABCMS_BUFFER'		=> $buffer,
 			'ABCMS_COMPOSER'	=> $composer,
 		), TRUE),
-	);
+	)) {
+		$error = error_get_last();
+		error_log("ABCMS System Error: coredump file_put_contents() fail, exception={$exception}, systemerror=".($error['message']??'unknown'));
+	}
 	$code = 1; // return failure
 }
 
@@ -263,7 +282,6 @@ private function input_construct() { // 2nd construct object properties
 	// initialize
 	$this->stackwho[] = ABCMS_EXT_SELF; // push core on extension stack
 	$this->setup(TRUE); // assign $settings
-	if (FALSE === ini_set('error_log', $this->settings['core']['translog'])) { $this->response('CORE: ini_set error_log failed, '.$this->error_get_last(), ABCMS_LOG_ERROR); } // set log destination after setup
 	while(ob_get_level() > 0) { if (FALSE !== ($buf = ob_get_clean()) && '' !== $buf) { $this->response('CORE: unexpected output buffers discarded', ABCMS_LOG_ERROR); } } // empty buffers
 	// bootstrap inputs for session_start(), then session user validates remaining inputs
 	$this->boots = array(
@@ -290,7 +308,7 @@ private function input_construct() { // 2nd construct object properties
 		'urldomain'		=> (mb_strtolower(($urlparsed['host']??''), 'UTF-8')), // URL domain
 		'urlport'		=> ($urlparsed['port']??NULL), // URL port
 		'urlmethod'		=> ($cli ? 'CLI' : ((empty($_SERVER['REQUEST_METHOD']) || // URL method
-			!in_array($_SERVER['REQUEST_METHOD'], array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE'))) ? 'GET' : $_SERVER['REQUEST_METHOD'])), // validate method
+			!in_array($_SERVER['REQUEST_METHOD'], array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE'), TRUE)) ? 'GET' : $_SERVER['REQUEST_METHOD'])), // validate method
 		'urlpathall'	=> ($urlpathall = ('/'.(trim(preg_replace(ABCMS_REGEX_URLV, '/', ($urldecoded = urldecode(($urlparsed['path']??'')))), '/')))), // URL without variables, no trailing slash, and urldecoded
 		'urlpathone'	=> (!($ret = preg_match('/^(\/[^\/\x00-\x1f]*)(\/[^\x00-\x1f]+)?$/uD', $urlpathall, $matches)) ? '/' : $matches[1]), // URL first segment for core router
 		'urlpathext'	=> (!$ret || empty($matches[2]) ? '/' : $matches[2]), // URL second+ segments for extension routers
@@ -335,7 +353,7 @@ int		$role,					// user role
 			$this->response("Unknown link setting ignored: '{$var}'.", ABCMS_LOG_WARN, ABCMS_LOGTO_USER);	unset($vars[$var]);	continue; // warn user, unset
 		}
 		// $val type checks
-		if (is_string($val) && 'null' == mb_strtolower($val, 'UTF-8')) { $vars[$var] = NULL; continue; } // NULL special case
+		if (is_string($val) && 'null' === mb_strtolower($val, 'UTF-8')) { $vars[$var] = NULL; continue; } // NULL special case
 		if (!is_string($val) && ('array' !== $this->settings[$cat][$var]['type'])) {
 			$this->response("Link setting is not text: '{$var}'.", ABCMS_LOG_WARN, ABCMS_LOGTO_USER); unset($vars[$var]); continue; // warn user, unset
 		}
@@ -356,7 +374,7 @@ int		$role,					// user role
 			case 'path'		:	if (!str_starts_with($val, '/') || FALSE === filter_var('http://localhost'.$val, FILTER_VALIDATE_URL)) {		break; }			continue 2;
 			case 'uri'		:	if (!mb_check_encoding($val, 'ASCII') || FALSE === filter_var('http://localhost'.$val, FILTER_VALIDATE_URL)) {	break; }			continue 2;
 			case 'url'		:	if (!mb_check_encoding($val, 'ASCII') || FALSE === filter_var($val, FILTER_VALIDATE_URL)) {						break; }			continue 2;
-			case 'uuid'		:	if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iD', $val)) {		break; }			continue 2;			
+			case 'uuid'		:	if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iD', $val)) {		break; }			continue 2;
 			default:			$this->response("INPUT: settings type unknown, var={$var} type={$this->settings[$cat][$var]['type']}", ABCMS_LOG_FATAL); // bad settings, fatal
 		}
 		// value invalid
@@ -400,12 +418,13 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	$this->compiles['core']['getlastmod']		= getlastmod(); // my modified date
 	$password									= $this->get_uniq(); // my clear password
 	$this->compiles['core']['passhash']			= password_hash($password, PASSWORD_DEFAULT); // my password hash
-	$corefold = $this->compiles['core']['projectroot'].ABCMS_EXT_PRIVATE;
-	$this->set_json($corefold.'ABCMS.deleteme', 'DELETE ASAP: '.$password); // temp password storage
+	$coreext = $this->compiles['core']['projectroot'].ABCMS_EXT_PRIVATE;
+	if (!is_dir($coreext) && (!mkdir($coreext, 0755, true))) { $this->response("SETUP: core extension folder missing, coreext={$coreext}".$this->error_get_last(), ABCMS_LOG_FATAL); }
+	$this->set_json($coreext.'ABCMS.deleteme', 'DELETE ASAP: '.$password); // temp password storage
 	$password = NULL;
 	$this->response('SETUP: superuser password written, retrieve and delete file', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
 	$this->compiles['core']['secret']			= $this->get_uniq(); // my hash secret
-	if (!is_dir(($file = ($corefold.'ABCMS.sessions'))) && (!mkdir($file, 0755, true))) { $this->response("SETUP: session folder missing, file={$file}, ".$this->error_get_last(), ABCMS_LOG_FATAL); }
+	if (!is_dir(($file = ($coreext.'ABCMS.sessions'))) && (!mkdir($file, 0755, true))) { $this->response("SETUP: session folder missing, file={$file}".$this->error_get_last(), ABCMS_LOG_FATAL); }
 	$this->compiles['core']['session_folder']	= $file; // session folder
 	$this->compiles['core']['session_cookie']	= $this->get_uniq(); // session cookie name
 	$this->compiles['core']['session_secret']	= $this->get_uniq(); // session secret name
@@ -422,10 +441,9 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	$this->compiles['core']['smtp_ehlo']		= NULL; // SMTP EHLO
 	$this->new_database('BASIC.json');
 	$this->compiles['core']['captcha_path']		= '/'.$this->get_uniq().'/'; // CAPTCHA path distinct per installation per setup, trailing slash routes on 1st path segment
-	$this->compiles['core']['captcha_font']		= NULL; // .ttf for CAPTCHA text or NULL fallback to GD bitmap font
-	$this->compiles['core']['translog']			= $corefold.'ABCMS.translog'; // transaction log
+	$this->compiles['core']['translog']			= $coreext.'ABCMS.translog'; // transaction log
 	$this->touch($this->compiles['core']['translog']);
-	$this->compiles['core']['override']			= $corefold.'ABCMS.override.php'; // overrides
+	$this->compiles['core']['override']			= $coreext.'ABCMS.override.php'; // overrides
 	// register variables
 	// 'U' = URL variable
 	// 'G' = $_GET variable
@@ -440,7 +458,7 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	// extension controls
 	// 'I' = Input -OR- 'O' = Output filter, default Input
 	// 'E' = Exclusive to my extension or omit me, default anyone
-	// 'U' = Uno/single extension, default multiple extensions cooperate 
+	// 'U' = Uno/single extension, default multiple extensions cooperate
 	// 'D' = Default included, default excluded if extended by $ord < 0
 	// HTTP methods, '' = all = 'CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE'
 	$this->response('SETUP: core extensions', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
@@ -461,25 +479,27 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	$this->setup_equate(ABCMS_EXT_MAINX,	'console',	'/console');
 	$this->setup_equate(ABCMS_EXT_MAINX,	'console',	'/console/');
 	// run SETUP.php for each extension
-	$this->response('SETUP: contrib extensions', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
-	$exts = glob("{$this->compiles['core']['projectroot']}/private/*/*/");
-	foreach ($exts?:[] as $fold) {
+	if (FALSE === ($exts = glob(($fold="{$this->compiles['core']['projectroot']}/private/*/*/")))) {
+		$this->response("SETUP: extension glob() inaccessible, fold={$fold}".$this->error_get_last(), ABCMS_LOG_FATAL);
+	}
+	if (!$exts) { $this->response("SETUP: no extension folders found, fold={$fold}", ABCMS_LOG_FATAL); }
+	foreach($exts as $fold) {
 		// skip myself
 		if (preg_match('|^'.preg_quote($this->compiles['core']['projectroot'],'|').ABCMS_EXT_PRIVATE.'$|uD', $fold)) { continue; }
 		// valid extension name
 		if (!preg_match('|^'.preg_quote($this->compiles['core']['projectroot'],'|').'/private'.ABCMS_REGEX_FOLD.'/$|uD', $fold, $match) || empty($match[1])) {
-			$this->response("SETUP: extension name invalid, folder={$fold}", ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS);
+			$this->response("SETUP: extension name invalid, folder={$fold}", ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 			continue;
 		}
 		// valid file
 		$temp = $fold . 'SETUP.php';
 		if (!is_file($temp)) {
-			$this->response("SETUP: extension SETUP.php invalid, file={$temp}", ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS);
+			$this->response("SETUP: extension SETUP.php invalid, file={$temp}", ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 			continue;
 		}
 		// reject symlinks
 		if (($file = $this->rp(realpath($temp))) !== $this->rp($temp)) {
-			$this->response("SETUP: extension symlink rejected, file={$temp}", ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS);
+			$this->response("SETUP: extension symlink rejected, file={$temp}", ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 			continue;
 		}
 		// push extension stackwho so s() returns valid $_SESSION storage
@@ -500,21 +520,37 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 			$this->response_splice($mark); // splice off $this->respuser in finally so extension SETUP.php cannot message end users
 		}
 	}
+	// optimize and customize compiled settings
+	$this->response('SETUP: optimize and customize settings', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
+	$this->setup_override(); // customize settings with the override file, beware injection
 	// TODO optimize and remove mixed non-exclusive and exclusive routes
-	$this->response('SETUP: optimize settings', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
+	// save settings as fast op cachable php include file with atomic with rename()
+	$this->response('SETUP: save settings', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
+	$this->set_dump($storage, $this->compiles);
+	if ($boot) { $this->settings = $this->compiles; }
+	$this->compiles = NULL;
+	// warning: op cache setting requires manual cache refresh
+	if (function_exists('opcache_get_configuration') && !ini_get('opcache.validate_timestamps')) {
+		$this->response('SETUP: opcache stale, reload php-fpm to apply settings', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+	}
+	return;
+}
+
+private function setup_override(	// read the override file, merge it over the compiled settings, then validate changes
+) : void {							// return void, every failure here is FATAL because the settings would be wrong
 	// load custom settings from var_dump file for speed, beware of injection
-	$this->response('SETUP: custom overrides', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
-	if (function_exists('opcache_invalidate')) { opcache_invalidate($this->compiles['core']['override'], TRUE); } // clear php cache
+	$this->opcache_reset($this->compiles['core']['override']); // clear php cache
 	$override = [];
 	// read override settings
-	// TODO consider location of override merge because some compiles values, 'captcha_path' already passed setup_extend()
-	// TODO maybe segregate overridable versus non-overrideable
+	// TODO segregate overridable versus non-overrideable settings?
 	if (file_exists($this->compiles['core']['override'])) {
 		if (!$this->get_dump($this->compiles['core']['override'], $override) || !is_array($override)) {
 			$this->response("SETUP: override file unreadable or corrupted, file={$this->compiles['core']['override']}", ABCMS_LOG_FATAL);
 		}
 	}
-	// build default override settings TODO fix once $this->settings array is segregated by extension
+	// build default override settings to help admin
+	// admin could copy entire settings file to override file and customize
+	// TODO fix once $this->settings array is segregated by extension
 	else {
 		$override['core']['session_killit']	= $this->compiles['core']['session_killit'];
 		$override['core']['session_domain']	= $this->compiles['core']['session_domain'];
@@ -526,8 +562,10 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 		$override['core']['smtp_ehlo']		= $this->compiles['core']['smtp_ehlo'];
 		$this->set_dump($this->compiles['core']['override'], $override);
 	}
+	// merge custom override settings into compiled settings
 	$this->array_walk_merge($this->compiles, $override);
-	// verify custom session_domain
+	// verify custom settings
+	// session_domain
 	if (NULL === ($this->compiles['core']['session_domain']??NULL)) { $this->compiles['core']['session_domain'] = ''; }
 	if (!is_string($this->compiles['core']['session_domain'])) { $this->response('SETUP: override session_domain not a string', ABCMS_LOG_FATAL); }
 	$dom = $this->compiles['core']['session_domain'] = mb_strtolower(ltrim($this->compiles['core']['session_domain'],'.'), 'UTF-8');
@@ -541,20 +579,10 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 			if (!str_starts_with($this->compiles['core'][$name], '__Host-')) { $this->compiles['core'][$name] = '__Host-'.$this->compiles['core'][$name]; }
 		}
 	}
+	// dependent setup_extend() and setup_equate() calls run after override to be overridable
 	// verify custom captcha path and assign to setup_equate()
-	// TODO beware of settings that reference core setting before the override!
 	if (!preg_match(ABCMS_REGEX_URLS, $this->compiles['core']['captcha_path'])) { $this->response('SETUP: override captcha_path invalid', ABCMS_LOG_FATAL); }
 	$this->setup_equate(ABCMS_EXT_INITX, 'captcha', $this->compiles['core']['captcha_path']);
-
-	// save settings as fast op cachable php include file with atomic with rename(), beware of injection
-	$this->response('SETUP: save settings', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
-	$this->set_dump($storage, $this->compiles);
-	if ($boot) { $this->settings = $this->compiles; }
-	$this->compiles = NULL;
-	// warning: op cache setting requires manual cache refresh
-	if (function_exists('opcache_get_configuration') && !ini_get('opcache.validate_timestamps')) {
-		$this->response('SETUP: opcache stale, reload php-fpm to apply settings', ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS);
-	}
 	return;
 }
 
@@ -566,11 +594,11 @@ string	$met,						// HTTP methods, '' = all = 'CLI-GET-POST-PUT-HEAD-DELETE-PATC
 string	$str,						// control string | TODO constants?
 									// 'I' = input -OR- 'O' = output filter, default input
 									// 'E' = exclusive to my extension or omit me, default anyone
-									// 'U' = uno/single extension, default multiple extensions cooperate 
+									// 'U' = uno/single extension, default multiple extensions cooperate
 									// 'D' = include default, default excluded if extended by $ord < 0
 string	$fun,						// includefile?function
 int		$rol = ABCMS_ROLE_PUBLIC,	// minimum role permission
-int		$ord = 0,					// order considered, PHP_INT_MIN >= $ord <= PHP_INT_MAX 
+int		$ord = 0,					// order considered, PHP_INT_MIN >= $ord <= PHP_INT_MAX
 string	$cat = '',					// response category ABCMS_TYPE_(html||frag||text||data||file||none), '' adapts to the response in progress
 string	$mim = '',					// explicit mime type, required for ABCMS_TYPE_FILE, otherwise the category default
 mixed	...$arg,					// argument alternatives
@@ -663,10 +691,10 @@ int		$rol,					// min role
 	// validate
 	$n = [];
 	if (($n[]=(!is_array($this->compiles))) || // bad context
-		($n[]=(!in_array($cat, array('U','G','P')))) || // category
+		($n[]=(!in_array($cat, array('U','G','P'), TRUE))) || // category
 		($n[]=(!preg_match('/^[a-z0-9\-_.~]+$/uiD', $var))) || // variable
-		($n[]=(!in_array($typ, array('array','bool','boolean','domain','email','explode','float','integer','ip','mac','mixed','path','string','uri','url','uuid')))) || // type
-		($n[]=(!in_array($rol, ABCMS_ROLE_SET))) || // role
+		($n[]=(!in_array($typ, array('array','bool','boolean','domain','email','explode','float','integer','ip','mac','mixed','path','string','uri','url','uuid'), TRUE))) || // type
+		($n[]=(!in_array($rol, ABCMS_ROLE_SET, TRUE))) || // role
 		($n[]=(!empty($this->compiles[$cat][$var])))) { // duplicate
 		$e = [
 			'context',
@@ -695,7 +723,7 @@ SECTION SESSION: Secure sessions with opt-in/out, validation, CSRF, CAPTCHA, and
 */
 
 public function session_start(	// start session conditionally
-int $cmd,						// -1 = destroy, 0 = start if, 1 = start 
+int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 ) : bool {						// return TRUE=started, FALSE=destroyed
 	// initialize
 	$active = (session_status() === PHP_SESSION_ACTIVE ? TRUE : FALSE);
@@ -729,13 +757,14 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 	if ($deny || isset($_COOKIE[$this->settings['core']['session_badact']])) { if (!($deny)) { $this->response('Access is temporarily blocked. Please try again later.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER); } $deny = TRUE; return FALSE; } // bad actor
 	if ($cmd < 0) { $error = 'You are logged out.'; goto KILL; } // destroy session
 	if ($active) { if (0 === $cmd) { $this->response('SESSION: unauthorized start encountered', ABCMS_LOG_FATAL); } return TRUE; } // already started, but ABCMS must start
-	if (headers_sent()) { $this->response('SESSION: start failed, headers already sent', ABCMS_LOG_FATAL); } // already headers
+	if (headers_sent($hfile, $hline)) { $this->response("SESSION: start failed, headers already sent, header={$hfile}:{$hline}", ABCMS_LOG_FATAL); }
 	if (!isset($_COOKIE[$this->settings['core']['session_allows']])) { $this->set_cookie($this->settings['core']['session_allows'], ABCMS_COOK_NAVS, $now + ABCMS_COOK_LIFE, FALSE); }	// TODO TEMP CODE TO ALLOW COOKIES
 	if (empty($_COOKIE[$this->settings['core']['session_allows']])) {	$this->response('Cookies must be accepted before you can submit forms or login.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER); return FALSE; } // cookies not approved
 	$post = ('POST' === $this->boots['urlmethod'] && !$posthandled ? TRUE : FALSE); // is this a POST?
 	if (0 === $cmd && !isset($_COOKIE[$this->settings['core']['session_logins']]) && !$post) { return FALSE; } // conditional start
 	// start session, more variables
-	if (!session_start($options) || !($_COOKIE[$options['name']] = session_id())) { $this->response('SESSION: start failed, '.$this->error_get_last(), ABCMS_LOG_FATAL); }
+	if (!session_start($options)) { $this->response('SESSION: start failed'.$this->error_get_last(), ABCMS_LOG_FATAL); }
+	if (!($_COOKIE[$options['name']] = session_id())) { $this->response('SESSION: session cookie failed, systemerror=session_id()', ABCMS_LOG_FATAL); }
 	$active = $posthandled = TRUE;
 	$error = $gauntlet = NULL;
 	$csrf = ($post && !empty($_POST['csrf']) ? $_POST['csrf'] : '');
@@ -746,7 +775,7 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 		if ($post) {																									$error = 'SESSION: ended, reason=post-without-session';		$slap = TRUE; }
 	}
 	else {
-		// page load hit counter, excluding CAPTCHA image requests
+		// page load hit counter, excludes CAPTCHA image requests
 		$subres = ('' !== ($capt = rtrim((string)($this->settings['core']['captcha_path'] ?? ''), '/')) && $capt === $this->boots['urlpathone']);
 		$gothits = FALSE;
 		if (!$subres) { $this->ss['counts'][] = $now; if (count($this->ss['counts']) > ABCMS_SES_HITS) { array_shift($this->ss['counts']); $gothits = TRUE; } }
@@ -786,16 +815,17 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 	}
 	// destroy by request or for corruption
 	if ($error) {
-KILL:	// start session to destroy it, weird
-		if (!$active) { $active = session_start($options); }
+KILL:	// start session to destroy and report the error to logs afterward
+		$logs = (($active || ($active = session_start($options))) ? NULL : ($this->error_get_last() ?: ', systemerror=session_start()'));
 		// remove cookies
 		$this->set_cookie($options['name'], '', 1); // session
 		$this->set_cookie($this->settings['core']['session_secret'], '', 1); // secret
 		$this->set_cookie($this->settings['core']['session_logins'], '', 1); // login
 		// PHP says mark for garbage collection, but I don't want garbage laying around
 		$_SESSION = $this->ss = []; // access directly exception to clear entire session
-		if ($active && !session_destroy()) { $deny = TRUE; $this->response('SESSION: destroy failed, '.$this->error_get_last(), ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS);	}
-		// slap all evil with same 429 + bad actor cookie
+		if ($active && !session_destroy()) { $deny = TRUE; $this->response('SESSION: destroy failed'.$this->error_get_last(), ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);	}
+		// report session error, slap all evil with same 429 + bad actor cookie, message user
+		if ($logs) { $deny = TRUE; $this->response('SESSION: start to destroy failed'.$logs, ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS); }
 		if ($slap) {
 			$deny = TRUE;
 			$this->set_cookie($this->settings['core']['session_badact'], $this->get_uniq(), $now + ABCMS_SES_BADA, FALSE);
@@ -804,7 +834,7 @@ KILL:	// start session to destroy it, weird
 			$this->response($error, ABCMS_LOG_FATAL, ABCMS_LOGTO_BOTH, 429); // TODO beware log flooding, might change to ABCMS_LOGTO_USER
 		}
 		else {
-			$this->response($error, ABCMS_LOG_WARN, ABCMS_LOGTO_USER); // dont log rifraf
+			$this->response($error, ABCMS_LOG_WARN, ABCMS_LOGTO_USER); // dont log rifraf user errors
 		}
 		return FALSE;
 	}
@@ -818,7 +848,8 @@ KILL:	// start session to destroy it, weird
 		// rotate session and CSRF if exceed rotate time or $user role changed
 		if ($now > ($this->ss['rotate'] + ABCMS_SES_ROTA) || $this->ss['role'] !== ($this->ss['user']['role']??NULL)) {
 			// session cookie
-			if (!session_regenerate_id(TRUE) || !($_COOKIE[$options['name']] = session_id())) { $this->response('SESSION: regenerate failed, '.$this->error_get_last(), ABCMS_LOG_FATAL); }
+			if (!session_regenerate_id(TRUE)) { $this->response('SESSION: regenerate failed'.$this->error_get_last(), ABCMS_LOG_FATAL); }
+			if (!($_COOKIE[$options['name']] = session_id())) { $this->response('SESSION: regenerate session cookie failed, systemerror=session_id()', ABCMS_LOG_FATAL); }
 			// secret cookie
 			$this->ss['secret'] = $this->get_uniq();
 			$this->set_cookie($this->settings['core']['session_secret'], $this->ss['secret'], $this->ss['create'] + ABCMS_SES_LIFE);
@@ -857,9 +888,9 @@ KILL:	// start session to destroy it, weird
 			'full_name' => $this->get_uniq(),
 			'full_valu' => $this->get_uniq(),
 			'test_name' => $this->get_uniq(),
-			'test_full' => '', // whole CAPTCHA code, each symbol image renders one slice of it
-			'test_hint' => '', // instruction naming which symbols to skip, rendered as last image
-			'test_valu' => '', // expected answer, skipped symbols removed, set by output_security()
+			'test_full' => '', // CAPTCHA code all characters
+			'test_hint' => array(), // characters to skip
+			'test_valu' => '', // expected answer, skips removed, set by output_security()
 		];
 		$this->ss = &$_SESSION[ABCMS_EXT_SELF];
 		$this->set_cookie($this->settings['core']['session_secret'], $this->ss['secret'], $now + ABCMS_SES_LIFE);
@@ -896,10 +927,11 @@ int		$expires,			// expiration
 bool	$killit = TRUE,		// kill heed
 ) : void {					// return void or WSOD
 	// headers sent error and kill cookie on close browser
-	if (headers_sent()) { $this->response('COOKIE: set failed, headers already sent', ABCMS_LOG_FATAL); }
+	if (headers_sent($hfile, $hline)) { $this->response("COOKIE: set failed, headers already sent, header={$hfile}:{$hline}", ABCMS_LOG_FATAL); }
 	if ($killit && $expires > 1 && $this->settings['core']['session_killit']) { $expires = 0; }
+	if (empty($cookie)) { $this->response('COOKIE: invalid cookie name', ABCMS_LOG_FATAL); }
 	// set cookie
-	if (!empty($cookie) && setcookie(
+	if (setcookie(
 		$cookie,
 		$value,
 		[
@@ -916,7 +948,7 @@ bool	$killit = TRUE,		// kill heed
 	}
 	// failed so unset
 	unset($_COOKIE[$cookie]);
-	$this->response('COOKIE: set failed', ABCMS_LOG_FATAL);
+	$this->response('COOKIE: set failed'.$this->error_get_last(), ABCMS_LOG_FATAL);
 	return;
 }
 
@@ -930,257 +962,220 @@ bool	$killit = TRUE,		// kill heed
 SECTION CAPTCHA: "Completely Automated Public Turing test to tell Computers and Humans Apart".
 */
 
-private function session_captcha_code(	// CAPTCHA code, a fresh layout for every form, symbols split unevenly across images with a diagram naming which to skip
-?array	$same = NULL,					// reuse this composition instead of drawing one, the refresh button mints a new code without resizing images already on the page
-) : array {								// return array('plan','full','valu','hint'), all empty when GD cannot render
-	if (!function_exists('imagecreatetruecolor') || !function_exists('imagepng')) {
-		$this->response('SESSION: captcha unavailable, php-gd not loaded', ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS);
-		return array('plan' => array(), 'full' => '', 'valu' => '', 'hint' => '');
+private function session_captcha_code() : array { // new CAPTCHA code on load and refresh, return array('full','valu','skip','yess','noos')
+	if (!function_exists('imagecreate') || !function_exists('imagecreatetruecolor') || !function_exists('imagepng')) {
+		// full empty code when GD cannot render
+		$this->response('CAPTCHA: code unavailable, php-gd not loaded', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+		return array('full' => '', 'valu' => '', 'skip' => array(), 'yess' => 0, 'noos' => 0);
 	}
-	// split the total into a random composition, the images butt together so the seams are invisible and the split is not a grid
-	// taking a uniform bite off what remains averages a handful of images and makes a long run of tiny ones vanishingly rare
-	if ($same) { $plan = array_values($same); $total = array_sum($plan); } // refresh, the page already sized its images to this composition
-	else {
-		$total = random_int(ABCMS_SES_TOTL, ABCMS_SES_TOTH);
-		$plan = array();
-		$left = $total;
-		while ($left > 0) { $take = random_int(1, $left); $plan[] = $take; $left -= $take; }
-	}
-	// no l, 1, 2, 9, i, o, 0, e, g, u, v, z to avoid confusable glyphs, symbols widen the alphabet against dictionary guessing
-	$pool = 'abcdfhjkmnpqrstwxy345678@#$%&*?';
-	$last = mb_strlen($pool, 'UTF-8') - 1;
+	// initialize variables
+	$total = random_int(ABCMS_CAP_TOTL, ABCMS_CAP_TOTH);
+	$last = strlen(ABCMS_CAP_POOL) - 1;
 	$full = '';
-	while (mb_strlen($full, 'UTF-8') < $total) { $full .= mb_substr($pool, random_int(0, $last), 1, 'UTF-8'); }
-	// how many symbols the answer keeps, an absolute cap and a percentage of the total, whichever binds first
-	// rounding up keeps a small total off a one symbol answer, the floor of two is the hard backstop
-	$fews = max(2, min(ABCMS_SES_FEWS, (int)ceil($total * ABCMS_SES_FEWP / 100)));
-	$many = max($fews, min(ABCMS_SES_MANY, (int)ceil($total * ABCMS_SES_MANP / 100), ($total - 1))); // always leave one skipped so the diagram shows both marks
+	for ($i = 0; $i < $total; $i++) { $full .= ABCMS_CAP_POOL[random_int(0, $last)]; }
+	// how many symbols the answer keeps, a percentage range with a hard cap on how much anyone has to type
+	// rounding up keeps a small total off a one symbol answer, the floor of two is the backstop, one is always skipped so the instruction shows both marks
+	$fews = max(2, (int)ceil($total * ABCMS_CAP_KEEP[0] / 100));
+	$many = max($fews, min((int)ceil($total * ABCMS_CAP_KEEP[1] / 100), ABCMS_CAP_KEEP[2], ($total - 1)));
 	$keep = random_int($fews, $many);
-	// skip everything else, any positions, the diagram shows which so no shape or wording is needed
+	// skip everything else, any positions, the instruction shows which so no shape or wording is needed
+	// random_int throughout, shuffle() and array_rand() draw from Mt19937 and would make the skip set predictable
 	$spare = range(1, $total);
 	$skip = array();
-	while ((($total - $keep) > count($skip))) { $skip[] = array_splice($spare, random_int(0, (count($spare) - 1)), 1)[0]; }
+	while (($total - $keep) > count($skip)) { $skip[] = array_splice($spare, random_int(0, (count($spare) - 1)), 1)[0]; }
 	sort($skip);
-	// a fresh pair of diagram marks, one enter and one skip, so a bot cannot template match a fixed shape
-	// deny confusable pairs, keyed by skip mark, values are the enter marks it must not appear beside
-	// indexes are the switch arms in session_captcha_mark()
-	$deny = array(
-		0 => array(3, 4),	// cross against plus is a rotation, against Y the same diagonals
-		2 => array(1, 5),	// sad face against ring is two circles of the same size, against happy only the mouth differs
-		3 => array(3),		// minus against plus, the plus contains it
-	);
-	// draw the skip mark uniformly because it is the salient one, then an enter mark that does not clash,
-	// rejecting on the pair instead would starve whichever marks carry the most denials
-	$noos = random_int(0, (ABCMS_SES_NOOS - 1));
-	do { $yess = random_int(0, (ABCMS_SES_YESS - 1)); } while (in_array($yess, ($deny[$noos] ?? array()), TRUE));
-	// the answer is every symbol not skipped, in reading order
+	// splicing preserves order, so $spare is already every kept position in reading order
 	$valu = '';
-	for ($p = 1; $p <= $total; $p++) {
-		if (in_array($p, $skip, TRUE)) { continue; }
-		$valu .= mb_substr($full, ($p - 1), 1, 'UTF-8');
-	}
-	return array('plan' => $plan, 'full' => $full, 'valu' => $valu,
-				 'hint' => $yess.'|'.$noos.'|'.implode(',', $skip).'|'.implode(',', $plan));
+	foreach ($spare as $p) { $valu .= $full[($p - 1)]; }
+	// a fresh pair of instruction marks, one enter and one skip, so a bot cannot template match a fixed shape
+	// every pair is distinct by design, which is why there is no table of confusable exceptions to keep in step
+	return [
+		'full' => $full, // full captcha string
+		'valu' => $valu, // selected answers
+		'skip' => $skip, // array of indices to skip
+		'yess' => random_int(0, (count(ABCMS_CAP_YESS) - 1)), // random yess symbol
+		'noos' => random_int(0, (count(ABCMS_CAP_NOOS) - 1)), // random noos symbol
+	];
 }
 
-private function session_captcha_hint(	// parse the stored layout, one place so the router and the renderer cannot disagree
-string	$hint,							// 'yess|noos|skip,list|chars,per,image'
-) : array {								// return the layout, clamped so a corrupt session cannot produce impossible geometry
-	$part = explode('|', $hint);
-	$plan = array_map('intval', array_filter(explode(',', ($part[3] ?? '')), 'strlen'));
-	$plan = array_values(array_filter($plan, function(int $n) : bool { return (1 <= $n && ABCMS_SES_TOTH >= $n); }));
-	if (!$plan || ABCMS_SES_TOTH < array_sum($plan)) { // unusable, fall back to one readable image rather than impossible geometry
-		if ('' !== $hint) { $this->response('SESSION: captcha layout unreadable, falling back to one image', ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS); }
-		$plan = array(ABCMS_SES_TOTL);
-	}
-	return array(
-		'yess'	=> (int)($part[0] ?? 0),
-		'noos'	=> (int)($part[1] ?? 0),
-		'skip'	=> array_map('intval', array_filter(explode(',', ($part[2] ?? '')), 'strlen')),
-		'plan'	=> $plan,
-		'imgs'	=> count($plan),
-		'total'	=> array_sum($plan),
-	);
-}
-
-public function session_captcha(	// render one CAPTCHA image, routed as ABCMS_TYPE_FILE so output() streams it unbuffered
+public function session_captcha(	// render the CAPTCHA image, routed as ABCMS_TYPE_FILE so output() streams it unbuffered
 mixed	&...$unused,				// router arguments, unused
 ) : ?bool {							// return NULL, never repeats
-	// the layout lives in the session because it changes with every form
-	$text = '';
-	$hint = '';
-	if ($this->session_start(1)) { $hint = (string)($this->ss['test_hint'] ?? ''); $text = (string)($this->ss['test_full'] ?? ''); }
-	$plan = $this->session_captcha_hint($hint);
-	// which image, /captcha/<index>/<cachebuster>, index 0 mints a new code, the last index is the diagram
+	// captcha code stored in session to change with every page load and refresh
+	$full = '';
+	$hint = array();
+	if ($this->session_start(1)) {
+		$full = (string)($this->ss['test_full'] ?? '');
+		$hint = (array)($this->ss['test_hint'] ?? array());
+	}
+	// set headers for image output
+	if (headers_sent($hfile, $hline)) { $this->response("CAPTCHA: headers already sent, header={$hfile}:{$hline}", ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS); }
+	else { header('Cache-Control: no-store, max-age=0'); } // a cached CAPTCHA is not a CAPTCHA
+	// /captcha/<index>/<cachebuster>, index 0 mints new code and draws nothing, else draw image
 	$index = (int)(explode('/', trim($this->boots['urlpathext'], '/'))[0]); // (int)'' = 0 = mint
-	// the refresh button, a new code over the same composition so every image already on the page keeps its width
-	if (0 === $index && '' !== $hint) {
-		// a refresh budget, a spent budget still answers so the page never looks broken to a browser that keeps asking
-		$mints = (int)($this->ss['mints'] ?? 0); // a session predating the slot starts at zero
-		if (ABCMS_SES_MINT > $mints) {
+	if (0 === $index && '' !== $full) {
+		// a spent refresh budget still answers so the page never looks broken to a browser that keeps asking
+		$mints = (int)($this->ss['mints'] ?? 0); // start at zero if no counter
+		if ($mints < ABCMS_CAP_MINT) {
 			$this->ss['mints'] = $mints + 1;
-			$fresh = $this->session_captcha_code($plan['plan']);
-			if ('' === $fresh['full']) { $this->response('SESSION: captcha refresh failed, keeping the current code', ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS); }
+			$fresh = $this->session_captcha_code(); // get a free code and resize the image as needed
+			if ('' === $fresh['full']) { $this->response('CAPTCHA: refresh failed, keeping the current code', ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS); }
 			else {
 				$this->ss['test_full'] = $fresh['full'];
-				$this->ss['test_hint'] = $fresh['hint'];
 				$this->ss['test_valu'] = $fresh['valu'];
+				$this->ss['test_hint'] = array('skip' => $fresh['skip'], 'yess' => $fresh['yess'], 'noos' => $fresh['noos']);
 			}
 		}
-		else if (ABCMS_SES_MINT === $mints) { // log the crossing once, later attempts stay silent so a bot cannot flood the log
+		else if ($mints === ABCMS_CAP_MINT) { // log mint budget crossing once so cannot flood the log
 			$this->ss['mints'] = $mints + 1;
-			$this->response('SESSION: captcha refresh budget spent, cap='.ABCMS_SES_MINT, ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS);
+			$this->response('CAPTCHA: refresh budget spent, cap='.ABCMS_CAP_MINT, ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS);
 		}
-		if (!headers_sent()) { header('Cache-Control: no-store, max-age=0'); }
-		// the route serves image/png, so answer with the smallest legal one
+		// mint route must serve an unused tiniest possible image/png, 1 pixel png
 		echo base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAC0lEQVQImWNgAAIAAAUAAWJVMogAAAAASUVORK5CYII=');
 		return NULL;
 	}
-	if ($index < 1 || $index > ($plan['imgs'] + 1)) { $index = 1; }
-	$glyph = (($plan['imgs'] + 1) !== $index);
-	if ($glyph) { // images hold different numbers of symbols, so walk the composition to find this one's offset
-		$skip = 0;
-		for ($i = 0; $i < ($index - 1); $i++) { $skip += $plan['plan'][$i]; }
-		$text = mb_substr($text, $skip, $plan['plan'][($index - 1)], 'UTF-8');
+	// confirm hint is array of ints, if corruption build an unusable placeholder
+	$skip = array_values(array_filter((array)($hint['skip'] ?? array()), 'is_int'));
+	if ('' === $full || strlen($full) < ABCMS_CAP_TOTL || strlen($full) > ABCMS_CAP_TOTH) {
+		$this->response('CAPTCHA: code unusable, drawing a placeholder', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+		$full = str_repeat('X', ABCMS_CAP_TOTL); // X is outside the pool so clearly unusable
+		$skip = array();
 	}
-	if ('' === $hint || ($glyph && '' === $text)) {
-		$this->response("SESSION: captcha text unavailable, index={$index}", ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS);
-		if ($glyph) { $text = str_repeat('?', $plan['plan'][($index - 1)]); } // diagram with nothing skipped is harmless, the answer is already unusable
-	}
-	if (!headers_sent()) { header('Cache-Control: no-store, max-age=0'); } // a cached CAPTCHA is not a CAPTCHA
-	$this->session_captcha_draw($plan, $glyph, $text);
+	// draw and stream entire CAPTCHA
+	$this->session_captcha_draw($full, $skip, (int)($hint['yess'] ?? 0), (int)($hint['noos'] ?? 0));
 	return NULL;
 }
 
-private function session_captcha_mark(	// draw one diagram mark, monochrome so shape alone carries the meaning
+private function session_captcha_mark(	// draw one instruction mark from option list
 \GdImage	$image,						// canvas
 int			$x,							// centre
 int			$y,							// centre
-int			$size,						// radius
+int			$size,						// radius in pixels
 int			$ink,						// colour, the only colour, never encode meaning in hue
-int			$kind,						// which shape within the set
-bool		$yess,						// TRUE = enter this symbol, FALSE = skip it
+array		$mark,						// op list, one row of ABCMS_CAP_YESS or ABCMS_CAP_NOOS
 ) : void {								// return void
-	// jitter and spin every mark, identical stamps would be trivially template matched and a refresh would look unchanged
-	$x		= ($x + random_int(-3, 3));
-	$y		= ($y + random_int(-3, 3));
-	$size	= (int)($size * (random_int(86, 112) / 100));
-	$spin	= (random_int(-22, 22) * M_PI / 180);
-	$degs	= (int)($spin * 180 / M_PI); // arcs cannot be transformed, shift their start and end angles instead
+	// jitter and spin every mark to avoid template matching
+	// mt_rand throughout, position and spin carry no secret, and random_int is expensive
+	$x		= ($x + mt_rand(-3, 3));
+	$y		= ($y + mt_rand(-3, 3));
+	$size	= (int)($size * (mt_rand(86, 112) / 100));
+	$degs	= mt_rand(-ABCMS_CAP_SPIN, ABCMS_CAP_SPIN); // degrees first, arcs cannot be transformed so they shift their start and end angles instead
+	$spin	= ($degs * M_PI / 180);
 	$sine	= sin($spin);
 	$cosi	= cos($spin);
-	$offx = function(float $dx, float $dy) use ($x, $sine, $cosi) : int { return (int)($x + ($dx * $cosi) - ($dy * $sine)); };
-	$offy = function(float $dx, float $dy) use ($y, $sine, $cosi) : int { return (int)($y + ($dx * $sine) + ($dy * $cosi)); };
-	if ($yess) { switch ($kind) {
-		case 0:	imagefilledellipse($image, $x, $y, ($size * 2), ($size * 2), $ink); break; // disc
-		case 1:	imagesetthickness($image, 5); imagearc($image, $x, $y, ($size * 2), ($size * 2), 0, 360, $ink); break; // ring
-		case 2:	imagesetthickness($image, 6); // check
-				imageline($image, $offx(-$size, ($size * 0.05)), $offy(-$size, ($size * 0.05)), $offx(($size * -0.25), ($size * 0.75)), $offy(($size * -0.25), ($size * 0.75)), $ink);
-				imageline($image, $offx(($size * -0.25), ($size * 0.75)), $offy(($size * -0.25), ($size * 0.75)), $offx($size, ($size * -0.8)), $offy($size, ($size * -0.8)), $ink); break;
-		case 3:	imagesetthickness($image, 6); // plus
-				imageline($image, $offx(-$size, 0), $offy(-$size, 0), $offx($size, 0), $offy($size, 0), $ink);
-				imageline($image, $offx(0, -$size), $offy(0, -$size), $offx(0, $size), $offy(0, $size), $ink); break;
-		case 4:	imagesetthickness($image, 6); // letter Y
-				imageline($image, $offx(-$size, -$size), $offy(-$size, -$size), $offx(0, 0), $offy(0, 0), $ink);
-				imageline($image, $offx($size, -$size), $offy($size, -$size), $offx(0, 0), $offy(0, 0), $ink);
-				imageline($image, $offx(0, 0), $offy(0, 0), $offx(0, $size), $offy(0, $size), $ink); break;
-		default: imagesetthickness($image, 3); // happy face
-				imagearc($image, $x, $y, ($size * 2), ($size * 2), 0, 360, $ink);
-				imagefilledellipse($image, $offx(($size * -0.35), ($size * -0.25)), $offy(($size * -0.35), ($size * -0.25)), 4, 4, $ink);
-				imagefilledellipse($image, $offx(($size * 0.35), ($size * -0.25)), $offy(($size * 0.35), ($size * -0.25)), 4, 4, $ink);
-				imagearc($image, $offx(0, ($size * 0.05)), $offy(0, ($size * 0.05)), (int)($size * 1.2), (int)($size * 1.1), (25 + $degs), (155 + $degs), $ink); break;
+	$offx = function(float $dx, float $dy) use ($x, $size, $sine, $cosi) : int { return (int)($x + ((($dx * $size) * $cosi) - (($dy * $size) * $sine))); };
+	$offy = function(float $dx, float $dy) use ($y, $size, $sine, $cosi) : int { return (int)($y + ((($dx * $size) * $sine) + (($dy * $size) * $cosi))); };
+	foreach ($mark as $op) { switch ($op[0]) {
+		case 'line':	imagesetthickness($image, $op[5]);
+						imageline($image, $offx($op[1], $op[2]), $offy($op[1], $op[2]), $offx($op[3], $op[4]), $offy($op[3], $op[4]), $ink); break;
+		case 'disc':	$span = max(2, (int)($op[3] * $size));
+						imagefilledellipse($image, $offx($op[1], $op[2]), $offy($op[1], $op[2]), $span, $span, $ink); break;
+		case 'ring':	imagesetthickness($image, $op[4]); $span = max(2, (int)($op[3] * $size));
+						imagearc($image, $offx($op[1], $op[2]), $offy($op[1], $op[2]), $span, $span, 0, 360, $ink); break;
+		case 'arc':		imagesetthickness($image, $op[7]);
+						imagearc($image, $offx($op[1], $op[2]), $offy($op[1], $op[2]), max(2, (int)($op[3] * $size)), max(2, (int)($op[4] * $size)), ($op[5] + $degs), ($op[6] + $degs), $ink); break;
+		default:		$this->response("CAPTCHA: mark option unknown, op={$op[0]}", ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS); break;
 	} }
-	else { switch ($kind) {
-		case 0:	imagesetthickness($image, 6); // cross
-				imageline($image, $offx(-$size, -$size), $offy(-$size, -$size), $offx($size, $size), $offy($size, $size), $ink);
-				imageline($image, $offx($size, -$size), $offy($size, -$size), $offx(-$size, $size), $offy(-$size, $size), $ink); break;
-		case 1:	imagesetthickness($image, 6); // letter N
-				imageline($image, $offx(($size * -0.75), $size), $offy(($size * -0.75), $size), $offx(($size * -0.75), -$size), $offy(($size * -0.75), -$size), $ink);
-				imageline($image, $offx(($size * -0.75), -$size), $offy(($size * -0.75), -$size), $offx(($size * 0.75), $size), $offy(($size * 0.75), $size), $ink);
-				imageline($image, $offx(($size * 0.75), $size), $offy(($size * 0.75), $size), $offx(($size * 0.75), -$size), $offy(($size * 0.75), -$size), $ink); break;
-		case 2:	imagesetthickness($image, 3); // sad face
-				imagearc($image, $x, $y, ($size * 2), ($size * 2), 0, 360, $ink);
-				imagefilledellipse($image, $offx(($size * -0.35), ($size * -0.25)), $offy(($size * -0.35), ($size * -0.25)), 4, 4, $ink);
-				imagefilledellipse($image, $offx(($size * 0.35), ($size * -0.25)), $offy(($size * 0.35), ($size * -0.25)), 4, 4, $ink);
-				imagearc($image, $offx(0, ($size * 0.75)), $offy(0, ($size * 0.75)), (int)($size * 1.2), (int)($size * 1.1), (205 + $degs), (335 + $degs), $ink); break;
-		default: imagesetthickness($image, 7); // minus
-				imageline($image, $offx(-$size, 0), $offy(-$size, 0), $offx($size, 0), $offy($size, 0), $ink); break;
-	} }
-	imagesetthickness($image, 1);
+	imagesetthickness($image, 1); // reset for future callers
 	return;
 }
 
-private function session_captcha_draw(	// draw and stream one CAPTCHA image, output() already sent Content-Type and nosniff
-array	$plan,							// layout from session_captcha_hint()
-bool	$glyph,							// TRUE = one rotated symbol per cell, FALSE = the skip diagram spanning the whole row
-string	$text,							// symbols to draw, ignored for the diagram which is built from the layout
+private function session_captcha_draw(	// draw and stream entire CAPTCHA, symbols above and instruction below
+string	$full,							// every symbol in the code
+array	$skip,							// positions the answer leaves out, indexed from 1
+int		$yess,							// ABCMS_CAP_YESS mark to enter
+int		$noos,							// ABCMS_CAP_NOOS mark to skip
 ) : void {								// return void
-	// the diagram spans the width of every symbol image so it reads as a legend under the row
-	$height	= ABCMS_SES_TALL;
-	$chars	= mb_strlen($text, 'UTF-8');
-	$cells	= ($glyph ? max(1, $chars) : $plan['total']);
-	$width	= ABCMS_SES_WIDE * $cells;
-	$dots	= (int)(($width * $height) / 270); // noise scales with area so density holds at any ABCMS_SES_TALL/WIDE
-	$lines	= (int)(($width * $height) / 540);
-	// canvas
-	if (FALSE === ($image = @imagecreatetruecolor($width, $height))) {
-		$this->response('SESSION: captcha imagecreatetruecolor failed, '.$this->error_get_last(), ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+	// initialize variables
+	$cells	= max(1, strlen($full));
+	$step	= ABCMS_CAP_WIDE;			// every symbol owns one column of this width
+	$width	= $step * $cells;
+	$band	= ABCMS_CAP_TALL;			// symbols fill the top band, marks the bottom one
+	$whole	= $band * 2;
+	// a palette canvas, two colours are all this image ever holds and imagepng costs a fraction of the truecolor equivalent
+	if (FALSE === ($image = @imagecreate($width, $whole))) {
+		$this->response('CAPTCHA: draw failed, systemerror=imagecreate()', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 		return;
 	}
-	$paper = imagecolorallocate($image, 255, 255, 255);
+	$paper = imagecolorallocate($image, 255, 255, 255); // first allocation of a palette image becomes the background
 	$ink   = imagecolorallocate($image, 0x14, 0x28, 0x64);
-	// noise sits near the ink so a brightness threshold cannot cleanly lift the marks out of the background
-	$noise = imagecolorallocate($image, 0x7a, 0x8a, 0xa6);
-	imagefilledrectangle($image, 0, 0, $width, $height, $paper);
-	// noise behind
-	for ($i = 0; $i < $dots; $i++)  { imagefilledellipse($image, random_int(0, $width), random_int(0, $height), 2, 3, $noise); }
-	for ($i = 0; $i < $lines; $i++) { imageline($image, random_int(0, $width), random_int(0, $height), random_int(0, $width), random_int(0, $height), $noise); }
-	$step = (int)($width / $cells);
-	if (!$glyph) {
-		// skip diagram, the mark pair changes every page load and carries no colour, only shape
-		$yess = $plan['yess'];
-		$noos = $plan['noos'];
-		$skip = $plan['skip'];
-		$size = (int)($step * 0.30);
-		// no dividers, the symbol images butt together into one strip so a mark sits directly under its symbol
-		for ($p = 1; $p <= $cells; $p++) {
-			$hit = in_array($p, $skip, TRUE);
-			$this->session_captcha_mark($image, (int)((($p - 1) * $step) + ($step / 2)), (int)($height / 2), $size, $ink, ($hit ? $noos : $yess), !$hit);
+	// noise in the ink colour, a distinct colour is one palette test away from being stripped and would leave the glyphs pristine
+	// the eye separates them by stroke weight instead, 3 pixel glyph blocks against 1 pixel noise strokes
+	// short strokes, a line spanning the image damages every symbol at once and a Hough transform lifts it out in one pass
+	// mt_rand because noise carries no secret and random_int costs fifteen times as much per call
+	$scratch = function(int $many) use ($image, $width, $whole, $ink) : void {
+		for ($i = 0; $i < $many; $i++) {
+			$x = mt_rand(0, ($width - 1));
+			$y = mt_rand(0, ($whole - 1));
+			$rads = (mt_rand(0, 359) * M_PI / 180);
+			$long = mt_rand(25, 60);
+			imageline($image, $x, $y, (int)($x + ($long * cos($rads))), (int)($y + ($long * sin($rads))), $ink);
 		}
+	};
+	$mess = (ABCMS_CAP_MESS ? (int)(($width * $whole) / ABCMS_CAP_MESS) : 0);
+	$scratch($mess); // scratches behind the characters first
+	// the built-in font is a fixed 9x15, far too small here, so stamp each symbol, grow it, spin it, and repaint its ink pixels
+	// growing before spinning is what keeps the symbols readable, a stamp spun at 9x15 and magnified afterwards carries a staircase magnified with it
+	// the stamp stays truecolor so imagecolorat() returns a channel value rather than a palette index
+	$size = 5;
+	$wide = imagefontwidth($size);
+	$tall = imagefontheight($size);
+	// size the zoom from the tallest a spun stamp can be, so every symbol shares one scale and none overflows its band
+	$rise = (($wide * sin(ABCMS_CAP_SPIN * M_PI / 180)) + ($tall * cos(ABCMS_CAP_SPIN * M_PI / 180)));
+	$zoom = max(1, (int)(($band * 0.87) / $rise)); // 0.87 is the smallest factor reaching a 3 pixel stroke, below it the strokes match the noise weight
+	$mark = (int)($step * 0.30); // instruction mark radius
+	$flip = array_flip($skip);   // one lookup table instead of a scan per cell
+	// function availability test
+	static $test = FALSE;
+	static $spun = FALSE;
+	static $grew = FALSE;
+	if (!$test) {
+		$test = TRUE;
+		$spun = function_exists('imagerotate'); // core GD, but an upright symbol is a fair degradation without it
+		$grew = function_exists('imagescale');  // core GD, without it the stamp is magnified a block at a time instead, which is legible but square
+		if (!$spun || !$grew) { $this->response('CAPTCHA: degraded, imagerotate || imagescale unavailable', ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS); }
 	}
-	// TrueType when a font is configured and readable, otherwise the GD built-in bitmap font
-	else if (($font = ($this->settings['core']['captcha_font'] ?? NULL)) && function_exists('imagettftext') && is_readable($font)) {
-		$size = $height * 0.45;
-		for ($i = 0; $i < $chars; $i++) {
-			$x = (int)(($i * $step) + ($step * 0.2) + random_int(-3, 3));
-			$y = (int)(($height * 0.72) + random_int(-5, 5));
-			imagettftext($image, $size, random_int(-22, 22), $x, $y, $ink, $font, mb_substr($text, $i, 1, 'UTF-8'));
-		}
-	}
-	else {
-		if ($font) { $this->response('SESSION: captcha font unreadable, using built-in bitmap font', ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS); }
-		// the built-in font is a fixed 9x15, far too small here, so stamp each glyph and repaint its ink pixels as zoomed blocks
-		$size = 5;
-		$wide = imagefontwidth($size);
-		$tall = imagefontheight($size);
-		$zoom = max(1, (int)(($height * 0.62) / $tall));
-		for ($i = 0; $i < $chars; $i++) {
-			if (FALSE === ($stamp = @imagecreatetruecolor($wide, $tall))) { break; }
-			imagefilledrectangle($stamp, 0, 0, $wide, $tall, imagecolorallocate($stamp, 0, 0, 0));
-			imagestring($stamp, $size, 0, 0, mb_substr($text, $i, 1, 'UTF-8'), imagecolorallocate($stamp, 255, 255, 255));
-			$x = (int)(($i * $step) + (($step - ($wide * $zoom)) / 2) + random_int(-4, 4));
-			$y = (int)((($height - ($tall * $zoom)) / 2) + random_int(-5, 5));
-			for ($gx = 0; $gx < $wide; $gx++) { for ($gy = 0; $gy < $tall; $gy++) {
-				if (0 === (imagecolorat($stamp, $gx, $gy) & 0xFF)) { continue; } // background pixel, leave the noise showing through
-				imagefilledrectangle($image, $x + ($gx * $zoom), $y + ($gy * $zoom), $x + ($gx * $zoom) + $zoom - 1, $y + ($gy * $zoom) + $zoom - 1, $ink);
+	// one pass over each column, so a mark is always drawn under the symbol it belongs to
+	static $fail = FALSE;
+	for ($i = 0; $i < $cells; $i++) {
+		// character for this column
+		if (FALSE !== ($stamp = @imagecreatetruecolor($wide, $tall))) {
+			imagefilledrectangle($stamp, 0, 0, ($wide - 1), ($tall - 1), imagecolorallocate($stamp, 0, 0, 0));
+			imagestring($stamp, $size, 0, 0, $full[$i], imagecolorallocate($stamp, 255, 255, 255));
+			// grow first, interpolated, so the spin below lands on the fine grid and the 128 test turns that soft edge into a smooth outline
+			$blok = $zoom; // one block per stamp pixel, which is what a build without imagescale falls back to
+			if ($grew && FALSE !== ($grow = @imagescale($stamp, ($wide * $zoom), ($tall * $zoom)))) { imagedestroy($stamp); $stamp = $grow; $blok = 1; }
+			if ($spun && FALSE !== ($turn = @imagerotate($stamp, mt_rand(-ABCMS_CAP_SPIN, ABCMS_CAP_SPIN), 0))) { imagedestroy($stamp); $stamp = $turn; }
+			$rwid = imagesx($stamp); // a spun stamp is wider and taller than the one it started as
+			$rtal = imagesy($stamp);
+			// jitter only into the slack the column actually has, a fixed nudge walks a big symbol off the canvas
+			$jitx = (int)max(0, min((int)(ABCMS_CAP_SPIN / 4), (($step - ($rwid * $blok)) / 2)));
+			$jity = (int)max(0, min((int)(ABCMS_CAP_SPIN / 3), (($band - ($rtal * $blok)) / 2)));
+			$x = (int)(($i * $step) + (($step - ($rwid * $blok)) / 2) + ($jitx ? mt_rand(-$jitx, $jitx) : 0));
+			$y = (int)((($band - ($rtal * $blok)) / 2) + ($jity ? mt_rand(-$jity, $jity) : 0));
+			for ($gx = 0; $gx < $rwid; $gx++) { for ($gy = 0; $gy < $rtal; $gy++) {
+				if (128 > (imagecolorat($stamp, $gx, $gy) & 0xFF)) { continue; } // background or an interpolated edge, leave the noise showing through
+				imagefilledrectangle($image, $x + ($gx * $blok), $y + ($gy * $blok), $x + ($gx * $blok) + $blok - 1, $y + ($gy * $blok) + $blok - 1, $ink);
 			} }
 			imagedestroy($stamp);
 		}
+		else if (!$fail) {
+			$fail = TRUE;
+			$this->response('CAPTCHA: degraded, systemerror=imagecreatetruecolor()'.$this->error_get_last(), ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+		}
+		// mark for this column, directly below its symbol, no dividers and no wording
+		$hit = isset($flip[($i + 1)]);
+		$this->session_captcha_mark(
+			$image,
+			(int)(($i * $step) + ($step / 2)),
+			(int)($band + ($band / 2)),
+			$mark,
+			$ink,
+			($hit ? (ABCMS_CAP_NOOS[$noos] ?? ABCMS_CAP_NOOS[0]) : (ABCMS_CAP_YESS[$yess] ?? ABCMS_CAP_YESS[0])));
 	}
-	// noise in front so the marks are not trivially separable
-	for ($i = 0; $i < (int)($lines / 2); $i++) { imageline($image, random_int(0, $width), random_int(0, $height), random_int(0, $width), random_int(0, $height), $noise); }
-	imagepng($image);
-	imagedestroy($image);
+	$scratch((int)($mess / 2)); // in front, so neither the symbols nor the marks are trivially separable
+	if (!imagepng($image)) { $this->response('CAPTCHA: draw failed, systemerror=imagepng()'.$this->error_get_last(), ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS); }
+	imagedestroy($image); // error ignored
 	return;
 }
 
@@ -1200,7 +1195,7 @@ string $file,					// filename within extension
 	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->response("DATABASE: new name invalid, file={$file}", ABCMS_LOG_FATAL); } // invalid file
 	$ext = $this->output_extension();
 	$fold = ($this->compiles['core']['projectroot']??$this->settings['core']['projectroot'])."/private{$ext}/ABCMS.database";
-	if (!is_dir($fold) && !mkdir($fold, 0750, true)) { $this->response("DATABASE: folder create failed, folder={$fold}, ".$this->error_get_last(), ABCMS_LOG_FATAL); }
+	if (!is_dir($fold) && !mkdir($fold, 0750, true)) { $this->response("DATABASE: folder create failed, folder={$fold}".$this->error_get_last(), ABCMS_LOG_FATAL); }
 	$file = $fold.'/'.$file;
 	$this->touch($file);
 	$this->touch($file.'.lock');
@@ -1227,20 +1222,21 @@ public function set_database(	// write to database
 	$current = $data;
 	// exclusive lock
 	if (!($lockfd = fopen($base.'.lock', 'r+')) || !flock($lockfd, LOCK_EX)) { // assume filesystem support
-		if ($lockfd) { fclose($lockfd); }
-		$this->response("DATABASE: set exclusive lock failed, base={$base}, ".$this->error_get_last(), ABCMS_LOG_FATAL);
+		if ($lockfd) { fclose($lockfd); $error=', systemerror=flock() fail'; }
+		else { $error = $this->error_get_last(); }
+		$this->response("DATABASE: set exclusive lock failed, base={$base}".$error, ABCMS_LOG_FATAL);
 	}
 	// read
 	if (FALSE === ($raw = file_get_contents($base))) {
 		flock($lockfd, LOCK_UN); fclose($lockfd);
-		$this->response("DATABASE: set read failed, base={$base}, ".$this->error_get_last(), ABCMS_LOG_FATAL);
+		$this->response("DATABASE: set read failed, base={$base}".$this->error_get_last(), ABCMS_LOG_FATAL);
 	}
 	else if ('' === $raw) {
 		$this->database[$file] = [];
 	}
 	else if (!is_array($raw = json_decode($raw, TRUE))) {
 		flock($lockfd, LOCK_UN); fclose($lockfd);
-		$this->response("DATABASE: set json corrupted, base={$base}, ".$this->error_get_last(), ABCMS_LOG_FATAL);
+		$this->response("DATABASE: set json corrupted, base={$base}, systemerror=".json_last_error_msg(), ABCMS_LOG_FATAL);
 	}
 	else {
 		$this->database[$file] = $raw;
@@ -1294,20 +1290,21 @@ array	$keys,					// read element from key path or [] returns whole database
 		// shared lock
 		$base = ($this->compiles['core']['projectroot']??$this->settings['core']['projectroot']).'/private'.$file;
 		if (!($lockfd = fopen($base.'.lock', 'r')) || !flock($lockfd, LOCK_SH)) { // assume filesystem support
-			if ($lockfd) { fclose($lockfd); }
-			$this->response("DATABASE: get shared lock failed, base={$base}, ".$this->error_get_last(), ABCMS_LOG_FATAL);
+			if ($lockfd) { fclose($lockfd); $error=', systemerror=flock() fail'; }
+			else { $error = $this->error_get_last(); }
+			$this->response("DATABASE: get shared lock failed, base={$base}".$error, ABCMS_LOG_FATAL);
 		}
 		// read
 		if (FALSE === ($raw = file_get_contents($base))) {
 			flock($lockfd, LOCK_UN); fclose($lockfd);
-			$this->response("DATABASE: get read failed, base={$base}, ".$this->error_get_last(), ABCMS_LOG_FATAL);
+			$this->response("DATABASE: get read failed, base={$base}".$this->error_get_last(), ABCMS_LOG_FATAL);
 		}
 		else if ('' === $raw) {
 			$this->database[$file] = [];
 		}
 		else if (!is_array($raw = json_decode($raw, TRUE))) {
 			flock($lockfd, LOCK_UN); fclose($lockfd);
-			$this->response("DATABASE: get json corrupted, base={$base}, ".$this->error_get_last(), ABCMS_LOG_FATAL);
+			$this->response("DATABASE: get json corrupted, base={$base}, systemerror=".json_last_error_msg(), ABCMS_LOG_FATAL);
 		}
 		else {
 			$this->database[$file] = $raw;
@@ -1407,16 +1404,16 @@ mixed	&...$args,		// default arguments
 				$more = FALSE;
 				break 2;
 			}
-			if (FALSE === ob_start()) { $this->response('OUTPUT: buffer start failed, '.$this->error_get_last(), ABCMS_LOG_FATAL); } // buffer output
+			if (FALSE === ob_start()) { $this->response('OUTPUT: buffer start failed, systemerror=ob_start() fail', ABCMS_LOG_FATAL); } // buffer output
 			$more = $this->output_call($extin['who'], $extin['fun'], ...$args); // execute hook extension
-			if (FALSE === ($out = ob_get_clean())) { $this->response('OUTPUT: buffer get clean failed, '.$this->error_get_last(), ABCMS_LOG_FATAL); } // retrieve buffer
+			if (FALSE === ($out = ob_get_clean())) { $this->response('OUTPUT: buffer get clean failed, systemerror=ob_get_clean() fail', ABCMS_LOG_FATAL); } // retrieve buffer
 			// output filter extensions by priority
 			foreach($ext['O'] as $extout) {
 				if (!$this->output_doit($extout, $whoami, $flag, TRUE, $exout)) { continue; } // skip for reasons
 				$this->output_call($extout['who'], $extout['fun'], $out, ...$args); // execute output filter
 			}
 			// ABCMS security output filter and injection, html category only, frag is html that must not be injected
-			if (ABCMS_EXT_INITX == $hook && ABCMS_TYPE_HTML === $this->respcats) {
+			if (ABCMS_EXT_INITX === $hook && ABCMS_TYPE_HTML === $this->respcats) {
 				$this->output_security($out);	// inject security
 				$this->output_debug($out);	// debug output
 			}
@@ -1441,7 +1438,9 @@ private function output_headers(	// send response headers once when 1st extensio
 string	$cat,						// response category
 string	$mim,						// explicit mime or '' for the category default
 ) : void {							// return void
-	if ('cli' === PHP_SAPI || headers_sent()) { return; } // no headers
+	if ('cli' === PHP_SAPI) { return; } // no headers
+	// zero output allowed before these headers or any extensions called, otherwise fatal
+	if (headers_sent($hfile, $hline)) { $this->response("OUTPUT: headers already sent, header={$hfile}:{$hline}", ABCMS_LOG_FATAL); }
 	header('X-Content-Type-Options: nosniff'); // nosniff for everyone
 	if (ABCMS_TYPE_NONE === $cat) { return; } // no body, no content type
 	$mim = ($mim ?: (ABCMS_TYPE[$cat]??ABCMS_TYPE[ABCMS_TYPE_HTML])); // mime type?
@@ -1466,7 +1465,7 @@ bool	$must,					// must also do default
 ) : bool {						// return TRUE or FALSE
 	// exit before exclusive selection
 	if (!$must && !$ext['ord']) {																				return FALSE; }	// no default extension
-	if (!empty($ext['met']) && FALSE === stripos($ext['met'], $this->boots['urlmethod'])) { 					return FALSE; }	// HTTP method | TODO consider this instead in_array($method, explode('-', $met)
+	if (!empty($ext['met']) && FALSE === stripos($ext['met'], $this->boots['urlmethod'])) { 					return FALSE; }	// HTTP method | TODO consider this instead in_array($method, explode('-', $met), TRUE)
 	if ($flag < 0 && $whoami !== $ext['who']) {
 		$this->response("DISPATCH: extender not self, whoami={$whoami} who={$ext['who']}", ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);	return FALSE; }	// extender no match
 	if (!$flag && isset($ext['ctl']['E'])) {																	return FALSE; }	// non-exclusive, cancel request
@@ -1476,7 +1475,11 @@ bool	$must,					// must also do default
 		if (!$excl && isset($ext['ctl']['E'])) {																return FALSE; }	// non-exclusive, cancel request
 		if ($excl && $ext['who'] !== $excl) {																	return FALSE; }	// exclusive, but not winner
 	}
-	if ($this->input['role'] < $ext['rol']) { $this->response('You do not have permission to a requested resource.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER); return FALSE; }	// No permission, TODO might change to ABCMS_LOGTO_BOTH
+	if ($this->input['role'] < $ext['rol']) {
+		// TODO possible log entry to monitor no perms errors, but this is equal to page not found, info not actionable
+		$this->response('No permission to requested resource.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER); // no permission
+		return FALSE;
+	}
 	// do it
 	return TRUE;
 }
@@ -1520,7 +1523,7 @@ mixed	&...$args,				// arguments passed
 				else { $this->response("DISPATCH: invalid operator, who={$who} func={$filefunc}", ABCMS_LOG_FATAL); }
 				// execute function/method
 				if (!method_exists($newobject, $funcmeth)) { $this->response("DISPATCH: invalid object method, who={$who} func={$filefunc}", ABCMS_LOG_FATAL); }
-				if (ABCMS_EXT_SELF != $who && $newobject === $this) { // disallow abcms() privates unless extension is ABCMS
+				if (ABCMS_EXT_SELF !== $who && $newobject === $this) { // disallow abcms() privates unless extension is ABCMS
 					$reflection = new ReflectionClass($this);
 					if (!$reflection->getMethod($funcmeth)->isPublic()) { $this->response("DISPATCH: private method disallowed, who={$who} func={$filefunc}", ABCMS_LOG_FATAL); }
 				}
@@ -1537,11 +1540,11 @@ mixed	&...$args,				// arguments passed
 	return $result;
 }
 
-private function output_security(	// inject html form security with fast regex instead of DOM 
-string &$html,						// inject into output HTML || TODO not all output is HTML
+private function output_security(	// inject html form security with fast regex instead of DOM
+string &$html,						// inject into mime type text/html
 ) : void {							// return void
 	// failure or no form so skip
-	if (FALSE === ($num = preg_match_all(ABCMS_REGEX_FORM, $html))) { $this->response('FORM: security init failed', ABCMS_LOG_FATAL); }
+	if (FALSE === ($num = preg_match_all(ABCMS_REGEX_FORM, $html))) { $this->response('FORM: security init failed, preg='.preg_last_error_msg(), ABCMS_LOG_FATAL); }
 	if (!$num) { return; }
 	// start session
 	if (!$this->session_start(1)) {
@@ -1549,46 +1552,53 @@ string &$html,						// inject into output HTML || TODO not all output is HTML
 		$this->response('FORM: security failed, forms disabled', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 		$this->response('Forms are temporarily disabled. Please try again later.', ABCMS_LOG_ERROR, ABCMS_LOGTO_USER);
 		if (!($html = preg_replace(ABCMS_REGEX_FORM, '$1<fieldset disabled class="disable">$2</fieldset>$3', $html, -1, $count)) || $count !== $num) {
-			$this->response('FORM: security fallback failed', ABCMS_LOG_FATAL);
+			$this->response('FORM: security fallback failed, preg='.preg_last_error_msg(), ABCMS_LOG_FATAL);
 		}
 		// use CSS to dim forms with missing CSRF as safety net
 		$regex_safe = str_replace(['\\', '$'], ['\\\\', '\\$'], $this->input['nonce']);
 		if (!($html = preg_replace('/<\/head>/ui', "\n<style nonce='{$regex_safe}'>form { pointer-events: none; opacity: 0.5; }\n</style>\n</head>", $html, 1, $count)) || 1 !== $count) {
-			$this->response('FORM: security css fallback failed', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+			$this->response('FORM: security css fallback failed, preg='.preg_last_error_msg(), ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 		}
 		return;
 	}
-	// button click delay to avoid rapid hit speedlimit
-	$delay = ABCMS_SES_WAIT * 1000;
-	// mint CAPTCHA and hint for all forms
-	$captcha = $this->session_captcha_code();
-	$this->ss['test_full']	= $captcha['full']; // full string
-	$this->ss['test_valu']	= $captcha['valu']; // answer chars
-	$this->ss['test_hint']	= $captcha['hint']; // hint string
-	$capplan				= $captcha['plan']; // layout per form
-	$captotl	= array_sum($capplan); // total chars
-	$bust		= bin2hex(random_bytes(5)); // per-render cache buster
+	// injection variables
+	$delay		= ABCMS_SES_WAIT * 1000; // javascript with click delay to avoid rapid hit speedlimit
+	$bust		= bin2hex(random_bytes(5)); // per-render captcha cache buster
 	$cpath		= rtrim((string)($this->settings['core']['captcha_path'] ?? ''), '/'); // CAPTCHA path or no CAPTCHA
-	$images		= (count($capplan) + 1); // CAPTCHA image count + hint image
-	$docap = (empty($this->ss['user']['valid']) && '' !== $this->ss['test_full'] && '' !== $cpath);	// do the CAPTCHA or not?
+	$capwide	= 0; // image width in pixels, zero until a code exists
+	// the same test session_start() uses to decide whether to check the answer, so a CAPTCHA is never shown unenforced
+	$docap = (empty($this->ss['user']) && '' !== $cpath); // do the CAPTCHA or not?
+	// mint only when a CAPTCHA will be drawn, a logged in visitor needs no code and no session write
+	if ($docap) {
+		$captcha = $this->session_captcha_code();
+		$docap = ('' !== $captcha['full']); // no GD, no CAPTCHA
+	}
+	if ($docap) {
+		$this->ss['test_full']	= $captcha['full']; // every symbol
+		$this->ss['test_valu']	= $captcha['valu']; // the answer
+		$this->ss['test_hint']	= array('skip' => $captcha['skip'], 'yess' => $captcha['yess'], 'noos' => $captcha['noos']); // the instruction
+		// the width of the first draw only, so the page reserves the right space instead of reflowing as the image arrives
+		// a refresh may return a different symbol count, so the script drops this attribute before refetching
+		$capwide				= (ABCMS_CAP_WIDE * strlen($captcha['full']));
+	}
+	else { // clear the slots, a stale answer nobody can see would fail every POST
+		$this->ss['test_full']	= '';
+		$this->ss['test_valu']	= '';
+		$this->ss['test_hint']	= array();
+	}
 	// the injected script needs the nonce for CSP
-	// closest() walks up from whatever was clicked, so an icon or span inside the button still resolves to the button
+	// closest() walks up to the button from whatever was clicked, element in button resolves to button
 	// listen for the refresh button click and return irrelevance
-	// confirm CAPTCHA image 1 exists
 	// TODO also handle <input type="image"> better
-	// zero any existing CAPTCHA answer, shuffle button text/HTML, set timer to restore button text
-	// create new Image() to mint new CAPTCHA code first and reload remaining images with mint.onload
-	// ask index 0 for a new code, then refetch every slice, reusing the composition images keep original widths
-	// same lock as a submit button, one mint and one refetch per click
-	// new CAPTCHA images refresh on the same page the user is still on
+	// zero existing CAPTCHA answer, shuffle button text/HTML, set timer to restore button text
+	// create new Image() to mint new CAPTCHA code first and reload image with mint.onload
+	// ask for a new code, refetch image, drop width attribute so new image sets own size
 	$inject_refresh = '';
 	if ($docap) { $inject_refresh = <<<EOF
 <script type='module' nonce='{$this->input['nonce']}'>
 document.addEventListener('click', function (event) {
 	var refresh = (event.target.closest ? event.target.closest('.captcha-refresh') : null);
 	if (!refresh || refresh.disabled) { return; }
-	var first = document.getElementById('abcms_captcha_1');
-	if (!first) { return; }
 	event.preventDefault();
 	var answer = document.getElementById('abcms_captcha_input');
 	if (answer) { answer.value = ''; }
@@ -1598,18 +1608,12 @@ document.addEventListener('click', function (event) {
 	setTimeout(() => { refresh.disabled = false; refresh.innerHTML = buttontext; }, {$delay});
 	var mint = new Image();
 	mint.onload = mint.onerror = function () {
-		for (var i = 1; i <= {$images}; i++) {
-			var img = document.getElementById('abcms_captcha_' + i);
-			if (img) { img.src = '{$cpath}/' + i + '/' + Math.floor(Math.random() * 1e10); }
-		}
+		var img = document.getElementById('abcms_captcha');
+		if (img) { img.removeAttribute('width'); img.src = '{$cpath}/1/' + Math.floor(Math.random() * 1e10); }
 	};
 	mint.src = '{$cpath}/0/' + Math.floor(Math.random() * 1e10);
 });
 </script>
-<style nonce='{$this->input['nonce']}'>
-.captcha-symbols, .captcha-hint { font-size: 0; line-height: 0; white-space: nowrap; }
-.captcha-symbols img, .captcha-hint img { vertical-align: top; margin: 0; padding: 0; border: 0; }
-</style>
 
 EOF;
 	}
@@ -1617,7 +1621,7 @@ EOF;
 	// globally turn off form enter submit for these custom handlers
 	// target all form button handlers
 	// assign clicked value to hidden 'clicked', shuffle button text/HTML, shuffle honeypot
-	// submit the form
+	// submit the form with setTimeout()
 	// inject captcha refresh button handler
 	$inject_script = <<<EOF
 <script type='module' nonce='{$this->input['nonce']}'>
@@ -1653,7 +1657,7 @@ EOF;
 	// secure javascript injection
 	$inject_script = str_replace(['\\', '$'], ['\\\\', '\\$'], $inject_script);
 	if (!($html = preg_replace('/<\/head>/ui', $inject_script, $html, 1, $count)) || 1 !== $count) {
-		$this->response('FORM: javascript injection failed', ABCMS_LOG_FATAL);
+		$this->response('FORM: javascript injection failed, preg='.preg_last_error_msg(), ABCMS_LOG_FATAL);
 	}
 	// form security tokens
 	$inject_tokens = <<<EOF
@@ -1663,23 +1667,14 @@ EOF;
 <input type='hidden' name='{$this->ss['void_name']}'	value='{$this->ss['full_valu']}'>
 <input type='hidden' name='{$this->ss['full_name']}'	value=''>
 EOF;
-	// form CAPTCHA, one code represented in multiple images
+	// form CAPTCHA, one image injected
 	$inject_captcha = NULL;
 	if ($docap) {
-		$inject_images = '';
-		for ($i = 1; $i <= (count($capplan) + 1); $i++) { // loop through image plan
-			$hint = ((count($capplan) + 1) === $i); // last image is the answer hint diagram, spanning whole symbol strip
-			$wide = ABCMS_SES_WIDE * ($hint ? $captotl : $capplan[($i - 1)]); // symbol images vary in width, the diagram matches their sum
-			if (1 === $i)	{ $inject_images .= "<div class='captcha-symbols'>"; } // open 1st row div for first image
-			if ($hint)		{ $inject_images .= "</div><div class='captcha-hint'>"; } // close 1st row and open 2nd row div for last image
-			$inject_images .= "<img src='{$cpath}/{$i}/{$bust}' alt='CAPTCHA' title='CAPTCHA' id='abcms_captcha_{$i}' class='".($hint ? 'captcha-instruct' : 'captcha-image')."' width='{$wide}' height='".ABCMS_SES_TALL."'>";
-			if ($hint)		{ $inject_images .= '</div>'; } // close 2nd row dov
-		}
-		$inject_images = str_replace(['\\', '$'], ['\\\\', '\\$'], $inject_images);
+		$inject_image = str_replace(['\\', '$'], ['\\\\', '\\$'], "<img src='{$cpath}/1/{$bust}' alt='CAPTCHA' title='CAPTCHA' id='abcms_captcha' width='{$capwide}' height='".(ABCMS_CAP_TALL * 2)."'>");
 		$inject_captcha = <<<EOF
 <div class='captcha'>
-{$inject_images}
-<input id='abcms_captcha_input' name='{$this->ss['test_name']}' value='' autocomplete='off' autocapitalize='none' spellcheck='false' required placeholder='Enter 1st row chars flagged good in 2nd row'>
+{$inject_image}<br>
+<input id='abcms_captcha_input' name='{$this->ss['test_name']}' value='' autocomplete='off' autocapitalize='none' spellcheck='false' required placeholder='Enter 1st row characters marked good in 2nd row'>
 </div><br>
 <button type='button' class='captcha-refresh'>Refresh</button>
 \$1 \$3
@@ -1690,19 +1685,19 @@ EOF;
 		ABCMS_REGEX_FORM,
 		function($matches) use ($inject_tokens, $inject_captcha) {
 			$replace = $matches[1].$matches[2];
-			// only one CAPTCHA injection in front of <button type=submit> preferred or also <input type=submit>
+			// only one CAPTCHA injection in front of first <button type=submit> preferred or <input type=submit>
 			// TODO also handle <input type="image"> better
 			if ($inject_captcha &&
 				(!($replace = preg_replace('/(<button(?=[\s])[^>]*?\stype\s*=(\s*submit|\s*\'submit\'|\s*"submit"))(.+?<\/button>)/uis', $inject_captcha, $replace, 1, $one)) ||
 				(1 !== $one && (!($replace = preg_replace('/(<input(?=[\s])[^>]*?\stype\s*=(\s*submit|\s*\'submit\'|\s*"submit"))(>|\s+[^>]*?>)/uis', $inject_captcha, $replace, 1, $one)) || 1 !== $one)))) {
-				$this->response('FORM: captcha injection failed', ABCMS_LOG_FATAL);
+				$this->response('FORM: captcha injection failed, preg='.preg_last_error_msg(), ABCMS_LOG_FATAL);
 			}
 			// security tokens injection
 			$replace .= $inject_tokens.$matches[3];
 			return $replace;
 		},
 		$html, -1, $count)) || $count !== $num) {
-		$this->response('FORM: token injection failed', ABCMS_LOG_FATAL);
+		$this->response('FORM: token injection failed, preg='.preg_last_error_msg(), ABCMS_LOG_FATAL);
 	}
 	return;
 }
@@ -1713,7 +1708,7 @@ string &$html,					// inject into HTML output string
 	if (!$html || $this->input['role'] !== ABCMS_ROLE_ADMINS) { return; }
 	$injection = '<pre class="debug"><h2>Coredump</h2>'.print_r(array('ABCMS_OBJECT'=>$this, 'ABCMS_GLOBALS'=>$GLOBALS),TRUE).'</pre></body>';
 	$injection = str_replace(['\\', '$'], ['\\\\', '\\$'], $injection);
-	if (!($html = preg_replace('/<\/body>/ui', $injection, $html, 1))) { $this->response('OUTPUT: admin coredump injection failed', ABCMS_LOG_FATAL); }
+	if (!($html = preg_replace('/<\/body>/ui', $injection, $html, 1))) { $this->response('OUTPUT: admin coredump injection failed, preg='.preg_last_error_msg(), ABCMS_LOG_FATAL); }
 	return;
 }
 
@@ -1772,6 +1767,7 @@ int		$code = 200,				// log the http request code returned
 		if (!isset($this->input)) { $this->response_flush(); } // boot fatal, finally cannot flush
 	}
 	if (ABCMS_LOGTO_BOTH === $goto || ABCMS_LOGTO_USER === $goto) { $this->respuser[] = ['level' => ABCMS_LOG[$levs], 'message' => $mess]; }
+	if (str_contains($mess, 'systemerror=')) { error_log('ABCMS System Error: '.$mess); }
 	if (ABCMS_LOG_FATAL === $levs) { throw new Exception($mess); }
 	return;
 }
@@ -1780,7 +1776,10 @@ public function response_flush() : void { // write response logs
 	if ($this->resplogs??NULL) {
 		$file = ($this->settings['core']['translog'] ?? str_replace('\\', '/', __DIR__).'/..'.ABCMS_EXT_PRIVATE.'ABCMS.translog');
 		if (FALSE === file_put_contents($file, implode("\n", $this->resplogs)."\n", FILE_APPEND | LOCK_EX)) {
-			error_log(print_r($this->resplogs,TRUE)); // fallback
+			// fallback
+			$error = error_get_last();
+			error_log("ABCMS System Error: response_flush file_put_contents() fail, systemerror=".($error['message']??'unknown'));
+			error_log(print_r($this->resplogs,TRUE));
 		}
 		$this->resplogs = [];
 	}
@@ -1801,9 +1800,7 @@ public function response_splice(?int $mark = NULL) : int|array { // first mark $
 	return [];
 }
 
-private function response_trace(	// get backtrace info
-bool	$fast = TRUE,			// omit object and args
-) : array {						// return info
+private function response_trace(bool $fast = TRUE) : array { // get backtrace info, default omit object and args, return info
 	// 3 levels back
 	$back = debug_backtrace(($fast ? DEBUG_BACKTRACE_IGNORE_ARGS : 0), 3);
 	$file = ($back[1]['file']		?? 'unknown');
@@ -1825,7 +1822,7 @@ bool	$fast = TRUE,			// omit object and args
 
 public function error_get_last() : string { // return last error message
 	$error = error_get_last();
-	return $error['message']??'';
+	return (empty($error['message']) ? '' : ', systemerror='.$error['message']);
 }
 
 
@@ -1919,7 +1916,7 @@ public function home_account(mixed &...$unused) : void { // home register, login
 	$mess = $email = $email2 = $subject = $body = NULL;
 	// switch
 	switch ($switch) {
-		case 'nosession':	$this->response('ACCOUNT: login unavailable, session start failed', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+		case 'nosession':	$this->response('COREEXT: login unavailable, session start failed', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 							$this->response('The login system is unavailable. Please try again later.', ABCMS_LOG_ERROR, ABCMS_LOGTO_USER); return;
 		case 'invalid':		$mess = 'That form submission looked suspect. Please try again.'; break;
 		case 'inhuman':		$mess = 'CAPTCHA or form security check failed. Please try again.'; break;
@@ -1936,8 +1933,9 @@ public function home_account(mixed &...$unused) : void { // home register, login
 								$body = '<h4>Hello</h4>You are logged into ' . $this->boots['urldomain'];
 							}
 							else if (++$this->ss['trys'] > ABCMS_SES_LOGI) {
+								// TODO possible log entry to monitor failed login trys, but info not actionable
 								$this->session_start(-1);
-								$this->response('Too many failed login attempts. Please try again later.', ABCMS_LOG_FATAL, ABCMS_LOGTO_USER); // TODO might change to ABCMS_LOGTO_BOTH
+								$this->response('Too many failed login attempts. Please try again later.', ABCMS_LOG_FATAL, ABCMS_LOGTO_USER);
 							}
 							else {
 								$mess = 'Login failed. Please try again.';
@@ -2039,7 +2037,7 @@ EOF;
 	else {
 	echo <<<EOF
 <button type='submit' name='logout'		value='logout'	>Logout</button>
-<button type='submit' name='update'		value='update'	>Update</button>														
+<button type='submit' name='update'		value='update'	>Update</button>
 <button type='submit' name='delete'		value='delete'	>Delete</button>
 EOF;
 }
@@ -2152,7 +2150,7 @@ private function console_menu(mixed &...$unused) : void { // console menu
 <a href='/bogus'>/bogus</a><br>
 <a href='/home/bogus'>/home/bogus</a><br>
 <a href='/console/bogus'>/console/bogus</a><br>
-EOF;	
+EOF;
 	return;
 }
 
@@ -2161,11 +2159,17 @@ private function console_browse(mixed &...$unused) : void { // console browser
 <h1>Browser</h1>
 EOF;
 	$path = $this->settings['core']['projectroot'];
+	$safe = $this->hsc($path);
 	$display = <<< EOF
-Filename: {$path}<br>
+Filename: {$safe}<br>
 <br>
 EOF;
-	$files = array_diff(scandir($path), array('..'));
+	if (FALSE === ($scan = scandir($path))) {
+		$this->response('The requested folder is not available.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER);
+		$this->response("COREEXT: scandir() failure, path={$path}".$this->error_get_last(), ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS);
+		return;
+	}
+	$files = array_diff($scan, array('..'));
 	foreach($files as $file) {
 		$display .= $file."<br>\n";
 	}
@@ -2176,14 +2180,14 @@ EOF;
 private function console_help(mixed &...$unused) : void { // console help
 	echo <<<EOF
 <h1>Help</h1>
-EOF;	
+EOF;
 	return;
 }
 
 private function console_status(mixed &...$unused) : void { // console status
 	echo <<<EOF
 <h1>Status</h1>
-EOF;	
+EOF;
 	return;
 }
 
@@ -2219,6 +2223,8 @@ private function command_router(mixed &...$unused) : ?bool { // command router
 }
 
 private function command_code(mixed &...$unused) : void { // command code
+	header('Content-Type: text/html; charset=utf-8');
+	header('Referrer-Policy: strict-origin-when-cross-origin');
 	highlight_file($this->rp(__FILE__));
 	return;
 }
@@ -2229,29 +2235,28 @@ private function command_coredump(mixed &...$unused) : void { // command code
 }
 
 private function command_cron(mixed &...$unused) : void { // command cron
-	if (!headers_sent()) { header('Content-Type: text/plain; charset=utf-8'); }
 	echo "ABCMS cron\n\nDone.\n\n";
 	return;
 }
 
 private function command_help(mixed &...$unused) : void { // command help
-	if (!headers_sent()) { header('Content-Type: text/plain; charset=utf-8'); }
 	echo "ABCMS help\n\nDone.\n\n";
 	return;
 }
 
 private function command_phpinfo(mixed &...$unused) : void { // command phpinfo
+	header('Content-Type: text/html; charset=utf-8');
+	header('Referrer-Policy: strict-origin-when-cross-origin');
 	phpinfo();
 	return;
 }
 
 private function command_setup(mixed &...$unused) : void { // command setup
-	if (!headers_sent()) { header('Content-Type: text/plain; charset=utf-8'); }
 	$this->setup(); // recreate settings
 	// op cache warning
 	$mess = '';
 	if (function_exists('opcache_get_configuration') && !ini_get('opcache.validate_timestamps')) {
-		$this->response('SETUP: opcache stale, reload php-fpm to apply settings', ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS);
+		$this->response('SETUP: opcache stale, reload php-fpm to apply settings', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 		$mess = "Reload PHP-FPM to refresh OpCache and apply these settings.\n\n";
 	}
 	echo "ABCMS settings:\n\nRefresh the screen to see updated settings.\n\n{$mess}Done.\n\n";
@@ -2259,7 +2264,6 @@ private function command_setup(mixed &...$unused) : void { // command setup
 }
 
 private function command_updater(mixed &...$unused) : void { // command updater
-	if (!headers_sent()) { header('Content-Type: text/plain; charset=utf-8'); }
 	echo "ABCMS updater\n\nDone.\n\n";
 	return;
 }
@@ -2304,22 +2308,22 @@ public function set_file(string $filename, string $value) : void { // write file
 	$this->chk_file($filename);
 	$temp = "{$filename}.".getmypid();
 	if (FALSE === file_put_contents($temp, $value) || !chmod($temp, 0640) || !rename($temp, $filename)) {
-		if (file_exists($temp)) { unlink($temp); }
-		$this->response("FILE: write failed, file={$filename}, ".$this->error_get_last(), ABCMS_LOG_FATAL);
+		if (file_exists($temp)) { unlink($temp); } // unlink error ignored
+		$this->response("FILE: write failed, file={$filename}".$this->error_get_last(), ABCMS_LOG_FATAL);
 	}
 	return;
 }
 
 public function get_file(string $filename, string &$data) : void { // read file
 	if (!$this->chk_file($filename, TRUE)) { $this->response("FILE: not readable, file={$filename}", ABCMS_LOG_FATAL); }
-	if (FALSE === ($data = file_get_contents($filename))) { $this->response("FILE: read failed, file={$filename}, ".$this->error_get_last(), ABCMS_LOG_FATAL); }
+	if (FALSE === ($data = file_get_contents($filename))) { $this->response("FILE: read failed, file={$filename}".$this->error_get_last(), ABCMS_LOG_FATAL); }
 	return;
 }
 
 public function touch(string $filename) : void { // touch/create file with permissions
 	$this->chk_file($filename);
 	if (!touch($filename) || !chmod($filename, 0640)) {
-		$this->response("FILE: touch failed, file={$filename}, ".$this->error_get_last(), ABCMS_LOG_FATAL);
+		$this->response("FILE: touch failed, file={$filename}".$this->error_get_last(), ABCMS_LOG_FATAL);
 	}
 	return;
 }
@@ -2327,15 +2331,22 @@ public function touch(string $filename) : void { // touch/create file with permi
 public function set_json(string $filename, mixed $value) : void { // write json
 	$this->set_file($filename, json_encode($value, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
 	if (json_last_error() !== JSON_ERROR_NONE) {
-		$this->response("FILE: json encode failed, file={$filename}, ".json_last_error_msg(), ABCMS_LOG_FATAL);
+		$this->response("FILE: json encode failed, file={$filename}, systemerror=".json_last_error_msg(), ABCMS_LOG_FATAL);
 	}
 	return;
 }
 
 public function get_json(string $filename, mixed &$data) : void { // read json
 	if (!$this->chk_file($filename, TRUE)) { $this->response("FILE: json not readable, file={$filename}", ABCMS_LOG_FATAL); }
-	if (FALSE === ($data = file_get_contents($filename))) { $this->response("FILE: json read failed, file={$filename}, ".$this->error_get_last(), ABCMS_LOG_FATAL); }
-	if (NULL === ($data = json_decode($data, TRUE))) { $this->response("FILE: json decode failed, file={$filename}, ".json_last_error_msg(), ABCMS_LOG_FATAL); }
+	if (FALSE === ($data = file_get_contents($filename))) { $this->response("FILE: json read failed, file={$filename}".$this->error_get_last(), ABCMS_LOG_FATAL); }
+	if (NULL === ($data = json_decode($data, TRUE))) { $this->response("FILE: json decode failed, file={$filename}, systemerror=".json_last_error_msg(), ABCMS_LOG_FATAL); }
+	return;
+}
+
+private function opcache_reset(string $filename) : void { // invalidate cached PHP file
+	static $warned = FALSE;
+	if (function_exists('opcache_invalidate')) { opcache_invalidate($filename, TRUE); return; }
+	if (!$warned) { $warned = TRUE; $this->response('CORE: opcache_invalidate unavailable, stale file may serve from cache', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS); }
 	return;
 }
 
@@ -2345,7 +2356,7 @@ public function set_dump(string $filename, mixed $data) : void { // write var_ex
 		$this->response("FILE: var_export supports scalars, arrays and NULL only, file={$filename}", ABCMS_LOG_FATAL);
 	}
 	$this->set_file($filename, '<?php return ' . var_export($data, TRUE) . ";\n");
-	if (function_exists('opcache_invalidate')) { opcache_invalidate($filename, TRUE); }
+	$this->opcache_reset($filename);
 }
 
 public function get_dump(string $filename, mixed &$data) : bool { // read var_dump
@@ -2453,7 +2464,7 @@ public function html_text(string $html) : string { // HTML to plain text
 /*************************************************************************************************
 SECTION EMAIL: SMTP emailer.
  */
- 
+
 // Adapted by Claude.AI from https://github.com/arkanis/smtp_send.
 // Licensed as arkanis/smtp_send (c) 2014-2021 Stephan Soller, MIT License.
 public function email(			// SMTP mailer function
@@ -2492,22 +2503,24 @@ array				$options=[],// options
 	$socket = NULL;
 	$command = function (?string $line, $logit = TRUE) use (&$socket) {
 		if ($logit) { $this->response("EMAIL: > {$line}", ABCMS_LOG_DEBUG); } // log
-		if ($line !== NULL) { fwrite($socket, "{$line}\r\n"); }
-		$status = NULL;
+		if ($line !== NULL) {
+			if (FALSE === fwrite($socket, "{$line}\r\n")) { return [421, ["command fwrite() failure".$this->error_get_last()]]; }
+		}
+		$status = 0;
 		$reply = [];
 		while (($rline = fgets($socket)) !== FALSE) {
 			$this->response("EMAIL: < {$rline}", ABCMS_LOG_DEBUG); // log
-			$status = substr($rline, 0, 3);
+			$status = (int)substr($rline, 0, 3);
 			$reply[] = trim(substr($rline, 4));
 			if (substr($rline, 3, 1) === ' ') { break; } // last line of a multi-line reply
 		}
 		if (stream_get_meta_data($socket)['timed_out']) {
 			$this->response('EMAIL: timeout, server stopped responding', ABCMS_LOG_DEBUG); // log
-			$status = NULL;
+			$status = 0;
 		}
 		return [$status, $reply];
 	};
-	$fail = function (string $result, ?string $status = NULL, array $reply = []) use (&$socket, $command) {
+	$fail = function (string $result, int $status = 0, array $reply = []) use (&$socket, $command) {
 		if ($socket) { $command('QUIT'); fclose($socket); }
 		$extra = ($status ? ", status={$status}" : '').($reply ? ', <'.end($reply).'>' : '');
 		$this->response("EMAIL: {$result}{$extra}", ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS);
@@ -2538,32 +2551,32 @@ array				$options=[],// options
 	$this->response('EMAIL: recipients, '.implode(', ', $allRecipients), ABCMS_LOG_DEBUG); // log
 	// connect to SMTP socket
 	if (!($socket = @fsockopen($options['smtp'], $options['port'], $errno, $errstr, $options['time']))) {
-		return $fail("connect failed, errno={$errno}, {$errstr}");
+		return $fail("connect failed, systemerror={$errstr}, errno={$errno}");
 	}
 	if (!stream_set_timeout($socket, $options['time'])) { // prevent hangs on every read/write
-		return $fail('set stream timeout failed');
+		return $fail('set stream timeout failed, systemerror=stream_set_timeout()');
 	}
 	$this->response('EMAIL: socket, '.(string)$socket, ABCMS_LOG_DEBUG); // log
 	// SMTP Handshake
 	[$status, $reply] = $command(NULL); // consume greeting
-	if ($status != 220) { return $fail('no server greeting', $status, $reply); }
+	if ($status !== 220) { return $fail('no server greeting', $status, $reply); }
 	[$status, $capabilities] = $command('EHLO ' . $options['ehlo']);
-	if ($status != 250) { return $fail('ehlo rejected', $status, $capabilities); }
+	if ($status !== 250) { return $fail('ehlo rejected', $status, $capabilities); }
 	$this->response('EMAIL: handshake, starttls='.(in_array('STARTTLS', $capabilities, TRUE)?'yes':'no'), ABCMS_LOG_DEBUG); // log
 	// STARTTLS if offered and not already an implicit-TLS transport
 	$encrypted = (FALSE === stripos($options['smtp'],'ssl://') ? FALSE : TRUE);
 	if (!$encrypted && in_array('STARTTLS', $capabilities, TRUE)) {
 		[$status] = $command('STARTTLS');
-		if ($status == 220) {
+		if ($status === 220) {
 			stream_context_set_option($socket, ['ssl' => $options['ssl']]);
 			if (!stream_socket_enable_crypto($socket, TRUE, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
-				return $fail('tls negotiation failed');
+				return $fail('tls negotiation failed'.$this->error_get_last());
 			}
 			if (!stream_set_timeout($socket, $options['time'])) { // redo just in case
-				return $fail('set stream timeout failed after starttls');
+				return $fail('set stream timeout failed after starttls, systemerror=stream_set_timeout()');
 			}
 			[$status, $capabilities] = $command('EHLO ' . $options['ehlo']);
-			if ($status != 250) { return $fail('ehlo rejected after starttls', $status, $capabilities); }
+			if ($status !== 250) { return $fail('ehlo rejected after starttls', $status, $capabilities); }
 			$encrypted = TRUE; // security upgraded
 		}
 		else { return $fail('starttls unavailable'); }
@@ -2576,15 +2589,15 @@ array				$options=[],// options
 		$methods = array_slice(preg_split('/[\s=]+/', mb_strtolower($authLine, 'UTF-8')), 1);
 		if (in_array('plain', $methods, TRUE)) {
 			[$status, $reply] = $command('AUTH PLAIN ' . base64_encode("\0{$options_user}\0{$options_pass}"), FALSE);
-			if ($status != 235) { return $fail('auth plain rejected', $status, $reply); }
+			if ($status !== 235) { return $fail('auth plain rejected', $status, $reply); }
 		}
 		else if (in_array('login', $methods, TRUE)) {
 			[$status, $reply] = $command('AUTH LOGIN');
-			if ($status != 334) { return $fail('auth login rejected', $status, $reply); }
+			if ($status !== 334) { return $fail('auth login rejected', $status, $reply); }
 			[$status, $reply] = $command(base64_encode($options_user), FALSE);
-			if ($status != 334) { return $fail('auth username rejected', $status, $reply); }
+			if ($status !== 334) { return $fail('auth username rejected', $status, $reply); }
 			[$status, $reply] = $command(base64_encode($options_pass), FALSE);
-			if ($status != 235) { return $fail('auth password rejected', $status, $reply); }
+			if ($status !== 235) { return $fail('auth password rejected', $status, $reply); }
 		}
 		else {
 			return $fail('no supported auth method');
@@ -2593,13 +2606,13 @@ array				$options=[],// options
 	}
 	// envelope: MAIL FROM + RCPT TO for to+cc+bcc combined
 	[$status, $reply] = $command("MAIL FROM:<{$from}>");
-	if ($status != 250) { return $fail('mail from rejected', $status, $reply); }
+	if ($status !== 250) { return $fail('mail from rejected', $status, $reply); }
 	foreach ($allRecipients as $recipient) {
 		[$status, $reply] = $command("RCPT TO:<{$recipient}>");
-		if ($status != 250) { return $fail("rcpt to rejected, addr={$recipient}", $status, $reply); }
+		if ($status !== 250) { return $fail("rcpt to rejected, addr={$recipient}", $status, $reply); }
 	}
 	[$status, $reply] = $command('DATA');
-	if ($status != 354) { return $fail('data not accepted', $status, $reply); }
+	if ($status !== 354) { return $fail('data not accepted', $status, $reply); }
 	$this->response("EMAIL: envelope, status={$status}", ABCMS_LOG_DEBUG); // log
 	// build MIME message
 	$mixedBoundary = 'abcms_mixed_' . bin2hex(random_bytes(16));
@@ -2652,8 +2665,7 @@ array				$options=[],// options
 		$fileName = preg_replace('/[\r\n]+/', '', basename($filePath));
 		$fileName = str_replace('"', '', $fileName); // keep the Content-Disposition value well-formed
 		$fileNameEncoded = rawurlencode($fileName);
-		$content  = file_get_contents($filePath);
-		if ($content === FALSE) { return $fail("attachment contents not readable, file={$filePath}"); }
+		if (FALSE === ($content  = file_get_contents($filePath))) { return $fail("attachment contents not readable, file={$filePath}".$this->error_get_last()); }
 		$finfo    = finfo_open(FILEINFO_MIME_TYPE);
 		$mimeType = ($finfo ? finfo_file($finfo, $filePath) : FALSE) ?: 'application/octet-stream';
 		if ($finfo) finfo_close($finfo);
@@ -2672,9 +2684,9 @@ array				$options=[],// options
 	if (substr($payload, -2) !== "\r\n") $payload .= "\r\n";
 	$this->response('EMAIL: normalize, status=ok', ABCMS_LOG_DEBUG); // log
 	// write the email
-	if (FALSE === fwrite($socket, $payload)) { return $fail('send failed');	}
+	if (FALSE === fwrite($socket, $payload)) { return $fail('send failed'.$this->error_get_last());	}
 	[$status, $reply] = $command('.');
-	if ($status != 250) { return $fail('message body rejected', $status, $reply); }
+	if ($status !== 250) { return $fail('message body rejected', $status, $reply); }
 	$this->response("EMAIL: send, status={$status} bytes=".strlen($payload), ABCMS_LOG_DEBUG); // log
 	// finish
 	$command('QUIT');
@@ -2756,7 +2768,7 @@ form.form-grid {
 }
 label { text-align: right; }
 input:required { border: 1px solid blue; }
-input#abcms_captcha_input {  width: 100%; } 
+input#abcms_captcha_input {  width: 100%; }
 div.captcha, button { display: inline-block; }
 fieldset.disable { border: none; margin: 0; padding: 0; min-width: 0; display: contents; }
 pre.debug { margin-top: 7rem; background-color: #EEEEEE; text-align: left; padding: 20px; }
