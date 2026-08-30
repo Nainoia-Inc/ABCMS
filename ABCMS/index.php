@@ -122,9 +122,11 @@ const ABCMS_CAP_TOTH	= 10;				// max symbols in CAPTCHA, valid 2 to 32 and never
 const ABCMS_CAP_KEEP	= array(33, 66, 8);	// answer length, fewest percent of the symbols kept, most percent, and a hard cap on characters typed
 											// valid 1 to 99, 1 to 99, and 2 to 32, one symbol is always skipped so instruction shows both marks
 const ABCMS_CAP_TALL	= 60;				// height in pixels of each band, the image is twice this, valid 40 to 200
-const ABCMS_CAP_WIDE	= 50;				// width in pixels per symbol, valid 30 to 200
+const ABCMS_CAP_WIDE	= 50;				// width in pixels per symbol, valid 30 to 200, minimum column width
+const ABCMS_CAP_XPIX	= ABCMS_CAP_WIDE * ABCMS_CAP_TOTH; // derived, canvas width, every code draws onto this one canvas whatever its length
+const ABCMS_CAP_YPIX	= ABCMS_CAP_TALL * 2; // derived, canvas height, code on 1st row, instruction on 2nd row
 const ABCMS_CAP_SPIN	= 10;				// widest symbol spin in degrees + position jitter, valid 0 to 45, readable to unreadable
-const ABCMS_CAP_MESS	= 900;				// one noise stroke per this many pixels of canvas, valid 300 hardest to 3000 easiest, 0 draws none
+const ABCMS_CAP_MESS	= 500;				// one noise stroke per this many pixels of canvas, valid 300 hardest to 3000 easiest, 0 draws none
 // CAPTCHA instruction marks, one row per shape, count() is how many are available so adding a shape needs no constant
 // every pair of an enter and a skip mark must read differently, which is why there is no table of confusable exceptions
 // each op places itself as a fraction of the mark radius, angles in degrees and spun with the mark:
@@ -1021,7 +1023,7 @@ mixed	&...$unused,				// router arguments, unused
 		$mints = (int)($this->ss['mints'] ?? 0); // start at zero if no counter
 		if ($mints < ABCMS_CAP_MINT) {
 			$this->ss['mints'] = $mints + 1;
-			$fresh = $this->session_captcha_code(); // get a free code and resize the image as needed
+			$fresh = $this->session_captcha_code(); // get a fresh code, any length draws onto the same canvas
 			if ('' === $fresh['full']) { $this->response('CAPTCHA: refresh failed, keeping the current code', ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS); }
 			else {
 				$this->ss['test_full'] = $fresh['full'];
@@ -1090,13 +1092,14 @@ int		$yess,							// ABCMS_CAP_YESS mark to enter
 int		$noos,							// ABCMS_CAP_NOOS mark to skip
 ) : void {								// return void
 	// initialize variables
+	// one canvas for every code length, image never reveals symbol count, column widens as code shortens
+	// $width = max() fallback only, codes longer than ABCMS_CAP_TOTH keep full width column and grows canvas rather than crush symbols
+	// column width is float so columns tile the canvas exactly, not int
 	$cells	= max(1, strlen($full));
-	$step	= ABCMS_CAP_WIDE;			// every symbol owns one column of this width
-	$width	= $step * $cells;
-	$band	= ABCMS_CAP_TALL;			// symbols fill the top band, marks the bottom one
-	$whole	= $band * 2;
+	$width	= max(ABCMS_CAP_XPIX, (ABCMS_CAP_WIDE * $cells)); // canvas width, fixed for valid code lengths
+	$step	= ($width / $cells); // column width, never below ABCMS_CAP_WIDE, but wider if fewer symbols
 	// a palette canvas, two colours are all this image ever holds and imagepng costs a fraction of the truecolor equivalent
-	if (FALSE === ($image = @imagecreate($width, $whole))) {
+	if (FALSE === ($image = @imagecreate($width, ABCMS_CAP_YPIX))) {
 		$this->response('CAPTCHA: draw failed, systemerror=imagecreate()', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 		return;
 	}
@@ -1106,16 +1109,16 @@ int		$noos,							// ABCMS_CAP_NOOS mark to skip
 	// the eye separates them by stroke weight instead, 3 pixel glyph blocks against 1 pixel noise strokes
 	// short strokes, a line spanning the image damages every symbol at once and a Hough transform lifts it out in one pass
 	// mt_rand because noise carries no secret and random_int costs fifteen times as much per call
-	$scratch = function(int $many) use ($image, $width, $whole, $ink) : void {
+	$scratch = function(int $many) use ($image, $width, $ink) : void {
 		for ($i = 0; $i < $many; $i++) {
 			$x = mt_rand(0, ($width - 1));
-			$y = mt_rand(0, ($whole - 1));
+			$y = mt_rand(0, (ABCMS_CAP_YPIX - 1));
 			$rads = (mt_rand(0, 359) * M_PI / 180);
 			$long = mt_rand(25, 60);
 			imageline($image, $x, $y, (int)($x + ($long * cos($rads))), (int)($y + ($long * sin($rads))), $ink);
 		}
 	};
-	$mess = (ABCMS_CAP_MESS ? (int)(($width * $whole) / ABCMS_CAP_MESS) : 0);
+	$mess = (ABCMS_CAP_MESS ? (int)(($width * ABCMS_CAP_YPIX) / ABCMS_CAP_MESS) : 0);
 	$scratch($mess); // scratches behind the characters first
 	// the built-in font is a fixed 9x15, far too small here, so stamp each symbol, grow it, spin it, and repaint its ink pixels
 	// growing before spinning is what keeps the symbols readable, a stamp spun at 9x15 and magnified afterwards carries a staircase magnified with it
@@ -1125,8 +1128,8 @@ int		$noos,							// ABCMS_CAP_NOOS mark to skip
 	$tall = imagefontheight($size);
 	// size the zoom from the tallest a spun stamp can be, so every symbol shares one scale and none overflows its band
 	$rise = (($wide * sin(ABCMS_CAP_SPIN * M_PI / 180)) + ($tall * cos(ABCMS_CAP_SPIN * M_PI / 180)));
-	$zoom = max(1, (int)(($band * 0.87) / $rise)); // 0.87 is the smallest factor reaching a 3 pixel stroke, below it the strokes match the noise weight
-	$mark = (int)($step * 0.30); // instruction mark radius
+	$zoom = max(1, (int)((ABCMS_CAP_TALL * 0.87) / $rise)); // 0.87 is the smallest factor reaching a 3 pixel stroke, below it the strokes match the noise weight
+	$mark = (int)(ABCMS_CAP_WIDE * 0.30); // instruction mark radius, sized to narrowest column, never grows with short code and leaks count
 	$flip = array_flip($skip);   // one lookup table instead of a scan per cell
 	// function availability test
 	static $test = FALSE;
@@ -1151,11 +1154,11 @@ int		$noos,							// ABCMS_CAP_NOOS mark to skip
 			if ($spun && FALSE !== ($turn = @imagerotate($stamp, mt_rand(-ABCMS_CAP_SPIN, ABCMS_CAP_SPIN), 0))) { imagedestroy($stamp); $stamp = $turn; }
 			$rwid = imagesx($stamp); // a spun stamp is wider and taller than the one it started as
 			$rtal = imagesy($stamp);
-			// jitter only into the slack the column actually has, a fixed nudge walks a big symbol off the canvas
-			$jitx = (int)max(0, min((int)(ABCMS_CAP_SPIN / 4), (($step - ($rwid * $blok)) / 2)));
-			$jity = (int)max(0, min((int)(ABCMS_CAP_SPIN / 3), (($band - ($rtal * $blok)) / 2)));
+			// jitter is slack the column has left once neighbouring symbols are guaranteed a gap, a wide column jitters wide and a full one barely moves
+			$jitx = (int)max(0, (($step - ($rwid * $blok) - (ABCMS_CAP_WIDE * 0.20)) / 2));
+			$jity = (int)max(0, min((int)(ABCMS_CAP_SPIN / 3), ((ABCMS_CAP_TALL - ($rtal * $blok)) / 2)));
 			$x = (int)(($i * $step) + (($step - ($rwid * $blok)) / 2) + ($jitx ? mt_rand(-$jitx, $jitx) : 0));
-			$y = (int)((($band - ($rtal * $blok)) / 2) + ($jity ? mt_rand(-$jity, $jity) : 0));
+			$y = (int)(((ABCMS_CAP_TALL - ($rtal * $blok)) / 2) + ($jity ? mt_rand(-$jity, $jity) : 0));
 			for ($gx = 0; $gx < $rwid; $gx++) { for ($gy = 0; $gy < $rtal; $gy++) {
 				if (128 > (imagecolorat($stamp, $gx, $gy) & 0xFF)) { continue; } // background or an interpolated edge, leave the noise showing through
 				imagefilledrectangle($image, $x + ($gx * $blok), $y + ($gy * $blok), $x + ($gx * $blok) + $blok - 1, $y + ($gy * $blok) + $blok - 1, $ink);
@@ -1171,7 +1174,7 @@ int		$noos,							// ABCMS_CAP_NOOS mark to skip
 		$this->session_captcha_mark(
 			$image,
 			(int)(($i * $step) + ($step / 2)),
-			(int)($band + ($band / 2)),
+			(int)(ABCMS_CAP_TALL + (ABCMS_CAP_TALL / 2)),
 			$mark,
 			$ink,
 			($hit ? (ABCMS_CAP_NOOS[$noos] ?? ABCMS_CAP_NOOS[0]) : (ABCMS_CAP_YESS[$yess] ?? ABCMS_CAP_YESS[0])));
@@ -1568,7 +1571,7 @@ string &$html,						// inject into mime type text/html
 	$delay		= ABCMS_SES_WAIT * 1000; // javascript with click delay to avoid rapid hit speedlimit
 	$bust		= bin2hex(random_bytes(5)); // per-render captcha cache buster
 	$cpath		= rtrim((string)($this->settings['core']['captcha_path'] ?? ''), '/'); // CAPTCHA path or no CAPTCHA
-	$capwide	= 0; // image width in pixels, zero until a code exists
+	$capwide	= 0; // image width in pixels, zero until a code exists, then the fixed canvas width
 	// the same test session_start() uses to decide whether to check the answer, so a CAPTCHA is never shown unenforced
 	$docap = (empty($this->ss['user']) && '' !== $cpath); // do the CAPTCHA or not?
 	// mint only when a CAPTCHA will be drawn, a logged in visitor needs no code and no session write
@@ -1580,9 +1583,8 @@ string &$html,						// inject into mime type text/html
 		$this->ss['test_full']	= $captcha['full']; // every symbol
 		$this->ss['test_valu']	= $captcha['valu']; // the answer
 		$this->ss['test_hint']	= array('skip' => $captcha['skip'], 'yess' => $captcha['yess'], 'noos' => $captcha['noos']); // the instruction
-		// the width of the first draw only, so the page reserves the right space instead of reflowing as the image arrives
-		// a refresh may return a different symbol count, so the script drops this attribute before refetching
-		$capwide				= (ABCMS_CAP_WIDE * strlen($captcha['full']));
+		// every code drawn on same canvas, page reserves the right space, refresh never reflows
+		$capwide				= ABCMS_CAP_XPIX;
 		// refresh button
 		$rbutton				= (is_readable('.'.($file=ABCMS_EXT_PUBLIC.'refresh.png')) ? "<img src='{$file}' alt='Refresh' title='Refresh' />" : 'Refresh');
 	}
@@ -1596,7 +1598,7 @@ string &$html,						// inject into mime type text/html
 	// listen for the refresh button click and return irrelevance
 	// zero existing CAPTCHA answer, shuffle button text/HTML, set timer to restore button text
 	// create new Image() to mint new CAPTCHA code first and reload image with mint.onload
-	// ask for a new code, refetch image, drop width attribute so new image sets own size
+	// get new code, refetch image, canvas width never changes
 	$inject_refresh = '';
 	if ($docap) { $inject_refresh = <<<EOF
 <script type='module' nonce='{$this->input['nonce']}'>
@@ -1611,7 +1613,7 @@ document.addEventListener('click', function (event) {
 	var mint = new Image();
 	mint.onload = mint.onerror = function () {
 		var img = document.getElementById('abcms_captcha');
-		if (img) { img.removeAttribute('width'); img.src = '{$cpath}/1/' + Math.floor(Math.random() * 1e10); }
+		if (img) { img.src = '{$cpath}/1/' + Math.floor(Math.random() * 1e10); }
 	};
 	mint.src = '{$cpath}/0/' + Math.floor(Math.random() * 1e10);
 });
@@ -1667,7 +1669,7 @@ EOF;
 	// form CAPTCHA, one image injected
 	$inject_captcha = NULL;
 	if ($docap) {
-		$inject_image = str_replace(['\\', '$'], ['\\\\', '\\$'], "<img src='{$cpath}/1/{$bust}' alt='CAPTCHA' title='CAPTCHA' id='abcms_captcha' width='{$capwide}' height='".(ABCMS_CAP_TALL * 2)."'>");
+		$inject_image = str_replace(['\\', '$'], ['\\\\', '\\$'], "<img src='{$cpath}/1/{$bust}' alt='CAPTCHA' title='CAPTCHA' id='abcms_captcha' width='{$capwide}' height='".ABCMS_CAP_YPIX."'>");
 		$inject_captcha = <<<EOF
 <div class='captcha'>
 {$inject_image}<br>
