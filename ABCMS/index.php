@@ -402,12 +402,12 @@ private function setup(	// read or create core settings, executed by Composer, c
 bool	$boot = FALSE,	// TRUE = load existing, else recreate
 ) : void {				// return void or WSOD
 	// $this->boots and $this->input not yet initialized
-	// load settings from var_dump() file for speed, beware of injection
+	// load settings from var_export() file for speed, beware of injection
 	$storage = $this->rp(dirname(__DIR__)).ABCMS_EXT_PRIVATE.'ABCMS.settings.php';
 	$this->compiles = array(); // initialize
 	$this->compiles['core']['projectroot'] = $this->rp(dirname(__DIR__)); // projectroot, needed early for chk_file()
 	$data = [];
-	if ($boot && $this->get_dump($storage, $data)) {
+	if ($boot && $this->get_vexp($storage, $data)) {
 		if (!is_array($data) || empty($data['core']['projectroot'])) { $this->response("SETUP: settings file corrupted, storage={$storage}", ABCMS_LOG_FATAL); }
 		$this->settings = $data;
 		$this->compiles = NULL;
@@ -444,7 +444,7 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	$this->compiles['core']['smtp_user']		= NULL; // SMTP username
 	$this->compiles['core']['smtp_pass']		= NULL; // SMTP password
 	$this->compiles['core']['smtp_ehlo']		= NULL; // SMTP EHLO
-	$this->new_database('BASIC.json');
+	$this->new_jbas('BASIC.json');
 	$this->compiles['core']['captcha_path']		= '/'.$this->get_uniq().'/'; // CAPTCHA path distinct per installation per setup, trailing slash routes on 1st path segment
 	$this->compiles['core']['translog']			= $coreext.'ABCMS.translog'; // transaction log
 	$this->touch($this->compiles['core']['translog']);
@@ -531,7 +531,7 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	// TODO optimize and remove mixed non-exclusive and exclusive routes
 	// save settings as fast op cachable php include file with atomic with rename()
 	$this->response('SETUP: save settings', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
-	$this->set_dump($storage, $this->compiles);
+	$this->set_vexp($storage, $this->compiles);
 	if ($boot) { $this->settings = $this->compiles; }
 	$this->compiles = NULL;
 	// warning: op cache setting requires manual cache refresh
@@ -543,13 +543,13 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 
 private function setup_override(	// read the override file, merge it over the compiled settings, then validate changes
 ) : void {							// return void, every failure here is FATAL because the settings would be wrong
-	// load custom settings from var_dump file for speed, beware of injection
+	// load custom settings from var_export file for speed, beware of injection
 	$this->opcache_reset($this->compiles['core']['override']); // clear php cache
 	$override = [];
 	// read override settings
 	// TODO segregate overridable versus non-overrideable settings?
 	if (file_exists($this->compiles['core']['override'])) {
-		if (!$this->get_dump($this->compiles['core']['override'], $override) || !is_array($override)) {
+		if (!$this->get_vexp($this->compiles['core']['override'], $override) || !is_array($override)) {
 			$this->response("SETUP: override file unreadable or corrupted, file={$this->compiles['core']['override']}", ABCMS_LOG_FATAL);
 		}
 	}
@@ -565,7 +565,7 @@ private function setup_override(	// read the override file, merge it over the co
 		$override['core']['smtp_user']		= $this->compiles['core']['smtp_user'];
 		$override['core']['smtp_pass']		= $this->compiles['core']['smtp_pass'];
 		$override['core']['smtp_ehlo']		= $this->compiles['core']['smtp_ehlo'];
-		$this->set_dump($this->compiles['core']['override'], $override);
+		$this->set_vexp($this->compiles['core']['override'], $override);
 	}
 	// merge custom override settings into compiled settings
 	$this->array_walk_merge($this->compiles, $override);
@@ -777,7 +777,7 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 	// validate session
 	if (!$this->ss) {
 		// cannot POST without session
-		if ($post) {																									$error = 'SESSION: ended, reason=post-without-session';		$slap = TRUE; }
+		if ($post) {																								$error = 'SESSION: ended, reason=post-without-session';		$slap = TRUE; }
 	}
 	else {
 		// page load hit counter, excludes CAPTCHA image requests
@@ -785,38 +785,38 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 		$gothits = FALSE;
 		if (!$subres) { $this->ss['counts'][] = $now; if (count($this->ss['counts']) > ABCMS_SES_HITS) { array_shift($this->ss['counts']); $gothits = TRUE; } }
 		// uagent inconsistent
-		if ($this->ss['uagent'] !== $this->boots['uagent']) {															$error = 'SESSION: ended, reason=agent-mismatch';			$slap = TRUE; }
+		if ($this->ss['uagent'] !== $this->boots['uagent']) {														$error = 'SESSION: ended, reason=agent-mismatch';			$slap = TRUE; }
 		// secrets differ
-		else if (!hash_equals($this->ss['secret'], ($_COOKIE[$this->settings['core']['session_secret']]??'x'))) {		$error = 'SESSION: ended, reason=secret-mismatch';			$slap = TRUE; }
+		else if (!hash_equals($this->ss['secret'], ($_COOKIE[$this->settings['core']['session_secret']]??'x'))) {	$error = 'SESSION: ended, reason=secret-mismatch';			$slap = TRUE; }
 		// rapid hits
-		else if ($gothits && $this->ss['counts'][ABCMS_SES_HITS-1] - $this->ss['counts'][0] < ABCMS_SES_TIME) {			$error = 'SESSION: ended, reason=rapid-hits';				$slap = TRUE; }
+		else if ($gothits && $this->ss['counts'][ABCMS_SES_HITS-1] - $this->ss['counts'][0] < ABCMS_SES_TIME) {		$error = 'SESSION: ended, reason=rapid-hits';				$slap = TRUE; }
 		// POST CSRF1
-		else if ($post && (!$csrf || !hash_equals($this->ss['csrf_valu'], $csrf))) {									$error = 'SESSION: ended, reason=csrf-missing';				$slap = TRUE; }
+		else if ($post && (!$csrf || !hash_equals($this->ss['csrf_valu'], $csrf))) {								$error = 'SESSION: ended, reason=csrf-missing';				$slap = TRUE; }
 		// POST CSRF2
-		else if ($csrf && !hash_equals($this->ss['csrf_valu'], (($_POST[$this->ss['csrf_name']]??'x')?:'x'))) {			$error = 'SESSION: ended, reason=csrf-mismatch';			$slap = TRUE; }
+		else if ($csrf && !hash_equals($this->ss['csrf_valu'], (($_POST[$this->ss['csrf_name']]??'x')?:'x'))) {		$error = 'SESSION: ended, reason=csrf-mismatch';			$slap = TRUE; }
 		// POST !HONEY populated
-		else if ($csrf && !empty($_POST[$this->ss['void_name']])) {														$error = 'SESSION: ended, reason=reverse-honeypot-filled';	$slap = TRUE; }
+		else if ($csrf && !empty($_POST[$this->ss['void_name']])) {													$error = 'SESSION: ended, reason=reverse-honeypot-filled';	$slap = TRUE; }
 		// POST HONEY differs
-		else if ($csrf && !hash_equals($this->ss['full_valu'], (($_POST[$this->ss['full_name']]??'x')?:'x'))) {			$error = 'SESSION: ended, reason=honeypot-mismatched';		$slap = TRUE; }
+		else if ($csrf && !hash_equals($this->ss['full_valu'], (($_POST[$this->ss['full_name']]??'x')?:'x'))) {		$error = 'SESSION: ended, reason=honeypot-mismatched';		$slap = TRUE; }
 		// POST rapid
-		else if ($csrf && ($now - $this->ss['active']) < ABCMS_SES_WAIT) {												$error = 'SESSION: ended, reason=rapid-submit';				$slap = TRUE; }
+		else if ($csrf && ($now - $this->ss['active']) < ABCMS_SES_WAIT) {											$error = 'SESSION: ended, reason=rapid-submit';				$slap = TRUE; }
 		// fail resume login, cookies or session expired, always reload user to confirm permissions
 		else if (isset($_COOKIE[$this->settings['core']['session_logins']]) &&
 			(($_COOKIE[$this->settings['core']['session_logins']]?:'x') !== $this->ss['logins'] || empty($this->ss['user']) ||
-			!($this->ss['user'] = $this->get_database('BASIC.json', array('user',$this->ss['user']['email']))))) {		$error = 'Your login could not be resumed. Please log in again.'; }
+			!($this->ss['user'] = $this->get_jbas('BASIC.json', array('user',$this->ss['user']['email']))))) {		$error = 'Your login could not be resumed. Please log in again.'; }
 		// login expired
-		else if (!isset($_COOKIE[$this->settings['core']['session_logins']]) && !empty($this->ss['user'])) {			$error = 'Your login expired. Please log in again.'; }
+		else if (!isset($_COOKIE[$this->settings['core']['session_logins']]) && !empty($this->ss['user'])) {		$error = 'Your login expired. Please log in again.'; }
 		// idle time exceeded
-		else if ($now > ($this->ss['active'] + ABCMS_SES_IDLE)) {														$error = 'Your session ended after inactivity. Please log in again.'; }
+		else if ($now > ($this->ss['active'] + ABCMS_SES_IDLE)) {													$error = 'Your session ended after inactivity. Please log in again.'; }
 		// time exceeded
-		else if ($now > ($this->ss['create'] + ABCMS_SES_LIFE)) {														$error = 'Your session reached its time limit. Please log in again.'; }
+		else if ($now > ($this->ss['create'] + ABCMS_SES_LIFE)) {													$error = 'Your session reached its time limit. Please log in again.'; }
 		// POST CAPTCHA answer wrong
 		else if ($csrf && empty($this->ss['user']) && '' !== ($this->ss['test_valu']??'') &&
 			(mb_strtolower($this->ss['test_valu'], 'UTF-8') !== mb_strtolower((($_POST[$this->ss['test_name']]??'x')?:'x'), 'UTF-8'))) {
 			$this->response('That CAPTCHA answer was not correct. Please try again.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER);
 		}
 		// Passed gauntlet so maybe human
-		else {																											$gauntlet = TRUE; }
+		else {																										$gauntlet = TRUE; }
 	}
 	// destroy by request or for corruption
 	if ($error) {
@@ -1192,12 +1192,66 @@ int		$noos,							// ABCMS_CAP_NOOS mark to skip
 
 
 /*************************************************************************************************
-SECTION DATABASE: Store data in VAR_DUMP, JSON, CSV, SQLite, and MySQL.
+SECTION DATABASE: Store data in var_export(), JSON, CSV, SQLite, and MySQL.
 */
+private function chk_file(string $filename, bool $must = FALSE) : bool {// check file valid in my extension folder
+	$starts = ($this->compiles['core']['projectroot']??$this->settings['core']['projectroot']).'/private'.$this->output_extension().'/';
+	if (!str_starts_with($filename, $starts)) { $this->response("FILE: access outside extension folder, file={$filename}", ABCMS_LOG_FATAL); }
+	if (preg_match('/(^|[\/\\\\])\.\.([\/\\\\]|$)/', $filename)) { $this->response("FILE: relative filename disallowed, file={$filename}", ABCMS_LOG_FATAL); }
+	if (is_link($filename)) { $this->response("FILE: symlink disallowed, file={$filename}", ABCMS_LOG_FATAL); }
+	if ($must && ($this->rp(realpath($filename)) !== $filename || !is_file($filename) || !is_readable($filename))) { return FALSE; }
+	return TRUE;
+}
 
-public function new_database(	// create new database
-string $file,					// filename within extension
-) : void {						// return void or WSOD
+public function set_file(string $filename, string $value) : void { // write file
+	$this->chk_file($filename);
+	$temp = "{$filename}.".getmypid();
+	if (FALSE === file_put_contents($temp, $value) || !chmod($temp, 0640) || !rename($temp, $filename)) {
+		if (file_exists($temp)) { unlink($temp); } // unlink error ignored
+		$this->response("FILE: write failed, file={$filename}".$this->error_get_last(), ABCMS_LOG_FATAL);
+	}
+	return;
+}
+
+public function get_file(string $filename, string &$data) : void { // read file
+	if (!$this->chk_file($filename, TRUE)) { $this->response("FILE: not readable, file={$filename}", ABCMS_LOG_FATAL); }
+	if (FALSE === ($data = file_get_contents($filename))) { $this->response("FILE: read failed, file={$filename}".$this->error_get_last(), ABCMS_LOG_FATAL); }
+	return;
+}
+
+public function touch(string $filename) : void { // touch/create file with permissions
+	$this->chk_file($filename);
+	if (!touch($filename) || !chmod($filename, 0640)) {
+		$this->response("FILE: touch failed, file={$filename}".$this->error_get_last(), ABCMS_LOG_FATAL);
+	}
+	return;
+}
+
+public function set_json(string $filename, mixed $value) : void { // write json
+	$this->set_file($filename, json_encode($value, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+	if (json_last_error() !== JSON_ERROR_NONE) {
+		$this->response("FILE: json encode failed, file={$filename}, systemerror=".json_last_error_msg(), ABCMS_LOG_FATAL);
+	}
+	return;
+}
+
+public function get_json(string $filename, mixed &$data) : void { // read json
+	if (!$this->chk_file($filename, TRUE)) { $this->response("FILE: json not readable, file={$filename}", ABCMS_LOG_FATAL); }
+	if (FALSE === ($data = file_get_contents($filename))) { $this->response("FILE: json read failed, file={$filename}".$this->error_get_last(), ABCMS_LOG_FATAL); }
+	if (NULL === ($data = json_decode($data, TRUE))) { $this->response("FILE: json decode failed, file={$filename}, systemerror=".json_last_error_msg(), ABCMS_LOG_FATAL); }
+	return;
+}
+
+private function opcache_reset(string $filename) : void { // invalidate cached PHP file
+	static $warned = FALSE;
+	if (function_exists('opcache_invalidate')) { opcache_invalidate($filename, TRUE); return; }
+	if (!$warned) { $warned = TRUE; $this->response('CORE: opcache_invalidate unavailable, stale file may serve from cache', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS); }
+	return;
+}
+
+public function new_jbas(	// create new database
+string $file,				// filename within extension
+) : void {					// return void or WSOD
 	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->response("DATABASE: new name invalid, file={$file}", ABCMS_LOG_FATAL); } // invalid file
 	$ext = $this->output_extension();
 	$fold = ($this->compiles['core']['projectroot']??$this->settings['core']['projectroot'])."/private{$ext}/ABCMS.database";
@@ -1207,12 +1261,12 @@ string $file,					// filename within extension
 	$this->touch($file.'.lock');
 }
 
-public function set_database(	// write to database
-	string	$file,				// filename within extension
-	array	$keys,				// element keys, [] replaces database with (is_array($data) ? $data : [$data])
-	mixed	$data,				// new or updated element
-	bool	$new = TRUE,		// TRUE to add new record (fails if exists), FALSE to update existing (fails if doesn't exist)
-) : bool {						// return success or failure
+public function set_jbas(	// write to database
+	string	$file,			// filename within extension
+	array	$keys,			// element keys, [] replaces database with (is_array($data) ? $data : [$data])
+	mixed	$data,			// new or updated element
+	bool	$new = TRUE,	// TRUE to add new record (fails if exists), FALSE to update existing (fails if doesn't exist)
+) : bool {					// return success or failure
 	// errors
 	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->response("DATABASE: set name invalid, file={$file}", ABCMS_LOG_FATAL); } // invalid file
 	if ($new && NULL === $data) { return FALSE; } // may not new NULL
@@ -1284,10 +1338,10 @@ public function set_database(	// write to database
 	return TRUE;
 }
 
-public function get_database(	// read database
-string	$file,					// filename within extension
-array	$keys,					// read element from key path or [] returns whole database
-) : mixed {						// return element or NULL for failure
+public function get_jbas(	// read database
+string	$file,				// filename within extension
+array	$keys,				// read element from key path or [] returns whole database
+) : mixed {					// return element or NULL for failure
 	// errors
 	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->response("DATABASE: get name invalid, file={$file}", ABCMS_LOG_FATAL); } // invalid file
 	// cached or not cached
@@ -1325,6 +1379,47 @@ array	$keys,					// read element from key path or [] returns whole database
 		$element = $element[$key];
 	}
 	return $element;
+}
+
+public function set_vexp(string $filename, mixed $data) : void { // write var_export()
+	// partial validity check at top level, nested elements unvalidated
+	if (is_object($data) || is_resource($data)) {
+		$this->response("FILE: var_export supports scalars, arrays and NULL only, file={$filename}", ABCMS_LOG_FATAL);
+	}
+	$this->set_file($filename, '<?php return ' . var_export($data, TRUE) . ";\n");
+	$this->opcache_reset($filename);
+}
+
+public function get_vexp(string $filename, mixed &$data) : bool { // read var_export()
+	if (!$this->chk_file($filename, TRUE)) { return FALSE; }
+	// beware, failed include() = FALSE = successful include() returning FALSE
+	$fn = Closure::bind(static function($f) { return include($f); }, NULL, NULL);
+	$data = $fn($filename);
+	return TRUE;
+}
+
+public function set_flat(string $filename, mixed $data) : bool { // set indexed delimited table file
+	return FALSE; // stub only
+}
+
+public function get_flat(string $filename, mixed &$data) : bool { // get indexed delimited table file
+	if (!$this->chk_file($filename, TRUE)) { return FALSE; } return FALSE; // stub only
+}
+
+public function set_sqli(string $filename, mixed $data) : bool { // set sqlite record
+	return FALSE; // stub only
+}
+
+public function get_sqli(string $filename, mixed &$data) : bool { // get sqlite record
+	if (!$this->chk_file($filename, TRUE)) { return FALSE; } return FALSE; // stub only
+}
+
+public function set_mysq(string $filename, mixed $data) : bool { // set mysql record
+	return FALSE; // stub only
+}
+
+public function get_mysq(string $filename, mixed &$data) : bool { // get mysql record
+	if (!$this->chk_file($filename, TRUE)) { return FALSE; } return FALSE; // stub only
 }
 
 
@@ -1922,7 +2017,7 @@ public function home_account(mixed &...$unused) : void { // home register, login
 		case 'inhuman':		$mess = 'Your CAPTCHA entry failed. Please try again.'; break;
 		case 'login':		if (!empty($_POST['Account_Email']) && !empty($_POST['Account_Email2']) &&
 								password_verify($_POST['Account_Password'], $this->settings['core']['passhash']) &&
-								($this->ss['user'] = $this->get_database('BASIC.json', array('user', $_POST['Account_Email'])))) {
+								($this->ss['user'] = $this->get_jbas('BASIC.json', array('user', $_POST['Account_Email'])))) {
 								$this->ss['trys'] = 0;
 								$this->ss['logins'] = $this->get_uniq();
 								$this->set_cookie($this->settings['core']['session_logins'], $this->ss['logins'], $this->ss['create'] + ABCMS_SES_LIFE);
@@ -1946,7 +2041,7 @@ public function home_account(mixed &...$unused) : void { // home register, login
 							$user = array('valid'=>TRUE,'email'=>$_POST['Account_Email'],'email2'=>$_POST['Account_Email2'],'role'=>ABCMS_ROLE_ADMINS);
 							if (!empty($_POST['Account_Email']) && !empty($_POST['Account_Email2']) &&
 								password_verify($_POST['Account_Password'], $this->settings['core']['passhash']) &&
-								($okay = $this->set_database('BASIC.json', array('user', $_POST['Account_Email']), $user, TRUE))) {
+								($okay = $this->set_jbas('BASIC.json', array('user', $_POST['Account_Email']), $user, TRUE))) {
 								$this->ss['trys'] = 0;
 								$this->ss['logins'] = $this->get_uniq();
 								$this->set_cookie($this->settings['core']['session_logins'], $this->ss['logins'], $this->ss['create'] + ABCMS_SES_LIFE);
@@ -1964,7 +2059,7 @@ public function home_account(mixed &...$unused) : void { // home register, login
 		case 'delete':		if (empty($this->ss['user']['email']) ||
 								empty($_POST['Account_Email']) ||
 								$_POST['Account_Email'] !== $this->ss['user']['email'] ||
-								!$this->set_database('BASIC.json', array('user', $this->ss['user']['email']), NULL, FALSE)) {
+								!$this->set_jbas('BASIC.json', array('user', $this->ss['user']['email']), NULL, FALSE)) {
 								$mess = 'Account could not be deleted. Please try again.';
 								break;
 							}
@@ -2343,78 +2438,6 @@ public function get_url(?string $path = NULL) : ?string { // construct url with 
 
 public function rp(string|false $path) : string|false { // linux style slashes from windows
 	return ($path === FALSE ? FALSE : str_replace('\\', '/', $path));
-}
-
-private function chk_file(string $filename, bool $must = FALSE) : bool {// check file valid in my extension folder
-	$starts = ($this->compiles['core']['projectroot']??$this->settings['core']['projectroot']).'/private'.$this->output_extension().'/';
-	if (!str_starts_with($filename, $starts)) { $this->response("FILE: access outside extension folder, file={$filename}", ABCMS_LOG_FATAL); }
-	if (preg_match('/(^|[\/\\\\])\.\.([\/\\\\]|$)/', $filename)) { $this->response("FILE: relative filename disallowed, file={$filename}", ABCMS_LOG_FATAL); }
-	if (is_link($filename)) { $this->response("FILE: symlink disallowed, file={$filename}", ABCMS_LOG_FATAL); }
-	if ($must && ($this->rp(realpath($filename)) !== $filename || !is_file($filename) || !is_readable($filename))) { return FALSE; }
-	return TRUE;
-}
-
-public function set_file(string $filename, string $value) : void { // write file
-	$this->chk_file($filename);
-	$temp = "{$filename}.".getmypid();
-	if (FALSE === file_put_contents($temp, $value) || !chmod($temp, 0640) || !rename($temp, $filename)) {
-		if (file_exists($temp)) { unlink($temp); } // unlink error ignored
-		$this->response("FILE: write failed, file={$filename}".$this->error_get_last(), ABCMS_LOG_FATAL);
-	}
-	return;
-}
-
-public function get_file(string $filename, string &$data) : void { // read file
-	if (!$this->chk_file($filename, TRUE)) { $this->response("FILE: not readable, file={$filename}", ABCMS_LOG_FATAL); }
-	if (FALSE === ($data = file_get_contents($filename))) { $this->response("FILE: read failed, file={$filename}".$this->error_get_last(), ABCMS_LOG_FATAL); }
-	return;
-}
-
-public function touch(string $filename) : void { // touch/create file with permissions
-	$this->chk_file($filename);
-	if (!touch($filename) || !chmod($filename, 0640)) {
-		$this->response("FILE: touch failed, file={$filename}".$this->error_get_last(), ABCMS_LOG_FATAL);
-	}
-	return;
-}
-
-public function set_json(string $filename, mixed $value) : void { // write json
-	$this->set_file($filename, json_encode($value, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
-	if (json_last_error() !== JSON_ERROR_NONE) {
-		$this->response("FILE: json encode failed, file={$filename}, systemerror=".json_last_error_msg(), ABCMS_LOG_FATAL);
-	}
-	return;
-}
-
-public function get_json(string $filename, mixed &$data) : void { // read json
-	if (!$this->chk_file($filename, TRUE)) { $this->response("FILE: json not readable, file={$filename}", ABCMS_LOG_FATAL); }
-	if (FALSE === ($data = file_get_contents($filename))) { $this->response("FILE: json read failed, file={$filename}".$this->error_get_last(), ABCMS_LOG_FATAL); }
-	if (NULL === ($data = json_decode($data, TRUE))) { $this->response("FILE: json decode failed, file={$filename}, systemerror=".json_last_error_msg(), ABCMS_LOG_FATAL); }
-	return;
-}
-
-private function opcache_reset(string $filename) : void { // invalidate cached PHP file
-	static $warned = FALSE;
-	if (function_exists('opcache_invalidate')) { opcache_invalidate($filename, TRUE); return; }
-	if (!$warned) { $warned = TRUE; $this->response('CORE: opcache_invalidate unavailable, stale file may serve from cache', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS); }
-	return;
-}
-
-public function set_dump(string $filename, mixed $data) : void { // write var_export
-	// partial validity check at top level, nested elements unvalidated
-	if (is_object($data) || is_resource($data)) {
-		$this->response("FILE: var_export supports scalars, arrays and NULL only, file={$filename}", ABCMS_LOG_FATAL);
-	}
-	$this->set_file($filename, '<?php return ' . var_export($data, TRUE) . ";\n");
-	$this->opcache_reset($filename);
-}
-
-public function get_dump(string $filename, mixed &$data) : bool { // read var_dump
-	if (!$this->chk_file($filename, TRUE)) { return FALSE; }
-	// beware, failed include() = FALSE = successful include() returning FALSE
-	$fn = Closure::bind(static function($f) { return include($f); }, NULL, NULL);
-	$data = $fn($filename);
-	return TRUE;
 }
 
 public function include(string $filename, ...$args) : mixed { // include always
