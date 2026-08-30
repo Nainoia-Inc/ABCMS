@@ -45,6 +45,7 @@ const ABCMS_EXT_INITX	= '/nainoiainc/abcms'.ABCMS_EXT_INIT;	// initial extension
 const ABCMS_EXT_MAIN	= '/theme_main';						// default html <main> extension hook
 const ABCMS_EXT_MAINX	= '/nainoiainc/abcms'.ABCMS_EXT_MAIN;	// default html <main> extension fullname
 const ABCMS_EXT_PRIVATE	= '/private/nainoiainc/abcms/';			// core private file folder
+const ABCMS_EXT_PUBLIC	= '/public/nainoiainc/abcms/';			// core public file folder
 // user roles
 const ABCMS_ROLE_PUBLIC	= 0;
 const ABCMS_ROLE_AUTHEN	= 1;
@@ -113,7 +114,7 @@ const ABCMS_SES_HITS	= 30;				// number of session hit times to track
 const ABCMS_SES_TIME	= 30;				// max session hit time before suspect
 const ABCMS_SES_LOGI	= 7;				// max login attempts
 // CAPTCHA characters, ASCII only, every byte offset in the CAPTCHA system depends on it
-const ABCMS_CAP_POOL	= 'abcdfhjkmnpqrstwxy345678@#$%&*?'; // no X, uppercase, l, 1, 2, 9, i, o, 0, e, g, u, v, z, avoid confusion, symbols prevent dictionary guessing
+const ABCMS_CAP_POOL	= 'abcdfhjkmnpqrstwxy345678@#%&*=?'; // no X, uppercase, l, 1, 2, 9, i, o, 0, e, g, u, v, z, avoid confusion, symbols prevent dictionary guessing
 // CAPTCHA controls for one image, answer on top, instruction on bottom, TODO - move to overridable $settings?
 const ABCMS_CAP_MINT	= 7;				// max refreshes per CSRF token, spent budget answers but stops minting, valid 1 to 999
 const ABCMS_CAP_TOTL	= 7;				// min symbols in CAPTCHA, valid 2 to 32 and never above max
@@ -273,8 +274,9 @@ private				array	$resplogs	= [];		// response log
 private				array	$respuser	= [];		// response user
 private				?string	$respcats	= NULL;		// response category, set by outermost output()
 private				?string	$respmime	= NULL;		// response mime type, set by outermost output()
-private				bool	$formvalid	= FALSE;	// form valid
-private				bool	$formhuman	= FALSE;	// form human
+private				bool	$formposts	= FALSE;	// form posts TODO use this or not? direct or shortened API?
+private				bool	$formvalid	= FALSE;	// form valid TODO use this or not? direct or shortened API?
+private				bool	$formhuman	= FALSE;	// form human TODO use this or not? direct or shortened API?
 
 function __construct() { $this->oneshot = function() { $this->input_construct(); }; } // 1st construct object methods, so extension SETUP.php can use abcms() methods
 
@@ -313,6 +315,7 @@ private function input_construct() { // 2nd construct object properties
 		'urlpathone'	=> (!($ret = preg_match('/^(\/[^\/\x00-\x1f]*)(\/[^\x00-\x1f]+)?$/uD', $urlpathall, $matches)) ? '/' : $matches[1]), // URL first segment for core router
 		'urlpathext'	=> (!$ret || empty($matches[2]) ? '/' : $matches[2]), // URL second+ segments for extension routers
 	);
+	$this->formposts = ('POST' === $this->boots['urlmethod']);
 	// possibly start session after boots and validate user
 	$session = $this->session_start(0); // lazy session start
 	// sanitize inputs with user permissions
@@ -322,7 +325,7 @@ private function input_construct() { // 2nd construct object properties
 		'urlvars'		=> (!preg_match_all(ABCMS_REGEX_URLV, $urldecoded, $matches, PREG_PATTERN_ORDER) ? array() : // validate URL vars 'U'
 			$this->input_valid('U', array_combine($matches[1], $matches[2]), $role)),
 		'urlquery'		=> ($this->input_valid('G', (mb_parse_str(($urlparsed['query']??''), $result) ? $result : array()), $role)), // URL validate query vars 'q' from parse_str() because CLI has no $_GET
-		'postvars'		=> array(), // TODO ($this->input_valid('P', $_POST, $role)), // validate $_POST vars 'p'
+		'post'			=> [], // TODO ($this->input_valid('P', $_POST, $role)), // validate $_POST vars 'p' // berware of passwords and secure info hitting the coredump!
 		'nonce'			=> $this->get_uniq(), // style & script security nonce
 	);
 	// initialize completion
@@ -760,7 +763,7 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 	if (headers_sent($hfile, $hline)) { $this->response("SESSION: start failed, headers already sent, header={$hfile}:{$hline}", ABCMS_LOG_FATAL); }
 	if (!isset($_COOKIE[$this->settings['core']['session_allows']])) { $this->set_cookie($this->settings['core']['session_allows'], ABCMS_COOK_NAVS, $now + ABCMS_COOK_LIFE, FALSE); }	// TODO TEMP CODE TO ALLOW COOKIES
 	if (empty($_COOKIE[$this->settings['core']['session_allows']])) {	$this->response('Cookies must be accepted before you can submit forms or login.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER); return FALSE; } // cookies not approved
-	$post = ('POST' === $this->boots['urlmethod'] && !$posthandled ? TRUE : FALSE); // is this a POST?
+	$post = ($this->formposts && !$posthandled ? TRUE : FALSE); // is this a POST?
 	if (0 === $cmd && !isset($_COOKIE[$this->settings['core']['session_logins']]) && !$post) { return FALSE; } // conditional start
 	// start session, more variables
 	if (!session_start($options)) { $this->response('SESSION: start failed'.$this->error_get_last(), ABCMS_LOG_FATAL); }
@@ -1580,6 +1583,8 @@ string &$html,						// inject into mime type text/html
 		// the width of the first draw only, so the page reserves the right space instead of reflowing as the image arrives
 		// a refresh may return a different symbol count, so the script drops this attribute before refetching
 		$capwide				= (ABCMS_CAP_WIDE * strlen($captcha['full']));
+		// refresh button
+		$rbutton				= (is_readable('.'.($file=ABCMS_EXT_PUBLIC.'refresh.png')) ? "<img src='{$file}' alt='Refresh' title='Refresh' />" : 'Refresh');
 	}
 	else { // clear the slots, a stale answer nobody can see would fail every POST
 		$this->ss['test_full']	= '';
@@ -1589,7 +1594,6 @@ string &$html,						// inject into mime type text/html
 	// the injected script needs the nonce for CSP
 	// closest() walks up to the button from whatever was clicked, element in button resolves to button
 	// listen for the refresh button click and return irrelevance
-	// TODO also handle <input type="image"> better
 	// zero existing CAPTCHA answer, shuffle button text/HTML, set timer to restore button text
 	// create new Image() to mint new CAPTCHA code first and reload image with mint.onload
 	// ask for a new code, refetch image, drop width attribute so new image sets own size
@@ -1603,9 +1607,7 @@ document.addEventListener('click', function (event) {
 	var answer = document.getElementById('abcms_captcha_input');
 	if (answer) { answer.value = ''; }
 	refresh.disabled = true;
-	var buttontext = refresh.innerHTML;
-	refresh.textContent = 'Refreshing...';
-	setTimeout(() => { refresh.disabled = false; refresh.innerHTML = buttontext; }, {$delay});
+	setTimeout(() => { refresh.disabled = false; }, {$delay});
 	var mint = new Image();
 	mint.onload = mint.onerror = function () {
 		var img = document.getElementById('abcms_captcha');
@@ -1620,7 +1622,7 @@ EOF;
 	// the injected script needs the nonce for CSP
 	// globally turn off form enter submit for these custom handlers
 	// target all form button handlers
-	// assign clicked value to hidden 'clicked', shuffle button text/HTML, shuffle honeypot
+	// assign button value to hidden 'clicked', shuffle button text/HTML, shuffle honeypot
 	// submit the form with setTimeout()
 	// inject captcha refresh button handler
 	$inject_script = <<<EOF
@@ -1632,20 +1634,15 @@ document.addEventListener('keydown', function(event) {
 });
 document.addEventListener('click', function (event) {
 	var button = (event.target.closest ? event.target.closest('button, input') : null);
-	if (!button || (button.type !== 'submit' && button.type !== 'image') || button.disabled) { return; }
-	button.disabled = true;
+	if (!button || !button.form || (button.type !== 'submit' && button.type !== 'image') || button.disabled) { return; }
 	event.preventDefault();
-	var buttonvalue = button.value;
-	var buttonclick = (buttonvalue || button.name);
-	button.value = 'Sending...';
-	var buttontext = button.innerHTML;
-	button.textContent = 'Sending...';
+	if (button.form.reportValidity && !button.form.reportValidity()) { return; }
+	button.disabled = true;
+	var buttonclick = (button.value || button.name || 'clicked');
 	setTimeout(() => {
 		button.form['{$this->ss['void_name']}'].value = '';
 		button.form['{$this->ss['full_name']}'].value = '{$this->ss['full_valu']}';
 		button.form['clicked'].value = buttonclick;
-		button.value = buttonvalue;
-		button.innerHTML = buttontext;
 		HTMLFormElement.prototype.submit.call(button.form);
 	}, {$delay});
 });
@@ -1676,8 +1673,8 @@ EOF;
 {$inject_image}<br>
 <input id='abcms_captcha_input' name='{$this->ss['test_name']}' value='' autocomplete='off' autocapitalize='none' spellcheck='false' required placeholder='Enter 1st row characters marked good in 2nd row'>
 </div><br>
-<button type='button' class='captcha-refresh'>Refresh</button>
-\$1 \$3
+<button type='button' class='captcha-refresh'>{$rbutton}</button>
+\$0
 EOF;
 	}
 	// further injection in <form>s and <button>s
@@ -1685,11 +1682,16 @@ EOF;
 		ABCMS_REGEX_FORM,
 		function($matches) use ($inject_tokens, $inject_captcha) {
 			$replace = $matches[1].$matches[2];
-			// only one CAPTCHA injection in front of first <button type=submit> preferred or <input type=submit>
-			// TODO also handle <input type="image"> better
-			if ($inject_captcha &&
-				(!($replace = preg_replace('/(<button(?=[\s])[^>]*?\stype\s*=(\s*submit|\s*\'submit\'|\s*"submit"))(.+?<\/button>)/uis', $inject_captcha, $replace, 1, $one)) ||
-				(1 !== $one && (!($replace = preg_replace('/(<input(?=[\s])[^>]*?\stype\s*=(\s*submit|\s*\'submit\'|\s*"submit"))(>|\s+[^>]*?>)/uis', $inject_captcha, $replace, 1, $one)) || 1 !== $one)))) {
+			// one CAPTCHA injection in front of first button
+			if ($inject_captcha && (!($replace = preg_replace(
+				'/('.
+				'(<button(?=[\s])[^>]*?\stype\s*=(\s*submit|\s*\'submit\'|\s*"submit"))(.+?<\/button>)'.
+				'|'.
+				'(<input(?=[\s])[^>]*?\stype\s*=(\s*submit|\s*\'submit\'|\s*"submit"))(>|\s+[^>]*?>)'.
+				'|'.
+				'(<input(?=[\s])[^>]*?\stype\s*=(\s*image|\s*\'image\'|\s*"image"))(>|\s+[^>]*?>)'.
+				')/uis',
+				$inject_captcha, $replace, 1, $one)) || 1 !== $one)) {
 				$this->response('FORM: captcha injection failed, preg='.preg_last_error_msg(), ABCMS_LOG_FATAL);
 			}
 			// security tokens injection
@@ -1907,19 +1909,15 @@ EOF;
 public function home_account(mixed &...$unused) : void { // home register, login, logout, update, delete
 	// initialize
 	echo '<h2>Account</h2>';
+	if (!$this->session_start(1) || ($this->formposts && !$this->formvalid)) { return; } // invalid session or FORM
 	$switch =
-		(!$this->session_start(1) ? 'nosession' :
-		('POST' !== $this->boots['urlmethod'] ? 'form' :
-		(!$this->formvalid ? 'invalid' :
+		(!$this->formposts ? 'entry' :
 		(!$this->formhuman ? 'inhuman' :
-		(!empty($_POST['clicked']) ? $_POST['clicked'] : 'unknown')))));
+		(!empty($_POST['clicked']) ? $_POST['clicked'] : 'unknown')));
 	$mess = $email = $email2 = $subject = $body = NULL;
 	// switch
 	switch ($switch) {
-		case 'nosession':	$this->response('COREEXT: login unavailable, session start failed', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
-							$this->response('The login system is unavailable. Please try again later.', ABCMS_LOG_ERROR, ABCMS_LOGTO_USER); return;
-		case 'invalid':		$mess = 'That form submission looked suspect. Please try again.'; break;
-		case 'inhuman':		$mess = 'CAPTCHA or form security check failed. Please try again.'; break;
+		case 'inhuman':		$mess = 'Your CAPTCHA entry failed. Please try again.'; break;
 		case 'login':		if (!empty($_POST['Account_Email']) && !empty($_POST['Account_Email2']) &&
 								password_verify($_POST['Account_Password'], $this->settings['core']['passhash']) &&
 								($this->ss['user'] = $this->get_database('BASIC.json', array('user', $_POST['Account_Email'])))) {
@@ -1976,9 +1974,10 @@ public function home_account(mixed &...$unused) : void { // home register, login
 							$mess = ($mess??'You are logged out.');
 							break;
 
+		case 'clicked':
 		case 'reset':
 		case 'update':
-		case 'form':
+		case 'entry':
 		case 'unknown':
 		default:			if (!empty($this->ss['user']['valid'])) {
 								$email = $this->hsc($this->ss['user']['email']);
@@ -2021,9 +2020,9 @@ public function home_account(mixed &...$unused) : void { // home register, login
 <label							>Status:</label>		<span>{$stat}</span>
 <label							>Result:</label>		<span>{$mess}</span>
 <label							>Notification:</label>	<span>{$emailerror}</span>
-<label for='Account_Email'		>Email:</label>			<input type='email'		id='Account_Email'		name='Account_Email'	value='{$email}'>
-<label for='Account_Email2'		>Email2:</label>		<input type='email'		id='Account_Email2'		name='Account_Email2'	value='{$email2}'>
-<label for='Account_Password'	>Password:</label>		<input type='password'	id='Account_Password'	name='Account_Password'	value=''>
+<label for='Account_Email'		>Email:</label>			<input type='email'		id='Account_Email'		name='Account_Email'	value='{$email}'	required>
+<label for='Account_Email2'		>Email2:</label>		<input type='email'		id='Account_Email2'		name='Account_Email2'	value='{$email2}'	required>
+<label for='Account_Password'	>Password:</label>		<input type='password'	id='Account_Password'	name='Account_Password'	value=''			required>
 <label></label>
 <div>
 EOF;
@@ -2045,9 +2044,58 @@ EOF;
 	return;
 }
 
-private function home_contact(mixed &...$unused) : void { // home contact form
+public function home_contact(mixed &...$unused) : void { // home contact form
+	// page title
+	echo "<h2>Contact</h2>\n";
+	// roadblock errors
+	if (!$this->session_start(1) || ($this->formposts && !$this->formvalid)) { return; } // invalid session or FORM
+	if (!($this->settings['core']['smtp_user']?:'')) { $this->response('Message system not available. Please try again later.', ABCMS_LOG_ERROR, ABCMS_LOGTO_BOTH); return; } // We am here, but no smtp user
+	// execute request
+	if ($this->formhuman && !empty($_POST['Contact_Mess'])) {
+		$name = $this->hsc($_POST['Contact_Name']??'unknown');
+		$mail = $this->hsc($_POST['Contact_Mail']??'unknown');
+		$mess = $this->hsc($_POST['Contact_Mess']??'unavailable');
+		$subject = "Message from {$name}, {$mail}";
+		$body = "{$subject}<br><br>{$mess}";
+		if ($this->email(
+			$this->settings['core']['smtp_user']?:'',							// from
+			($this->settings['core']['smtp_name']?:$this->boots['urldomain']),	// name
+			$this->settings['core']['smtp_user']?:'',							// recipients
+			NULL,																// cc
+			$this->settings['core']['smtp_user'],								// bcc
+			$subject,															// subject
+			$body,																// HTML body
+			$this->html_text($body),											// text body
+			NULL,																// attachments
+			[	'smtp'	=> $this->settings['core']['smtp_host'],				// SMTP host
+				'port'	=> $this->settings['core']['smtp_port'],				// SMTP port
+				'user'	=> $this->settings['core']['smtp_user'],				// SMTP user
+				'pass'	=> $this->settings['core']['smtp_pass'],				// SMTP pass
+				'ehlo'	=> $this->boots['urldomain'],							// SMTP EHLO
+			],
+			)) {
+			$this->response('Message sent, thank you.', ABCMS_LOG_INFO, ABCMS_LOGTO_USER);
+			return;
+		}
+		$this->response('Message not sent. Please try again.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER);
+		return;
+	}
+	// display form
+	$mail = $this->hsc($_POST['Contact_Mail']??'');
+	$name = $this->hsc($_POST['Contact_Name']??'');
+	$mess = $this->hsc($_POST['Contact_Mess']??'');
+	$temp = (is_readable('.'.($file=ABCMS_EXT_PUBLIC.'submit.png')) ? "<input type='image' name='Doit' value='doit' src='{$file}' alt='Doit'>\n" : NULL);
 	echo <<<EOF
-<h2>Contact</h2>
+<form action='' method='post' accept-charset='UTF-8' class='form-grid'>
+<label for='Contact_Email'	>Email:</label>		<input type='email'	id='Contact_Mail'	name='Contact_Mail'	value='{$mail}'	required>
+<label for='Contact_Name'	>Name:</label>		<input type='text'	id='Contact_Name'	name='Contact_Name'	value='{$name}'	required>
+<label for='Contact_Message'>Message:</label>	<textarea			id='Contact_Mess'	name='Contact_Mess'	rows='5' cols='40'	placeholder='Type your message here...' minlength='10' maxlength='500' required>{$mess}</textarea>
+<label></label>
+<div>
+{$temp}
+<button type='submit'	name='submit'	value='submit'	>Submit</button>
+<input type='submit'	name='Enter'	value='enter'	>
+</div></form>
 EOF;
 	return;
 }
@@ -2436,7 +2484,8 @@ public function hsc(?string $string) : ?string { // htmlspecialchars() name shor
 	return (NULL === $string ? NULL : htmlspecialchars(($string), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML401, 'UTF-8'));
 }
 
-public function html_text(string $html) : string { // HTML to plain text
+public function html_text(?string $html) : ?string { // HTML to plain text
+	if (empty($html)) { return $html; }
 	// remove JavaScript, CSS, and head
 	$html = preg_replace('/<script[^>]*?>.*?<\/script>/is', '', $html);
 	$html = preg_replace('/<style[^>]*?>.*?<\/style>/is', '', $html);
@@ -2446,13 +2495,13 @@ public function html_text(string $html) : string { // HTML to plain text
 	$html = preg_replace('/<\/(tr|blockquote)>\s*/i', "\n", $html);
 	$html = preg_replace('/<(br|br\s*\/)>\s*/i', "\n", $html);
 	// strip remaining tags
-	$text = strip_tags($html);
+	$html = strip_tags($html);
 	// clean up spacing
-	$text = preg_replace('/[ \t]+/', ' ', $text); // Collapse multiple inline spaces/tabs
-	$text = preg_replace('/\n{3,}/', "\n\n", $text); // Limit max consecutive newlines to two
+	$html = preg_replace('/[ \t]+/', ' ', $html); // Collapse multiple inline spaces/tabs
+	$html = preg_replace('/\n{3,}/', "\n\n", $html); // Limit max consecutive newlines to two
 	// decode special HTML characters
-	$text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-	return trim($text);
+	$html = html_entity_decode($html, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+	return trim($html);
 }
 
 
@@ -2716,7 +2765,7 @@ int		$flag	= 1,	// exclusive control
 // initialize
 $title = mb_strtoupper($this->hsc($this->boots['urldomain']), 'UTF-8');
 $lower = mb_strtolower($title, 'UTF-8');
-$favicon = (is_readable('./favicon.ico') ? '/favicon.ico' : (is_readable('./public/favicon.ico') ? '/public/favicon.ico' : 'data:,'));
+$favicon = (is_readable('.'.($file=ABCMS_EXT_PUBLIC.'favicon.ico')) || is_readable('.'.($file='/public/favicon.ico')) || is_readable('.'.($file='/favicon.ico')) ? $file : 'data:,');
 // HTML template
 ?>
 <!DOCTYPE html>
@@ -2769,6 +2818,8 @@ form.form-grid {
 label { text-align: right; }
 input:required { border: 1px solid blue; }
 input#abcms_captcha_input {  width: 100%; }
+button:disabled, input:disabled { cursor: not-allowed; }
+input[type=image]:disabled, button:disabled img { opacity: 0.4; }
 div.captcha, button { display: inline-block; }
 fieldset.disable { border: none; margin: 0; padding: 0; min-width: 0; display: contents; }
 pre.debug { margin-top: 7rem; background-color: #EEEEEE; text-align: left; padding: 20px; }
