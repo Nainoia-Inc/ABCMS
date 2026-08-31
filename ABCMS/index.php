@@ -286,9 +286,10 @@ function __construct() { $this->oneshot = function() { $this->input_construct();
 
 private function input_construct() { // 2nd construct object properties
 	// initialize
+	ini_set('display_errors', 0); ini_set('log_errors', 1); error_reporting(E_ALL);
 	$this->stackwho[] = ABCMS_EXT_SELF; // push core on extension stack
 	$this->setup(TRUE); // assign $settings
-	while(ob_get_level() > 0) { if (FALSE !== ($buf = ob_get_clean()) && '' !== $buf) { $this->response('CORE: unexpected output buffers discarded', ABCMS_LOG_ERROR); } } // empty buffers
+	$this->ob_trash(); // trash all buffers, should be none
 	// bootstrap inputs for session_start(), then session user validates remaining inputs
 	$this->boots = array(
 		'time'			=> time(), // execution time()
@@ -315,7 +316,9 @@ private function input_construct() { // 2nd construct object properties
 		'urlport'		=> ($urlparsed['port']??NULL), // URL port
 		'urlmethod'		=> ($cli ? 'CLI' : ((empty($_SERVER['REQUEST_METHOD']) || // URL method
 			!in_array($_SERVER['REQUEST_METHOD'], array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE'), TRUE)) ? 'GET' : $_SERVER['REQUEST_METHOD'])), // validate method
-		'urlpathall'	=> ($urlpathall = ('/'.(trim(preg_replace(ABCMS_REGEX_URLV, '/', ($urldecoded = urldecode(($urlparsed['path']??'')))), '/')))), // URL without variables, no trailing slash, and urldecoded
+		 // URL without variables, no trailing slash, and urldecoded, fatal if malformed utf8
+		'urlpathall' => ($urlpathall = ('/'.trim(preg_replace(ABCMS_REGEX_URLV, '/', (mb_check_encoding(($urldecoded = urldecode($urlparsed['path']??'')), 'UTF-8')
+			? $urldecoded : ($urldecoded = ($this->response('Invalid characters found in the URL. Please try again.', ABCMS_LOG_FATAL, ABCMS_LOGTO_USER)??'/unknown')))),'/'))), // fallback to '/unknown'
 		'urlpathone'	=> (!($ret = preg_match('/^(\/[^\/\x00-\x1f]*)(\/[^\x00-\x1f]+)?$/uD', $urlpathall, $matches)) ? '/' : $matches[1]), // URL first segment for core router
 		'urlpathext'	=> (!$ret || empty($matches[2]) ? '/' : $matches[2]), // URL second+ segments for extension routers
 	);
@@ -333,7 +336,7 @@ private function input_construct() { // 2nd construct object properties
 		'nonce'			=> $this->get_uniq(), // style & script security nonce
 	);
 	// initialize completion
-	if ($this->boots['auto']) { require_once($this->boots['auto']); } // require composer
+	if ($this->boots['auto']) { require_once($this->boots['auto']); } // require composer, unbuffered, unchecked, trusting
 	if (!str_starts_with($urldecoded, $urlpathall)) { $this->response('Some settings in that link were out of place and may be ignored.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER); } // warn user, if !str_starts_with() URL is externally constructed
 	array_pop($this->stackwho); // pop core off extension stack
 	return;
@@ -344,6 +347,14 @@ public function __set(string $name, mixed $value) : void { $this->response("CORE
 public function __clone() { $this->response('CORE: clone disallowed', ABCMS_LOG_FATAL); } // disallow cloning
 
 private function iamsuper() : bool { return (PHP_SAPI === 'cli' || (isset($this->input['role']) && $this->input['role'] >= ABCMS_ROLE_ADMINS)); } // user is admin
+
+private function ob_trash(int $level = 0) : void { // trash buffer above level and report, private because extensions no mess with buffers
+	while(($mark=ob_get_level()) > max(0, $level)) {
+		if (FALSE === ($buf = ob_get_clean())) { $this->response('CORE: ob_get_clean() failure, systemerror=ob_get_clean()', ABCMS_LOG_FATAL); } // buffer problem
+		if ('' !== $buf) { $this->response('CORE: unexpected output buffers discarded, level='.$mark, ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS); } // empty buffers
+	}
+	return;
+}
 
 private function input_valid(	// validate input variables
 string	$cat,					// 'U'=URL, 'G'=$_GET, 'P'=$_POST
@@ -512,7 +523,9 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 		// push extension stackwho so s() returns valid $_SESSION storage
 		$this->stackwho[] = $match[1];
 		$mark = $this->response_splice();
+		$level = ob_get_level();
 		try {
+			if (FALSE === ob_start()) { $this->response('SETUP: include buffer start failed, systemerror=ob_start() fail', ABCMS_LOG_FATAL); }
 			$this->include($file);
 			$this->response("SETUP: extension setup ok, file={$file}", ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
 		}
@@ -525,6 +538,7 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 		finally {
 			array_pop($this->stackwho);
 			$this->response_splice($mark); // splice off $this->respuser in finally so extension SETUP.php cannot message end users
+			$this->ob_trash($level); // trash extension SETUP.php output, should be none
 		}
 	}
 	// optimize and customize compiled settings
@@ -1230,17 +1244,18 @@ public function touch(string $filename) : void { // touch/create file with permi
 }
 
 public function set_json(string $filename, mixed $value) : void { // write json
-	$this->set_file($filename, json_encode($value, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
-	if (json_last_error() !== JSON_ERROR_NONE) {
+	if (FALSE === ($json = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT))) {
 		$this->response("FILE: json encode failed, file={$filename}, systemerror=".json_last_error_msg(), ABCMS_LOG_FATAL);
 	}
+	$this->set_file($filename, $json);
 	return;
 }
 
 public function get_json(string $filename, mixed &$data) : void { // read json
 	if (!$this->chk_file($filename, TRUE)) { $this->response("FILE: json not readable, file={$filename}", ABCMS_LOG_FATAL); }
 	if (FALSE === ($data = file_get_contents($filename))) { $this->response("FILE: json read failed, file={$filename}".$this->error_get_last(), ABCMS_LOG_FATAL); }
-	if (NULL === ($data = json_decode($data, TRUE))) { $this->response("FILE: json decode failed, file={$filename}, systemerror=".json_last_error_msg(), ABCMS_LOG_FATAL); }
+	$data = json_decode($data, TRUE);
+	if (json_last_error() !== JSON_ERROR_NONE) { $this->response("FILE: json decode failed, file={$filename}, systemerror=".json_last_error_msg(), ABCMS_LOG_FATAL); }
 	return;
 }
 
@@ -1874,12 +1889,12 @@ int		$code = 200,				// log the http request code returned
 		$this->resplogs[] = json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
 	}
 	// stop message leaks, user entry not escaped, throw entry
+	if (str_contains($mess, 'systemerror=')) { error_log('ABCMS System Error: '.$mess); }
 	if (ABCMS_LOG_FATAL === $levs) {
-		if (!$this->iamsuper()) { $mess = 'Fatal exception, details logged.'; }
+		if (!$this->iamsuper() && ABCMS_LOGTO_USER !== $goto) { $mess = 'Fatal exception, details logged.'; }
 		if (!isset($this->input)) { $this->response_flush(); } // boot fatal, finally cannot flush
 	}
 	if (ABCMS_LOGTO_BOTH === $goto || ABCMS_LOGTO_USER === $goto) { $this->respuser[] = ['level' => ABCMS_LOG[$levs], 'message' => $mess]; }
-	if (str_contains($mess, 'systemerror=')) { error_log('ABCMS System Error: '.$mess); }
 	if (ABCMS_LOG_FATAL === $levs) { throw new Exception($mess); }
 	return;
 }
@@ -2456,9 +2471,9 @@ public function rp(string|false $path) : string|false { // linux style slashes f
 }
 
 public function include(string $filename, ...$args) : mixed { // include always
-	if (!$this->chk_file($filename, TRUE)) {
-		$this->response("FILE: include not readable, file={$filename}", ABCMS_LOG_FATAL);
-	}
+	if (!$this->chk_file($filename, TRUE)) { $this->response("FILE: include not readable, file={$filename}", ABCMS_LOG_FATAL); }
+	// could also check for stray output when only including for function definition, but that is a non-fatal programmer problem
+	if (($bom = $this->bom_file($filename))) { $this->response("FILE: include bom disallowed, bom={$bom}, file={$filename}", ABCMS_LOG_FATAL); }
 	// beware, failed include() = FALSE = successful include() returning FALSE
 	// scope $args within include, hides $this, and protects abmcs() privates
 	static $fn; if (NULL === $fn) { $fn = Closure::bind(function($filename, ...$args) { return include($filename); }, NULL, NULL); }
@@ -2468,15 +2483,32 @@ public function include(string $filename, ...$args) : mixed { // include always
 public function include_once(string $filename, ...$args) : mixed { // PHP should have no fault include_once()
 	static $included = array();
 	if (!isset($included[$filename])) {
-		if (!$this->chk_file($filename, TRUE)) {
-			$this->response("FILE: include_once not readable, file={$filename}", ABCMS_LOG_FATAL);
-		}
+		if (!$this->chk_file($filename, TRUE)) { $this->response("FILE: include_once not readable, file={$filename}", ABCMS_LOG_FATAL); }
+		// could also check for stray output when only including for function definition, but that is a non-fatal programmer problem
+		if (($bom = $this->bom_file($filename))) { $this->response("FILE: include_once bom disallowed, bom={$bom}, file={$filename}", ABCMS_LOG_FATAL); }
 		$included[$filename] = TRUE;
 		// scope $args within include, hides $this, and protects abmcs() privates
 		static $fn; if (NULL === $fn) { $fn = Closure::bind(function($filename, ...$args) { return include($filename); }, NULL, NULL); }
 		return $fn($filename, ...$args);
 	}
 	return FALSE;
+}
+
+public function bom_file(	// BOM file?
+string $filename, 			// filename
+) : string {				// return BOM name, or '' for none
+	static $seen = array(); // one read per file per process
+	if (isset($seen[$filename])) { return $seen[$filename]; }
+	if (FALSE === ($head = file_get_contents($filename, FALSE, NULL, 0, 4))) {
+		$this->response("FILE: bom check failed, file={$filename}".$this->error_get_last(), ABCMS_LOG_FATAL);
+	}
+	else if (str_starts_with($head, "\xFF\xFE\x00\x00")) {	$bom = 'UTF-32LE'; }
+	else if (str_starts_with($head, "\x00\x00\xFE\xFF")) {	$bom = 'UTF-32BE'; }
+	else if (str_starts_with($head, "\xEF\xBB\xBF"))     {	$bom = 'UTF-8'; }
+	else if (str_starts_with($head, "\xFF\xFE"))         {	$bom = 'UTF-16LE'; }
+	else if (str_starts_with($head, "\xFE\xFF"))         {	$bom = 'UTF-16BE'; }
+	else {													$bom = ''; }
+	return ($seen[$filename] = $bom);
 }
 
 public function array_walk_merge(array &$destiny, array $source) : void { // array_walk_recursive() cannot copy multi-dimensional source, array_map() cannot edit destination
@@ -2542,6 +2574,25 @@ public function html_text(?string $html) : ?string { // HTML to plain text
 	// decode special HTML characters
 	$html = html_entity_decode($html, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 	return trim($html);
+}
+
+public function chk_utf8(string $data) : bool { // well-formed UTF-8? no side effects, no conversion
+	return mb_check_encoding($data, 'UTF-8');
+}
+
+public function get_utf8(string $data, ?string $from = NULL) : string { // NULL scrubs in place, else converts from the named encoding
+	if (NULL === $from) { // no source claimed, so only repair what is already broken
+		if (mb_check_encoding($data, 'UTF-8')) { return $data; } // never touch valid input, this is the double-encode guard
+		$from = 'UTF-8'; // UTF-8 to UTF-8 replaces each bad byte with U+FFFD
+	}
+	else if (!in_array(mb_strtoupper($from), array_map('mb_strtoupper', mb_list_encodings()), TRUE)) {
+		$this->response("FILE: unknown source encoding, from={$from}", ABCMS_LOG_FATAL);
+	}
+	$keep = mb_substitute_character(); // global, so borrow it and put it back
+	mb_substitute_character(0xFFFD);
+	$data = mb_convert_encoding($data, 'UTF-8', $from);
+	mb_substitute_character($keep);
+	return $data;
 }
 
 
