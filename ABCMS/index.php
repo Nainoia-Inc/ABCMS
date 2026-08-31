@@ -48,6 +48,8 @@ const ABCMS_EXT_MAIN	= '/theme_main';						// default html <main> extension hook
 const ABCMS_EXT_MAINX	= '/nainoiainc/abcms'.ABCMS_EXT_MAIN;	// default html <main> extension fullname
 const ABCMS_EXT_PRIVATE	= '/private/nainoiainc/abcms/';			// core private file folder
 const ABCMS_EXT_PUBLIC	= '/public/nainoiainc/abcms/';			// core public file folder
+const ABCMS_EXT_LOOP	= 1000;									// max extension loop
+const ABCMS_CLI_LOOP	= 1000000;								// max cli extension loop
 // user roles
 const ABCMS_ROLE_PUBLIC	= 0;
 const ABCMS_ROLE_AUTHEN	= 1;
@@ -84,6 +86,7 @@ const ABCMS_LOG_INFO	= 2;				// log || echo user
 const ABCMS_LOG_WARN	= 3;				// log || echo user
 const ABCMS_LOG_ERROR	= 4;				// log || echo user
 const ABCMS_LOG_FATAL	= 5;				// log && echo user
+const ABCMS_LOG_MAX		= 100;				// log max per run
 const ABCMS_LOG			= array('Debug','Trace','Info','Warning','Error','Fatal'); // log type map
 const ABCMS_LOGTO_LOGS	= 0;				// to logs
 const ABCMS_LOGTO_USER	= 1;				// to user
@@ -1023,7 +1026,7 @@ private function session_captcha_code() : array { // new CAPTCHA code on load an
 
 public function session_captcha(	// render the CAPTCHA image, routed as ABCMS_TYPE_FILE so output() streams it unbuffered
 mixed	&...$unused,				// router arguments, unused
-) : ?bool {							// return NULL, never repeats
+) : void {							// void never repeats
 	// captcha code stored in session to change with every page load and refresh
 	$full = '';
 	$hint = array();
@@ -1055,7 +1058,7 @@ mixed	&...$unused,				// router arguments, unused
 		}
 		// mint route must serve an unused tiniest possible image/png, 1 pixel png
 		echo base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAC0lEQVQImWNgAAIAAAUAAWJVMogAAAAASUVORK5CYII=');
-		return NULL;
+		return;
 	}
 	// confirm hint is array of ints, if corruption build an unusable placeholder
 	$skip = array_values(array_filter((array)($hint['skip'] ?? array()), 'is_int'));
@@ -1066,7 +1069,7 @@ mixed	&...$unused,				// router arguments, unused
 	}
 	// draw and stream entire CAPTCHA
 	$this->session_captcha_draw($full, $skip, (int)($hint['yess'] ?? 0), (int)($hint['noos'] ?? 0));
-	return NULL;
+	return;
 }
 
 private function session_captcha_mark(	// draw one instruction mark from option list
@@ -1515,15 +1518,16 @@ mixed	&...$args,		// default arguments
 			continue;
 		}
 		// loop only applies to registered extension functions, internal extension dispatch is its own business
+		$save = $loop = ($this->boots['cli'] && !in_array($this->respcats, ABCMS_TYPE_HTMLS, TRUE) ? ABCMS_CLI_LOOP : ABCMS_EXT_LOOP);
 		do { // repeat hook extension until FALSE -OR- NULL || TODO invert the continue test
 			// file category streams straight to the client, no injection, no buffering, no sub-extensions, explicit mime required
 			if (ABCMS_TYPE_FILE === $this->respcats) {
-				$this->output_call($extin['who'], $extin['fun'], ...$args); // execute hook extension, writes its own body
-				$more = FALSE;
+				$this->output_call($extin['who'], $extin['fun'], ...$args); // stream file, ignore return, done
+				$done = TRUE;
 				break 2;
 			}
 			if (FALSE === ob_start()) { $this->response('OUTPUT: buffer start failed, systemerror=ob_start() fail', ABCMS_LOG_FATAL); } // buffer output
-			$more = $this->output_call($extin['who'], $extin['fun'], ...$args); // execute hook extension
+			$done = $this->output_call($extin['who'], $extin['fun'], ...$args); // execute hook extension
 			if (FALSE === ($out = ob_get_clean())) { $this->response('OUTPUT: buffer get clean failed, systemerror=ob_get_clean() fail', ABCMS_LOG_FATAL); } // retrieve buffer
 			// output filter extensions by priority
 			foreach($ext['O'] as $extout) {
@@ -1546,7 +1550,8 @@ mixed	&...$args,		// default arguments
 				}
 			}
 			echo $out; // echo compiled output
-		} while ($more); // repeat hook extension until FALSE || TODO invert the test
+			if (0 > --$loop) { $this->response("DISPATCH: extension repeat limit, hook={$hook} who={$extin['who']} func={$extin['fun']} loop={$save}", ABCMS_LOG_ERROR); break; }
+		} while (FALSE === $done); // repeat if FALSE, NULL || TRUE are done
 		if (isset($extin['ctl']['U'])) { break; } // uno extension allowed
 	}
 	// stack pop and return $arguments
@@ -1616,7 +1621,7 @@ private function output_call(	// call extension function
 string	$who,					// extension stack
 string	$filefunc,				// includefile?function
 mixed	&...$args,				// arguments passed
-) : ?bool {						// return function result
+) : mixed {						// cannot return '?bool' which flattens 0 to FALSE, typicals include TRUE, NULL, 0, but only FALSE repeats
 	// parse includefile?function
 	static $parsed = array();
 	if (!isset($parsed[$filefunc])) {
@@ -1625,20 +1630,20 @@ mixed	&...$args,				// arguments passed
 	}
 	[$filepath, $classobject, $operator, $funcmeth] = $parsed[$filefunc];
 	// initialize
-	$result = FALSE; // default is failure
+	$result = NULL; // default is failure / done
 	$this->stackwho[] = $who; try { // push who stack
 	// include
 	if ($filepath) {
 		$filepath = $this->settings['core']['projectroot'].'/private'.$who.$filepath; // resolved filename
-		if ($funcmeth) {	$result = (bool)$this->include_once($filepath, ...$args); } // failsafe include once for definition
-		else {				$result = (bool)$this->include($filepath, ...$args); } // or multiple executions allowed
+		if ($funcmeth) {	$result = $this->include_once($filepath, ...$args); } // failsafe include once for definition
+		else {				$result = $this->include($filepath, ...$args); } // or multiple executions allowed
 	}
 	// call function
 	if ($funcmeth) { // function attempt
 		if ($classobject) { // class or object method
 			if ('::' === $operator) { // class operator
 				if (!class_exists($classobject) || !method_exists($classobject, $funcmeth)) { $this->response("DISPATCH: invalid class method, who={$who} func={$filefunc}", ABCMS_LOG_FATAL); }
-				$result = (bool)$classobject::$funcmeth(...$args); // Execute
+				$result = $classobject::$funcmeth(...$args); // Execute
 			}
 			else { // non-class methods
 				if ('->' === $operator) { // instance or object operator
@@ -1656,12 +1661,12 @@ mixed	&...$args,				// arguments passed
 					$reflection = new ReflectionClass($this);
 					if (!$reflection->getMethod($funcmeth)->isPublic()) { $this->response("DISPATCH: private method disallowed, who={$who} func={$filefunc}", ABCMS_LOG_FATAL); }
 				}
-				$result = (bool)$newobject->$funcmeth(...$args); // execute
+				$result = $newobject->$funcmeth(...$args); // execute
 			}
 		}
 		else {
 			if (!function_exists($funcmeth)) { $this->response("DISPATCH: invalid function, who={$who} func={$filefunc}", ABCMS_LOG_FATAL); }
-			$result = (bool)$funcmeth(...$args); // execute
+			$result = $funcmeth(...$args); // execute
 		}
 	}
 	// pop who stack and return result
@@ -1855,6 +1860,8 @@ int		$levs,						// level is ABCMS_LOG_(DEBUG||TRACE||INFO||WARN||ERROR||FATAL)
 int		$goto = ABCMS_LOGTO_LOGS,	// ABCMS_LOGTO_(LOGS||USER||BOTH)
 int		$code = 200,				// log the http request code returned
 ) : void {
+	// monitor
+	static $max = ABCMS_LOG_MAX; if(ABCMS_LOG_FATAL !== $levs && 0 > --$max) { return; }
 	// fix levs and goto
 	if (ABCMS_LOG_DEBUG === $levs) {	if (!($this->input['urlvars']['debug']??FALSE)) { return; } $goto = ABCMS_LOGTO_LOGS; } // debug early exit or log only
 	else if (ABCMS_LOG_TRACE === $levs) {	$goto = ABCMS_LOGTO_LOGS; } // log only
@@ -1962,7 +1969,7 @@ public function error_get_last() : string { // return last error message
 SECTION HOME: Core extension /home/*
 */
 
-private function home_theme(mixed &...$unused) : ?bool { // default home theme
+private function home_theme(mixed &...$unused) : void { // default home theme
 	$footer = <<<EOF
 <a href='/'>Home</a>
  / <a href='/account'>Account</a>
@@ -1985,10 +1992,10 @@ EOF
 			1,		// exclusive?
 		),
 	);
-	return NULL;
+	return;
 }
 
-private function home_router(mixed &...$unused) : ?bool { // home router
+private function home_router(mixed &...$unused) : void { // home router
 	// internal extension dispatch bypasses core routing for speed
 	switch ($this->boots['urlpathall']) {
 		case '/':			$this->home();			break;
@@ -1996,7 +2003,7 @@ private function home_router(mixed &...$unused) : ?bool { // home router
 		case '/account':	$this->home_account();	break;
 		default:			$this->home_notfound();	break;
 	}
-	return NULL;
+	return;
 }
 
 private function home(mixed &...$unused) : void { // home homepage
@@ -2257,7 +2264,7 @@ SECTION WEBFILES: Core extension /webfiles/*
 SECTION CONSOLE: Core extension /console/*
 */
 
-private function console_theme(mixed &...$unused) : ?bool { // default console theme
+private function console_theme(mixed &...$unused) : void { // default console theme
 	$this->theme(
 		...$args = array(
 <<<EOF
@@ -2280,10 +2287,10 @@ EOF
 			1,				// exclusive?
 		),
 	);
-	return NULL;
+	return;
 }
 
-private function console_router(mixed &...$unused) : ?bool { // console router
+private function console_router(mixed &...$unused) : void { // console router
 	// internal extension dispatch bypasses core routing for speed
 	switch ($this->boots['urlpathall']) {
 		case '/console':
@@ -2294,7 +2301,7 @@ private function console_router(mixed &...$unused) : ?bool { // console router
 		case '/console/webservant':	$this->console_webservant();	break;
 		default:					$this->home_notfound();			break;
 	}
-	return NULL;
+	return;
 }
 
 private function console_menu(mixed &...$unused) : void { // console menu
@@ -2380,7 +2387,7 @@ EOF;
 /*************************************************************************************************
 SECTION COMMAND: Core extension /command/*
 */
-private function command_router(mixed &...$unused) : ?bool { // command router
+private function command_router(mixed &...$unused) : void { // command router
 	// internal extension dispatch bypasses core routing for speed
 	switch ($this->boots['urlpathall']) {
 		case '/command/code':		$this->command_code();		break;
@@ -2393,7 +2400,7 @@ private function command_router(mixed &...$unused) : ?bool { // command router
 		default:					$this->command_help();		break;
 	}
 	echo abcms()->response_plain();
-	return NULL;
+	return;
 }
 
 private function command_code(mixed &...$unused) : void { // command code
@@ -2852,7 +2859,7 @@ public function theme(	// default HTML template
 ?string	$main	= NULL,	// content override
 ?string	$foot	= NULL,	// footer override
 int		$flag	= 1,	// exclusive control
-) : ?bool {				// return boolean
+) : void {				// void never repeats
 // initialize
 $title = mb_strtoupper($this->hsc($this->boots['urldomain']), 'UTF-8');
 $lower = mb_strtolower($title, 'UTF-8');
@@ -2948,7 +2955,7 @@ echo $this->response_html();
 </div>
 </body>
 <?php
-return NULL;
+return;
 }
 // end object
 };
