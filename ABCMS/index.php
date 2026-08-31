@@ -1515,10 +1515,20 @@ mixed	&...$args,		// default arguments
 				if (!$this->output_doit($extout, $whoami, $flag, TRUE, $exout)) { continue; } // skip for reasons
 				$this->output_call($extout['who'], $extout['fun'], $out, ...$args); // execute output filter
 			}
-			// ABCMS security output filter and injection, html category only, frag is html that must not be injected
-			if (ABCMS_EXT_INITX === $hook && ABCMS_TYPE_HTML === $this->respcats) {
-				$this->output_security($out);	// inject security
-				$this->output_debug($out);	// debug output
+			// 'html' injections for security and debug info, 'frag' is not injected
+			if (ABCMS_TYPE_HTML === $this->respcats) {
+				if (ABCMS_EXT_INITX === $hook) {
+					$this->output_security($out); // inject security
+					$this->output_debug($out); // debug output
+				}
+				if ($this->input['role'] === ABCMS_ROLE_ADMINS && $out) { // inject comments
+					$out =
+						"\n\n\n\n<!-- ABCMS EXTENSION: " .
+						($end = str_replace('--', '- -', "hook={$hook}, meth={$meth}, default={$default}, role={$role}, flag={$flag}, must={$must}")).
+						" -->\n\n" .
+						$out .
+						"\n\n<!-- ABCMS END: {$end} -->\n\n";
+				}
 			}
 			echo $out; // echo compiled output
 		} while ($more); // repeat hook extension until FALSE || TODO invert the test
