@@ -27,6 +27,8 @@ SECTION REQUIREMENTS: Minimum requirements for operation.
 PHP version 8.1.0 or greater
 PHP GD version 	2.9.1 // tested working
 Filesystem supporting flock($fd, LOCK_EX)
+Recommended:
+opcache on with opcache.validate_timestamps=0 for production
 */
 
 
@@ -215,7 +217,7 @@ EOF;
 	}
 	// CLI echo
 	else {
-		echo (abcms() ? abcms()->response_plain() : $exception)."\n\n";
+		echo (abcms() ? abcms()->response_plain() : $exception);
 	}
 	// file output
 	$composer = array(); // composer extensions
@@ -534,7 +536,10 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	$this->set_vexp($storage, $this->compiles);
 	if ($boot) { $this->settings = $this->compiles; }
 	$this->compiles = NULL;
-	// warning: op cache setting requires manual cache refresh
+	// opcache missing is an error
+	if ('cli' !== PHP_SAPI && (!function_exists('opcache_get_status') || !($ocs = @opcache_get_status(FALSE)) || empty($ocs['opcache_enabled']))) {
+		$this->response('SETUP: opcache disabled, index.php reparses on every request', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+	}
 	if (function_exists('opcache_get_configuration') && !ini_get('opcache.validate_timestamps')) {
 		$this->response('SETUP: opcache stale, reload php-fpm to apply settings', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 	}
@@ -733,10 +738,9 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 	// initialize
 	$active = (session_status() === PHP_SESSION_ACTIVE ? TRUE : FALSE);
 	$slap = FALSE;
-	static $now = NULL;
+	static $now, $options; // assigned NULL
 	static $posthandled = FALSE; // post already handled
 	static $deny = FALSE; // deny further session whether bad actor or failed session_destroy()
-	static $options = NULL;
 	if (NULL === $options) {
 		$now = $this->boots['time'];
 		$options = [
@@ -1132,9 +1136,7 @@ int		$noos,							// ABCMS_CAP_NOOS mark to skip
 	$mark = (int)(ABCMS_CAP_WIDE * 0.30); // instruction mark radius, sized to narrowest column, never grows with short code and leaks count
 	$flip = array_flip($skip);   // one lookup table instead of a scan per cell
 	// function availability test
-	static $test = FALSE;
-	static $spun = FALSE;
-	static $grew = FALSE;
+	static $test, $spun, $grew; // assigned NULL
 	if (!$test) {
 		$test = TRUE;
 		$spun = function_exists('imagerotate'); // core GD, but an upright symbol is a fair degradation without it
@@ -1142,7 +1144,7 @@ int		$noos,							// ABCMS_CAP_NOOS mark to skip
 		if (!$spun || !$grew) { $this->response('CAPTCHA: degraded, imagerotate || imagescale unavailable', ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS); }
 	}
 	// one pass over each column, so a mark is always drawn under the symbol it belongs to
-	static $fail = FALSE;
+	static $fail; // assigned NULL
 	for ($i = 0; $i < $cells; $i++) {
 		// character for this column
 		if (FALSE !== ($stamp = @imagecreatetruecolor($wide, $tall))) {
@@ -1243,7 +1245,7 @@ public function get_json(string $filename, mixed &$data) : void { // read json
 }
 
 private function opcache_reset(string $filename) : void { // invalidate cached PHP file
-	static $warned = FALSE;
+	static $warned; // assigned NULL
 	if (function_exists('opcache_invalidate')) { opcache_invalidate($filename, TRUE); return; }
 	if (!$warned) { $warned = TRUE; $this->response('CORE: opcache_invalidate unavailable, stale file may serve from cache', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS); }
 	return;
@@ -1393,7 +1395,7 @@ public function set_vexp(string $filename, mixed $data) : void { // write var_ex
 public function get_vexp(string $filename, mixed &$data) : bool { // read var_export()
 	if (!$this->chk_file($filename, TRUE)) { return FALSE; }
 	// beware, failed include() = FALSE = successful include() returning FALSE
-	$fn = Closure::bind(static function($f) { return include($f); }, NULL, NULL);
+	static $fn; if (NULL === $fn) { $fn = Closure::bind(static function($f) { return include($f); }, NULL, NULL); }
 	$data = $fn($filename);
 	return TRUE;
 }
@@ -1474,8 +1476,8 @@ mixed	&...$args,		// default arguments
 			 array())), // OR nothing
 			(!empty($hooky['eq']['']) && !empty($hooky['ex'][$hooky['eq']['']])	? $hooky['ex'][$hooky['eq']['']] : array()), // AND empty path
 			(!empty($hooky['ex'][''])											? $hooky['ex'][''] : array())); // AND empty name
-		if (isset($ext['I'])) {	usort($ext['I'], function($a, $b) { return (($ret=(isset($a['ctl']['U'])===isset($b['ctl']['U']) ? 0 : (isset($a['ctl']['U']) ? -1 : 1))) ? $ret : $a['ord'] <=> $b['ord']); } ); }
-		if (isset($ext['O'])) {	usort($ext['O'], function($a, $b) { return (($ret=(isset($a['ctl']['U'])===isset($b['ctl']['U']) ? 0 : (isset($a['ctl']['U']) ? -1 : 1))) ? $ret : $a['ord'] <=> $b['ord']); } ); }
+		if (count($ext['I']) > 1) { usort($ext['I'], function($a, $b) { return (($ret=(isset($a['ctl']['U'])===isset($b['ctl']['U']) ? 0 : (isset($a['ctl']['U']) ? -1 : 1))) ? $ret : $a['ord'] <=> $b['ord']); } ); }
+		if (count($ext['O']) > 1) {	usort($ext['O'], function($a, $b) { return (($ret=(isset($a['ctl']['U'])===isset($b['ctl']['U']) ? 0 : (isset($a['ctl']['U']) ? -1 : 1))) ? $ret : $a['ord'] <=> $b['ord']); } ); }
 	}
 	// execute
 	$exin = $exout = NULL; // exclusive winner or non-exclusive
@@ -1591,11 +1593,12 @@ string	$filefunc,				// includefile?function
 mixed	&...$args,				// arguments passed
 ) : ?bool {						// return function result
 	// parse includefile?function
-	if (!preg_match(ABCMS_REGEX_FUNC, $filefunc, $match)) { $this->response("DISPATCH: invalid function name, who={$who} func={$filefunc}", ABCMS_LOG_FATAL); }
-	$filepath	= $match[2]; // extension include file
-	$classobject= $match[5]; // class or object
-	$operator	= $match[6]; // operator to function
-	$funcmeth	= $match[7]; // function / method
+	static $parsed = array();
+	if (!isset($parsed[$filefunc])) {
+		if (!preg_match(ABCMS_REGEX_FUNC, $filefunc, $match)) { $this->response("DISPATCH: invalid function name, who={$who} func={$filefunc}", ABCMS_LOG_FATAL); }
+		$parsed[$filefunc] = array($match[2], $match[5], $match[6], $match[7]);
+	}
+	[$filepath, $classobject, $operator, $funcmeth] = $parsed[$filefunc];
 	// initialize
 	$result = FALSE; // default is failure
 	$this->stackwho[] = $who; try { // push who stack
@@ -1835,7 +1838,7 @@ int		$code = 200,				// log the http request code returned
 	else if (!isset(ABCMS_LOGTO[$goto])) {	$goto = ABCMS_LOGTO_LOGS; } // bad goto, log only
 	// logs entry
 	if (ABCMS_LOGTO_BOTH === $goto || ABCMS_LOGTO_LOGS === $goto) {
-		static $rids = NULL;
+		static $rids; // assigned NULL
 		static $nums = 1;
 		if (NULL === $rids) { $rids = $this->get_dbid(); } else { ++$nums; }
 		[$file, $line, $func, $args] = $this->response_trace();
@@ -1886,7 +1889,7 @@ public function response_flush() : void { // write response logs
 }
 
 public function response_plain() : string { // return formatted log
-	return implode("\n", array_map(function($row) { return implode(': ', $row); }, $this->respuser));
+	return ($this->respuser ? implode("\n", array_map(function($row) { return implode(': ', $row); }, $this->respuser))."\n" : '');
 }
 
 public function response_html() : string { // return formatted log
@@ -2364,6 +2367,7 @@ private function command_router(mixed &...$unused) : ?bool { // command router
 		case '/command/help':
 		default:					$this->command_help();		break;
 	}
+	echo abcms()->response_plain();
 	return NULL;
 }
 
@@ -2398,13 +2402,14 @@ private function command_phpinfo(mixed &...$unused) : void { // command phpinfo
 
 private function command_setup(mixed &...$unused) : void { // command setup
 	$this->setup(); // recreate settings
-	// op cache warning
-	$mess = '';
-	if (function_exists('opcache_get_configuration') && !ini_get('opcache.validate_timestamps')) {
-		$this->response('SETUP: opcache stale, reload php-fpm to apply settings', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
-		$mess = "Reload PHP-FPM to refresh OpCache and apply these settings.\n\n";
+	// opcache missing is a warning in this context
+	if ('cli' !== PHP_SAPI && (!function_exists('opcache_get_status') || !($ocs = @opcache_get_status(FALSE)) || empty($ocs['opcache_enabled']))) {
+		$this->response('SETUP: opcache disabled, index.php reparses on every request', ABCMS_LOG_WARN, ABCMS_LOGTO_USER);
 	}
-	echo "ABCMS settings:\n\nRefresh the screen to see updated settings.\n\n{$mess}Done.\n\n";
+	if (function_exists('opcache_get_configuration') && !ini_get('opcache.validate_timestamps')) {
+		$this->response('SETUP: opcache stale, reload php-fpm to apply settings', ABCMS_LOG_WARN, ABCMS_LOGTO_USER);
+	}
+	echo "ABCMS settings: Refresh the screen to see updated settings. Done.\n";
 	return;
 }
 
@@ -2445,9 +2450,9 @@ public function include(string $filename, ...$args) : mixed { // include always
 		$this->response("FILE: include not readable, file={$filename}", ABCMS_LOG_FATAL);
 	}
 	// beware, failed include() = FALSE = successful include() returning FALSE
-	// anonymous scopes $args within include, hides $this, and protects abmcs() privates
-	$anonymous = Closure::bind(function($filename, ...$args) { return include($filename); }, NULL, NULL);
-	return $anonymous($filename, ...$args);
+	// scope $args within include, hides $this, and protects abmcs() privates
+	static $fn; if (NULL === $fn) { $fn = Closure::bind(function($filename, ...$args) { return include($filename); }, NULL, NULL); }
+	return $fn($filename, ...$args);
 }
 
 public function include_once(string $filename, ...$args) : mixed { // PHP should have no fault include_once()
@@ -2457,9 +2462,9 @@ public function include_once(string $filename, ...$args) : mixed { // PHP should
 			$this->response("FILE: include_once not readable, file={$filename}", ABCMS_LOG_FATAL);
 		}
 		$included[$filename] = TRUE;
-		// anonymous scopes $args within include, hides $this, and protects abmcs() privates
-		$anonymous = Closure::bind(function($filename, ...$args) { return include($filename); }, NULL, NULL);
-		return $anonymous($filename, ...$args);
+		// scope $args within include, hides $this, and protects abmcs() privates
+		static $fn; if (NULL === $fn) { $fn = Closure::bind(function($filename, ...$args) { return include($filename); }, NULL, NULL); }
+		return $fn($filename, ...$args);
 	}
 	return FALSE;
 }
