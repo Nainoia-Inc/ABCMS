@@ -430,6 +430,8 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 		return;
 	}
 	// register core settings
+	// TODO add a get_hash() that is constant for the lifetime of this install for unique captcha and webhook paths, different from other installs
+	// TODO noting that webhooks paths would be registered permenantly with stripe or whomever and so need to be permanent links
 	$this->response('SETUP: begin', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
 	$this->compiles['core']['filename']			= $this->rp(__FILE__); // my filename
 	$this->compiles['core']['documentroot']		= $this->rp(__DIR__); // my documentroot
@@ -2448,6 +2450,40 @@ private function command_setup(mixed &...$unused) : void { // command setup
 private function command_updater(mixed &...$unused) : void { // command updater
 	echo "ABCMS updater\n\nDone.\n\n";
 	return;
+}
+
+
+
+
+
+
+
+/*************************************************************************************************
+SECTION PAYMENTS: Payment gateways API.
+*/
+
+private function payment_webhook() : mixed { // validate webhook
+	// TODO call this function on payment webhook 'stripe_path', call after $this->boots[] assigned, but before $this->session_start()
+	//if ($this->formposts && '' !== ($hook = rtrim((string)($this->settings['core']['stripe_path'] ?? ''), '/')) && $hook === $this->boots['urlpathone']) { $payevent = $this->payment_webhook(); }
+	if (empty($this->settings['core']['stripe_whsec'])) { http_response_code(400); $this->response('PAYMENT: webhook signature undefined', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS, 400); return NULL; }
+	if (FALSE === ($raw = file_get_contents('php://input'))) { $this->response("PAYMENT: webhook fail hook=php://input".$this->error_get_last(), ABCMS_LOG_FATAL); } // read exact bytes, 1st thing
+	if ('' === $raw) { return NULL; } // not a webhook
+	foreach(explode(',',($_SERVER['HTTP_STRIPE_SIGNATURE']??'')) as $pair) { // explode by ','
+		if (count(($parts = explode('=', $pair, 2))) < 2) { continue; } // explode by '='
+		$key   = trim($parts[0]);
+		$value = trim($parts[1]);
+		if ('t' === $key) {			$result['t'] = (int)$value; }
+		else if ('v1' === $key) {	$result['v1'][] = $value; } // multiple per key rotation
+	}
+	if (empty($result['t'])) { http_response_code(400); $this->response('PAYMENT: webhook signature time missing', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS, 400); return NULL; }
+	$want = hash_hmac('sha256', $result['t'].'.'.$raw, $this->settings['core']['stripe_whsec']); // TODO assign ['stripe_whsec'] in override settings
+	$valid = FALSE;
+	foreach($result['v1']??[] as $sign) { if (hash_equals($want, $sign)) { $valid = TRUE; break; } }
+	if (!$valid) { http_response_code(400); $this->response('PAYMENT: webhook signature mismatch', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS, 400); return NULL; }
+	if (abs($this->boots['time'] - $result['t']) > 300) { http_response_code(400); $this->response('PAYMENT: webhook replay prohibited', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS, 400); return NULL; }
+	$event = json_decode($raw, TRUE); // only now safe to parse
+	if (json_last_error() !== JSON_ERROR_NONE) { $this->response('PAYMENT: webhook json corrupted, systemerror='.json_last_error_msg(), ABCMS_LOG_FATAL); }
+	return $event;
 }
 
 
