@@ -269,8 +269,8 @@ if (FALSE === $_abcms) {							// fail once
 $_abcms = NULL;										// return NULL or object
 $_abcms = new class {								// abcms object assigned
 public				?Closure $oneshot	= NULL;		// oneshot construction
-readonly			array	$boots;					// bootstrap input before session
-readonly			array	$input;					// sanitize input with session
+public	readonly	array	$boots;					// bootstrap input before session
+public	readonly	array	$input;					// sanitize input with session
 private readonly	array	$settings;				// application settings
 private				?array	$compiles	= NULL;		// compile settings
 private				array	$database	= [];		// database
@@ -349,7 +349,7 @@ public function __set(string $name, mixed $value) : void { $this->response("CORE
 
 public function __clone() { $this->response('CORE: clone disallowed', ABCMS_LOG_FATAL); } // disallow cloning
 
-private function iamsuper() : bool { return (PHP_SAPI === 'cli' || (isset($this->input['role']) && $this->input['role'] >= ABCMS_ROLE_ADMINS)); } // user is admin
+public function iamsuper() : bool { return (PHP_SAPI === 'cli' || (isset($this->input['role']) && $this->input['role'] >= ABCMS_ROLE_ADMINS)); } // user is admin
 
 private function ob_trash(int $level = 0) : void { // trash buffer above level and report, private because extensions no mess with buffers
 	while(($mark=ob_get_level()) > max(0, $level)) {
@@ -741,6 +741,12 @@ int		$rol,					// min role
 	return TRUE;
 }
 
+private function setup_scope(string $what) : void { // request-scoped API called during setup?
+	if (isset($this->compiles) && ABCMS_EXT_SELF !== ($whoami = $this->output_extension())) {
+		$this->response("SETUP: {$what} disallowed during setup, who={$whoami}", ABCMS_LOG_FATAL);
+	}
+}
+
 
 
 
@@ -754,6 +760,9 @@ SECTION SESSION: Secure sessions with opt-in/out, validation, CSRF, CAPTCHA, and
 public function session_start(	// start session conditionally
 int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 ) : bool {						// return TRUE=started, FALSE=destroyed
+	// lazy start core only, extensions may force start or destroy, but not during setup
+	if (0 === $cmd && ABCMS_EXT_SELF !== ($whoami = $this->output_extension())) { $this->response("SESSION: lazy start disallowed, who={$whoami}", ABCMS_LOG_FATAL); }
+	$this->setup_scope('session_start()'); // not during SETUP.php
 	// initialize
 	$active = (session_status() === PHP_SESSION_ACTIVE ? TRUE : FALSE);
 	$slap = FALSE;
@@ -784,9 +793,10 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 	// early exit
 	if ($deny || isset($_COOKIE[$this->settings['core']['session_badact']])) { if (!($deny)) { $this->response('Access is temporarily blocked. Please try again later.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER); } $deny = TRUE; return FALSE; } // bad actor
 	if ($cmd < 0) { $error = 'You are logged out.'; goto KILL; } // destroy session
+	// TODO review this gate logic to see if should be moved up or remain after $deny and $cms<0
 	if ($active) { if (0 === $cmd) { $this->response('SESSION: unauthorized start encountered', ABCMS_LOG_FATAL); } return TRUE; } // already started, but ABCMS must start
 	if (headers_sent($hfile, $hline)) { $this->response("SESSION: start failed, headers already sent, header={$hfile}:{$hline}", ABCMS_LOG_FATAL); }
-	if (!isset($_COOKIE[$this->settings['core']['session_allows']])) { $this->set_cookie($this->settings['core']['session_allows'], ABCMS_COOK_NAVS, $now + ABCMS_COOK_LIFE, FALSE); }	// TODO TEMP CODE TO ALLOW COOKIES
+	if (!isset($_COOKIE[$this->settings['core']['session_allows']])) { $this->set_cookie_core($this->settings['core']['session_allows'], ABCMS_COOK_NAVS, $now + ABCMS_COOK_LIFE, FALSE); }	// TODO TEMP CODE TO ALLOW COOKIES
 	if (empty($_COOKIE[$this->settings['core']['session_allows']])) {	$this->response('Cookies must be accepted before you can submit forms or login.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER); return FALSE; } // cookies not approved
 	$post = ($this->formposts && !$posthandled ? TRUE : FALSE); // is this a POST?
 	if (0 === $cmd && !isset($_COOKIE[$this->settings['core']['session_logins']]) && !$post) { return FALSE; } // conditional start
@@ -846,9 +856,9 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 KILL:	// start session to destroy and report the error to logs afterward
 		$logs = (($active || ($active = session_start($options))) ? NULL : ($this->error_get_last() ?: ', systemerror=session_start()'));
 		// remove cookies
-		$this->set_cookie($options['name'], '', 1); // session
-		$this->set_cookie($this->settings['core']['session_secret'], '', 1); // secret
-		$this->set_cookie($this->settings['core']['session_logins'], '', 1); // login
+		$this->set_cookie_core($options['name'], '', 1); // session
+		$this->set_cookie_core($this->settings['core']['session_secret'], '', 1); // secret
+		$this->set_cookie_core($this->settings['core']['session_logins'], '', 1); // login
 		// PHP says mark for garbage collection, but I don't want garbage laying around
 		$_SESSION = $this->ss = []; // access directly exception to clear entire session
 		if ($active && !session_destroy()) { $deny = TRUE; $this->response('SESSION: destroy failed'.$this->error_get_last(), ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);	}
@@ -856,7 +866,7 @@ KILL:	// start session to destroy and report the error to logs afterward
 		if ($logs) { $deny = TRUE; $this->response('SESSION: start to destroy failed'.$logs, ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS); }
 		if ($slap) {
 			$deny = TRUE;
-			$this->set_cookie($this->settings['core']['session_badact'], $this->get_uniq(), $now + ABCMS_SES_BADA, FALSE);
+			$this->set_cookie_core($this->settings['core']['session_badact'], $this->get_uniq(), $now + ABCMS_SES_BADA, FALSE);
 			http_response_code(429);
 			header('Retry-After: ' . ABCMS_SES_BADA);
 			$this->response($error, ABCMS_LOG_FATAL, ABCMS_LOGTO_BOTH, 429); // TODO beware log flooding, might change to ABCMS_LOGTO_USER
@@ -880,14 +890,14 @@ KILL:	// start session to destroy and report the error to logs afterward
 			if (!($_COOKIE[$options['name']] = session_id())) { $this->response('SESSION: regenerate session cookie failed, systemerror=session_id()', ABCMS_LOG_FATAL); }
 			// secret cookie
 			$this->ss['secret'] = $this->get_uniq();
-			$this->set_cookie($this->settings['core']['session_secret'], $this->ss['secret'], $this->ss['create'] + ABCMS_SES_LIFE);
+			$this->set_cookie_core($this->settings['core']['session_secret'], $this->ss['secret'], $this->ss['create'] + ABCMS_SES_LIFE);
 			// CSRF token
 			$this->ss['csrf_valu'] = $this->get_uniq();
 			$this->ss['mints'] = 0; // reset CAPTCHA mint budget
 			// login cookie
 			if (!empty($this->ss['logins'])) {
 				$this->ss['logins'] = $this->get_uniq();
-				$this->set_cookie($this->settings['core']['session_logins'], $this->ss['logins'], $this->ss['create'] + ABCMS_SES_LIFE);
+				$this->set_cookie_core($this->settings['core']['session_logins'], $this->ss['logins'], $this->ss['create'] + ABCMS_SES_LIFE);
 			}
 			// rotated time
 			$this->ss['rotate'] = $now;
@@ -921,7 +931,7 @@ KILL:	// start session to destroy and report the error to logs afterward
 			'test_valu' => '', // expected answer, skips removed, set by output_security()
 		];
 		$this->ss = &$_SESSION[ABCMS_EXT_SELF];
-		$this->set_cookie($this->settings['core']['session_secret'], $this->ss['secret'], $now + ABCMS_SES_LIFE);
+		$this->set_cookie_core($this->settings['core']['session_secret'], $this->ss['secret'], $now + ABCMS_SES_LIFE);
 	}
 	return TRUE;
 }
@@ -935,6 +945,7 @@ KILL:	// start session to destroy and report the error to logs afterward
 public function &s(		// segregated $_SESSION by extension
 bool $assign = FALSE,	// TRUE to initialize $_SESSION[extension]
 ) : array {				// return $_SESSION[extension], empty, or WSOD
+	$this->setup_scope('s()'); // not during SETUP.php
 	$ext = $this->output_extension(); // segregation key
 	$bad = TRUE; // allow only one call to session_status()
 	if ($assign) {
@@ -948,12 +959,12 @@ bool $assign = FALSE,	// TRUE to initialize $_SESSION[extension]
 	$empty = []; return $empty; // return fail-safe emptiness
 }
 
-public function set_cookie(	// set cookie
-string	$cookie,			// name
-string	$value,				// value
-int		$expires,			// expiration
-bool	$killit = TRUE,		// kill heed
-) : void {					// return void or WSOD
+private function set_cookie_core(	// set cookie
+string	$cookie,					// name
+string	$value,						// value
+int		$expires,					// expiration
+bool	$killit = TRUE,				// kill heed
+) : void {							// return void or WSOD
 	// headers sent error and kill cookie on close browser
 	if (headers_sent($hfile, $hline)) { $this->response("COOKIE: set failed, headers already sent, header={$hfile}:{$hline}", ABCMS_LOG_FATAL); }
 	if ($killit && $expires > 1 && $this->settings['core']['session_killit']) { $expires = 0; }
@@ -980,6 +991,26 @@ bool	$killit = TRUE,		// kill heed
 	return;
 }
 
+public function set_cookie(	// set cookie, extension API, gated
+string	$cookie,			// name
+string	$value,				// value
+int		$expires,			// expiration
+bool	$killit = TRUE,		// kill heed
+) : void {					// return void or WSOD
+	$this->setup_scope('set_cookie()'); // not during SETUP.php
+	// core only cookies, output_extension() names hook owner, not caller, core uses set_cookie_core()
+	if (ABCMS_EXT_SELF !== ($whoami = $this->output_extension()) &&
+		in_array($cookie, [
+			$this->settings['core']['session_cookie'],
+			$this->settings['core']['session_secret'],
+			$this->settings['core']['session_logins'], // enforces core alone managing authentication
+			$this->settings['core']['session_badact'],
+			$this->settings['core']['session_allows']], TRUE)) {
+		$this->response("COOKIE: extension touching core cookies, who={$whoami} cookie={$cookie}", ABCMS_LOG_FATAL);
+	}
+	$this->set_cookie_core($cookie, $value, $expires, $killit);
+	return;
+}
 
 
 
@@ -1026,7 +1057,7 @@ private function session_captcha_code() : array { // new CAPTCHA code on load an
 	];
 }
 
-public function session_captcha(	// render the CAPTCHA image, routed as ABCMS_TYPE_FILE so output() streams it unbuffered
+private function session_captcha(	// render the CAPTCHA image, routed as ABCMS_TYPE_FILE so output() streams it unbuffered
 mixed	&...$unused,				// router arguments, unused
 ) : void {							// void never repeats
 	// captcha code stored in session to change with every page load and refresh
@@ -1464,6 +1495,7 @@ bool	$must,			// must do default, TRUE = required -OR- FALSE = optional
 mixed	&...$args,		// default arguments
 ) : array {				// return input $args
 	// initialize stack and variables
+	$this->setup_scope('output()'); // not during SETUP.php
 	$pushed = FALSE; if (empty($this->stackwho)) { $this->stackwho[] = ABCMS_EXT_SELF; $pushed = TRUE; } try {
 	$whoami = $this->output_extension(); // which extension?
 	$hook = $whoami . $hook; // Full hook name
@@ -1930,7 +1962,7 @@ public function response_html() : string { // return formatted log
 	return implode("<br>\n", array_map(function($row) { return $this->hsc(implode(': ', $row)); }, $this->respuser));
 }
 
-public function response_splice(?int $mark = NULL) : int|array { // first mark $this->respuser, then splice off additional and return them
+private function response_splice(?int $mark = NULL) : int|array { // first mark $this->respuser, then splice off additional and return them, private only!
 	if (NULL === $mark) { return count($this->respuser); }
 	else if (($splice = ($mark - count($this->respuser))) < 0) { return array_splice($this->respuser, $splice); }
 	return [];
@@ -2057,7 +2089,7 @@ public function home_account(mixed &...$unused) : void { // home register, login
 								($this->ss['user'] = $this->get_jbas('BASIC.json', array('user', $_POST['Account_Email'])))) {
 								$this->ss['trys'] = 0;
 								$this->ss['logins'] = $this->get_uniq();
-								$this->set_cookie($this->settings['core']['session_logins'], $this->ss['logins'], $this->ss['create'] + ABCMS_SES_LIFE);
+								$this->set_cookie_core($this->settings['core']['session_logins'], $this->ss['logins'], $this->ss['create'] + ABCMS_SES_LIFE);
 								$mess = 'Login successful.';
 								$email = $this->hsc($_POST['Account_Email']);
 								$email2 = $this->hsc($_POST['Account_Email2']);
@@ -2081,7 +2113,7 @@ public function home_account(mixed &...$unused) : void { // home register, login
 								($okay = $this->set_jbas('BASIC.json', array('user', $_POST['Account_Email']), $user, TRUE))) {
 								$this->ss['trys'] = 0;
 								$this->ss['logins'] = $this->get_uniq();
-								$this->set_cookie($this->settings['core']['session_logins'], $this->ss['logins'], $this->ss['create'] + ABCMS_SES_LIFE);
+								$this->set_cookie_core($this->settings['core']['session_logins'], $this->ss['logins'], $this->ss['create'] + ABCMS_SES_LIFE);
 								$this->ss['user'] = $user;
 								$mess = 'Registration successful.';
 								$email = $this->hsc($_POST['Account_Email']);
@@ -2234,7 +2266,7 @@ EOF;
 	return;
 }
 
-private function home_notfound(mixed &...$unused) : void { // home page not found
+public function home_notfound(mixed &...$unused) : void { // home page not found
 	echo <<<EOF
 <h2>Status</h2>
 <p class='center'>
@@ -2537,7 +2569,7 @@ public function include_once(string $filename, ...$args) : mixed { // PHP should
 	return FALSE;
 }
 
-public function bom_file(	// BOM file?
+private function bom_file(	// BOM file?, private so extensions cannot use it outside their folder
 string $filename, 			// filename
 ) : string {				// return BOM name, or '' for none
 	static $seen = array(); // one read per file per process
