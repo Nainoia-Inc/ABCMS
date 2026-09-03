@@ -38,6 +38,7 @@ opcache on with opcache.validate_timestamps=0 for production
 
 /*************************************************************************************************
 SECTION CONSTANTS: Immutable constants defined.
+TODO - move constant candidates to setup defaults and overridable
 */
 
 // core extensions
@@ -109,7 +110,10 @@ const ABCMS_TYPE		= array(			// category => default mime
 	ABCMS_TYPE_NONE	=> '',
 );
 const ABCMS_TYPE_HTMLS	= array(ABCMS_TYPE_HTML, ABCMS_TYPE_FRAG); // html and frag same type
-// session controls, TODO - move to overridable $settings?
+// session controls
+const ABCMS_SES_STAR	= 1;				// unconditional session_start
+const ABCMS_SES_LAZY	= 0;				// lazy session_start
+const ABCMS_SES_KILL	= -1;				// kill session
 const ABCMS_SES_ROTA	= 60*15;			// rotate session after 15 minutes
 const ABCMS_SES_IDLE	= 60*60*24*1;		// destroy session after 1 day idle
 const ABCMS_SES_LIFE	= 60*60*24*3;		// destroy session after 3 days total
@@ -251,7 +255,7 @@ finally { // clean up
 	session_commit(); $_SESSION = []; // disallow deferred session access
 }
 exit($code); // script return 0 = success or 1 = failure
- ; })();
+})();
 
 
 
@@ -287,7 +291,7 @@ private				bool	$formhuman	= FALSE;	// form human TODO use this or not? direct o
 
 function __construct() { $this->oneshot = function() { $this->input_construct(); }; } // 1st construct object methods, so extension SETUP.php can use abcms() methods
 
-private function input_construct() { // 2nd construct object properties
+private function input_construct() : void { // 2nd construct object properties
 	// initialize
 	ini_set('display_errors', 0); ini_set('log_errors', 1); error_reporting(E_ALL);
 	$this->stackwho[] = ABCMS_EXT_SELF; // push core on extension stack
@@ -327,7 +331,7 @@ private function input_construct() { // 2nd construct object properties
 	);
 	$this->formposts = ('POST' === $this->boots['urlmethod']);
 	// possibly start session after boots and validate user
-	$session = $this->session_start(0); // lazy session start
+	$session = $this->session_start(ABCMS_SES_LAZY); // lazy session start
 	// sanitize inputs with user permissions
 	$this->input = array(
 		'user'			=> $this->ss['user']??NULL, // my user
@@ -345,9 +349,9 @@ private function input_construct() { // 2nd construct object properties
 	return;
 }
 
-public function __set(string $name, mixed $value) : void { $this->response("CORE: dynamic property disallowed, name={$name}", ABCMS_LOG_FATAL); } // disallow dynamic properties
+public function __set(string $name, mixed $value) : void { $this->response("CORE: dynamic property disallowed, name={$name}", ABCMS_LOG_FATAL); return; } // disallow dynamic properties
 
-public function __clone() { $this->response('CORE: clone disallowed', ABCMS_LOG_FATAL); } // disallow cloning
+public function __clone() : void { $this->response('CORE: clone disallowed', ABCMS_LOG_FATAL); return; } // disallow cloning
 
 public function iamsuper() : bool { return (PHP_SAPI === 'cli' || (isset($this->input['role']) && $this->input['role'] >= ABCMS_ROLE_ADMINS)); } // user is admin
 
@@ -494,13 +498,10 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	$this->setup_extend(ABCMS_EXT_INITX,	'captcha',	'GET',			'IEU',	'abcms()->session_captcha',	ABCMS_ROLE_PUBLIC,	-30,	ABCMS_TYPE_FILE,	'image/png');
 	// register homepage extensions
 	$this->setup_extend(ABCMS_EXT_MAINX,	'home',		'CLI-GET-POST',	'IE',	'abcms()->home_router',		ABCMS_ROLE_PUBLIC,	-10);
-	$this->setup_equate(ABCMS_EXT_MAINX,	'home',		'/');
-	$this->setup_equate(ABCMS_EXT_MAINX,	'home',		'/account');
-	$this->setup_equate(ABCMS_EXT_MAINX,	'home',		'/contact');
+	$this->setup_equate(ABCMS_EXT_MAINX,	'home',		'/', '/account', '/contact');
 	// register console extensions
 	$this->setup_extend(ABCMS_EXT_MAINX,	'console',	'CLI-GET-POST',	'IE',	'abcms()->console_router',	ABCMS_ROLE_ADMINS,	-10);
-	$this->setup_equate(ABCMS_EXT_MAINX,	'console',	'/console');
-	$this->setup_equate(ABCMS_EXT_MAINX,	'console',	'/console/');
+	$this->setup_equate(ABCMS_EXT_MAINX,	'console',	'/console', '/console/');
 	// run SETUP.php for each extension
 	if (FALSE === ($exts = glob(($fold="{$this->compiles['core']['projectroot']}/private/*/*/")))) {
 		$this->response("SETUP: extension glob() inaccessible, fold={$fold}".$this->error_get_last(), ABCMS_LOG_FATAL);
@@ -617,9 +618,9 @@ private function setup_override(	// read the override file, merge it over the co
 
 // setup_extend() defines resource, role, method, and response type
 public function setup_extend(		// register hook extension
-string	$hok,						// /vendor/package/hook | TODO combine $hok & $ext ?
+string	$hok,						// /vendor/package/hook
 string	$ext,						// extension or '' for all
-string	$met,						// HTTP methods, '' = all = 'CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE' | TODO make $met and $str similar structure?
+string	$met,						// HTTP methods, '' = all = 'CLI-GET-POST-PUT-HEAD-DELETE-PATCH-OPTIONS-CONNECT-TRACE'
 string	$str,						// control string | TODO constants?
 									// 'I' = input -OR- 'O' = output filter, default input
 									// 'E' = exclusive to my extension or omit me, default anyone
@@ -631,7 +632,7 @@ int		$ord = 0,					// order considered, PHP_INT_MIN >= $ord <= PHP_INT_MAX
 string	$cat = '',					// response category ABCMS_TYPE_(html||frag||text||data||file||none), '' adapts to the response in progress
 string	$mim = '',					// explicit mime type, required for ABCMS_TYPE_FILE, otherwise the category default
 mixed	...$arg,					// argument alternatives
-) : bool {							// return success or failure
+) : bool {							// success or failure
 	// initialize control string and result array
 	$ctl = ('' === $str ? array() : array_flip(str_split(strtoupper($str))));
 	$key = array_diff_key($ctl, array('I'=>0,'O'=>0,'E'=>0,'U'=>0,'D'=>0));
@@ -682,31 +683,34 @@ mixed	...$arg,					// argument alternatives
 
 // setup_equate() defines path routes to the setup_extend() resources
 public function setup_equate(	// equate path to hook extension name
-string	$hok,					// /vendor/package/hook TODO combine $hok & $ext ?
+string	$hok,					// /vendor/package/hook
 string	$ext,					// extension or '' for all
-string	$pat,					// unique URL path, trailing '/' for 1st segment only, otherwise no trailing slash
-) : bool {						// return success or failure
+string	...$pats,				// multiple unique URL paths, trailing '/' for 1st segment only, otherwise no trailing slash
+) : bool {						// success or failure
 	// validate
 	$n = [];
 	if (($n[]=(!is_array($this->compiles))) || // bad context
 		($n[]=(!preg_match(ABCMS_REGEX_HOOK, $hok))) || // hook
 		($n[]=('' !== $ext && !preg_match(ABCMS_REGEX_NICK, $ext))) || // extension
-		($n[]=(substr_count($pat, '/')>2 && str_ends_with($pat, '/'))) || // trailing slash matches 1st path segment only
-		($n[]=('' !== $pat && (!str_starts_with($pat, '/') || FALSE === filter_var('http://localhost'.$pat, FILTER_VALIDATE_URL)))) || // path
-		($n[]=isset($this->compiles['route'][$hok]['eq'][$pat]))) { // duplicate
-		$e = [
-			'context',
-			'hook',
-			'extension',
-			'slash',
-			'path',
-			'duplicate',
-		];
-		$this->response("SETUP: setup_equate invalid, hook={$hok} ext={$ext} path={$pat}, invalid=".($e[count($n)-1]??'unknown'), ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+		($n[]=(!$pats))) { // path
+		$e = ['context','hook','extension','no-path'];
+		$this->response("SETUP: setup_equate invalid, hook={$hok} ext={$ext}, invalid=".($e[count($n)-1]??'unknown'), ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 		return FALSE;
 	}
-	// assign equate path
-	$this->compiles['route'][$hok]['eq'][$pat] = $ext;
+	// do multiple paths
+	$e = ['slash','path','duplicate'];
+	foreach ($pats as $pat) {
+		// validate
+		$n = [];
+		if (($n[]=(substr_count($pat, '/')>2 && str_ends_with($pat, '/'))) || // trailing slash matches 1st path segment only
+			($n[]=('' !== $pat && (!str_starts_with($pat, '/') || FALSE === filter_var('http://localhost'.$pat, FILTER_VALIDATE_URL)))) || // path
+			($n[]=isset($this->compiles['route'][$hok]['eq'][$pat]))) { // duplicate
+			$this->response("SETUP: setup_equate invalid, hook={$hok} ext={$ext} path={$pat}, invalid=".($e[count($n)-1]??'unknown'), ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+			return FALSE;
+		}
+		// assign equate path
+		$this->compiles['route'][$hok]['eq'][$pat] = $ext;
+	}
 	return TRUE;
 }
 
@@ -716,7 +720,7 @@ string	$var,					// variable
 string	$typ,					// type
 int		$rol,					// min role
 ?array	$reg = NULL,			// regex validation
-) : bool {						// return success or failure
+) : bool {						// success or failure
 	// validate
 	$n = [];
 	if (($n[]=(!is_array($this->compiles))) || // bad context
@@ -745,6 +749,7 @@ private function setup_scope(string $what) : void { // request-scoped API called
 	if (isset($this->compiles) && ABCMS_EXT_SELF !== ($whoami = $this->output_extension())) {
 		$this->response("SETUP: {$what} disallowed during setup, who={$whoami}", ABCMS_LOG_FATAL);
 	}
+	return;
 }
 
 
@@ -758,10 +763,10 @@ SECTION SESSION: Secure sessions with opt-in/out, validation, CSRF, CAPTCHA, and
 */
 
 public function session_start(	// start session conditionally
-int $cmd,						// -1 = destroy, 0 = start if, 1 = start
-) : bool {						// return TRUE=started, FALSE=destroyed
+int $cmd,						// ABCMS_SES_STAR = unconditional start, ABCMS_SES_LAZY = lazy start, ABCMS_SES_KILL = destroy
+) : bool {						// TRUE=started, FALSE=not-started/killed
 	// lazy start core only, extensions may force start or destroy, but not during setup
-	if (0 === $cmd && ABCMS_EXT_SELF !== ($whoami = $this->output_extension())) { $this->response("SESSION: lazy start disallowed, who={$whoami}", ABCMS_LOG_FATAL); }
+	if (ABCMS_SES_LAZY === $cmd && ABCMS_EXT_SELF !== ($whoami = $this->output_extension())) { $this->response("SESSION: lazy start disallowed, who={$whoami}", ABCMS_LOG_FATAL); }
 	$this->setup_scope('session_start()'); // not during SETUP.php
 	// initialize
 	$active = (session_status() === PHP_SESSION_ACTIVE ? TRUE : FALSE);
@@ -792,14 +797,13 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 	}
 	// early exit
 	if ($deny || isset($_COOKIE[$this->settings['core']['session_badact']])) { if (!($deny)) { $this->response('Access is temporarily blocked. Please try again later.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER); } $deny = TRUE; return FALSE; } // bad actor
-	if ($cmd < 0) { $error = 'You are logged out.'; goto KILL; } // destroy session
-	// TODO review this gate logic to see if should be moved up or remain after $deny and $cms<0
-	if ($active) { if (0 === $cmd) { $this->response('SESSION: unauthorized start encountered', ABCMS_LOG_FATAL); } return TRUE; } // already started, but ABCMS must start
+	if (ABCMS_SES_KILL === $cmd) { $error = 'You are logged out.'; goto KILL; } // destroy session
+	if ($active) { if (ABCMS_SES_LAZY === $cmd) { $this->response('SESSION: unauthorized start encountered', ABCMS_LOG_FATAL); } return TRUE; } // already started, but ABCMS must start
 	if (headers_sent($hfile, $hline)) { $this->response("SESSION: start failed, headers already sent, header={$hfile}:{$hline}", ABCMS_LOG_FATAL); }
 	if (!isset($_COOKIE[$this->settings['core']['session_allows']])) { $this->set_cookie_core($this->settings['core']['session_allows'], ABCMS_COOK_NAVS, $now + ABCMS_COOK_LIFE, FALSE); }	// TODO TEMP CODE TO ALLOW COOKIES
 	if (empty($_COOKIE[$this->settings['core']['session_allows']])) {	$this->response('Cookies must be accepted before you can submit forms or login.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER); return FALSE; } // cookies not approved
 	$post = ($this->formposts && !$posthandled ? TRUE : FALSE); // is this a POST?
-	if (0 === $cmd && !isset($_COOKIE[$this->settings['core']['session_logins']]) && !$post) { return FALSE; } // conditional start
+	if (ABCMS_SES_LAZY === $cmd && !isset($_COOKIE[$this->settings['core']['session_logins']]) && !$post) { return FALSE; } // lazy start
 	// start session, more variables
 	if (!session_start($options)) { $this->response('SESSION: start failed'.$this->error_get_last(), ABCMS_LOG_FATAL); }
 	if (!($_COOKIE[$options['name']] = session_id())) { $this->response('SESSION: session cookie failed, systemerror=session_id()', ABCMS_LOG_FATAL); }
@@ -836,7 +840,7 @@ int $cmd,						// -1 = destroy, 0 = start if, 1 = start
 		// fail resume login, cookies or session expired, always reload user to confirm permissions
 		else if (isset($_COOKIE[$this->settings['core']['session_logins']]) &&
 			(($_COOKIE[$this->settings['core']['session_logins']]?:'x') !== $this->ss['logins'] || empty($this->ss['user']) ||
-			!($this->ss['user'] = $this->get_jbas('BASIC.json', array('user',$this->ss['user']['email']))))) {		$error = 'Your login could not be resumed. Please log in again.'; }
+			!$this->get_jbas('BASIC.json', array('user',$this->ss['user']['email']), $this->ss['user']))) {			$error = 'Your login could not be resumed. Please log in again.'; }
 		// login expired
 		else if (!isset($_COOKIE[$this->settings['core']['session_logins']]) && !empty($this->ss['user'])) {		$error = 'Your login expired. Please log in again.'; }
 		// idle time exceeded
@@ -1063,7 +1067,7 @@ mixed	&...$unused,				// router arguments, unused
 	// captcha code stored in session to change with every page load and refresh
 	$full = '';
 	$hint = array();
-	if ($this->session_start(1)) {
+	if ($this->session_start(ABCMS_SES_STAR)) {
 		$full = (string)($this->ss['test_full'] ?? '');
 		$hint = (array)($this->ss['test_hint'] ?? array());
 	}
@@ -1245,66 +1249,64 @@ int		$noos,							// ABCMS_CAP_NOOS mark to skip
 
 /*************************************************************************************************
 SECTION DATABASE: Store data in var_export(), JSON, CSV, SQLite, and MySQL.
+TODO align signatures to aim for a common database API for all storage types
 */
-private function chk_file(string $filename, bool $must = FALSE) : bool {// check file valid in my extension folder
+private function chk_file(string $file, bool $must = FALSE) : bool {// check file valid in my extension folder
 	$starts = ($this->compiles['core']['projectroot']??$this->settings['core']['projectroot']).'/private'.$this->output_extension().'/';
-	if (!str_starts_with($filename, $starts)) { $this->response("FILE: access outside extension folder, file={$filename}", ABCMS_LOG_FATAL); }
-	if (preg_match('/(^|[\/\\\\])\.\.([\/\\\\]|$)/', $filename)) { $this->response("FILE: relative filename disallowed, file={$filename}", ABCMS_LOG_FATAL); }
-	if (is_link($filename)) { $this->response("FILE: symlink disallowed, file={$filename}", ABCMS_LOG_FATAL); }
-	if ($must && ($this->rp(realpath($filename)) !== $filename || !is_file($filename) || !is_readable($filename))) { return FALSE; }
+	if (!str_starts_with($file, $starts)) { $this->response("FILE: access outside extension folder, file={$file}", ABCMS_LOG_FATAL); }
+	if (preg_match('/(^|[\/\\\\])\.\.([\/\\\\]|$)/', $file)) { $this->response("FILE: relative filename disallowed, file={$file}", ABCMS_LOG_FATAL); }
+	if (is_link($file)) { $this->response("FILE: symlink disallowed, file={$file}", ABCMS_LOG_FATAL); }
+	if ($must && ($this->rp(realpath($file)) !== $file || !is_file($file) || !is_readable($file))) { return FALSE; } // file must be readable
 	return TRUE;
 }
 
-public function set_file(string $filename, string $value) : void { // write file
-	$this->chk_file($filename);
-	$temp = "{$filename}.".getmypid();
-	if (FALSE === file_put_contents($temp, $value) || !chmod($temp, 0640) || !rename($temp, $filename)) {
+public function set_file(string $file, string $value) : bool { // write file
+	$this->chk_file($file);
+	$temp = "{$file}.".getmypid();
+	if (FALSE === file_put_contents($temp, $value) || !chmod($temp, 0640) || !rename($temp, $file)) {
 		if (file_exists($temp)) { unlink($temp); } // unlink error ignored
-		$this->response("FILE: write failed, file={$filename}".$this->error_get_last(), ABCMS_LOG_FATAL);
+		$this->response("FILE: write failed, file={$file}".$this->error_get_last(), ABCMS_LOG_FATAL);
 	}
-	return;
+	return TRUE;
 }
 
-public function get_file(string $filename, string &$data) : void { // read file
-	if (!$this->chk_file($filename, TRUE)) { $this->response("FILE: not readable, file={$filename}", ABCMS_LOG_FATAL); }
-	if (FALSE === ($data = file_get_contents($filename))) { $this->response("FILE: read failed, file={$filename}".$this->error_get_last(), ABCMS_LOG_FATAL); }
-	return;
+public function get_file(string $file, string &$data) : bool { // read file
+	if (!$this->chk_file($file, TRUE)) { $this->response("FILE: not readable, file={$file}", ABCMS_LOG_FATAL); }
+	if (FALSE === ($data = file_get_contents($file))) { $this->response("FILE: read failed, file={$file}".$this->error_get_last(), ABCMS_LOG_FATAL); }
+	return TRUE;
 }
 
-public function touch(string $filename) : void { // touch/create file with permissions
-	$this->chk_file($filename);
-	if (!touch($filename) || !chmod($filename, 0640)) {
-		$this->response("FILE: touch failed, file={$filename}".$this->error_get_last(), ABCMS_LOG_FATAL);
+public function touch(string $file) : bool { // touch/create file with permissions
+	$this->chk_file($file);
+	if (!touch($file) || !chmod($file, 0640)) {
+		$this->response("FILE: touch failed, file={$file}".$this->error_get_last(), ABCMS_LOG_FATAL);
 	}
-	return;
+	return TRUE;
 }
 
-public function set_json(string $filename, mixed $value) : void { // write json
+public function set_json(string $file, mixed $value) : bool { // write json
 	if (FALSE === ($json = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT))) {
-		$this->response("FILE: json encode failed, file={$filename}, systemerror=".json_last_error_msg(), ABCMS_LOG_FATAL);
+		$this->response("FILE: json encode failed, file={$file}, systemerror=".json_last_error_msg(), ABCMS_LOG_FATAL);
 	}
-	$this->set_file($filename, $json);
-	return;
+	return $this->set_file($file, $json);
 }
 
-public function get_json(string $filename, mixed &$data) : void { // read json
-	if (!$this->chk_file($filename, TRUE)) { $this->response("FILE: json not readable, file={$filename}", ABCMS_LOG_FATAL); }
-	if (FALSE === ($data = file_get_contents($filename))) { $this->response("FILE: json read failed, file={$filename}".$this->error_get_last(), ABCMS_LOG_FATAL); }
+public function get_json(string $file, mixed &$data) : bool { // read json
+	if (!$this->chk_file($file, TRUE)) { $this->response("FILE: json not readable, file={$file}", ABCMS_LOG_FATAL); }
+	if (FALSE === ($data = file_get_contents($file))) { $this->response("FILE: json read failed, file={$file}".$this->error_get_last(), ABCMS_LOG_FATAL); }
 	$data = json_decode($data, TRUE);
-	if (json_last_error() !== JSON_ERROR_NONE) { $this->response("FILE: json decode failed, file={$filename}, systemerror=".json_last_error_msg(), ABCMS_LOG_FATAL); }
-	return;
+	if (json_last_error() !== JSON_ERROR_NONE) { $this->response("FILE: json decode failed, file={$file}, systemerror=".json_last_error_msg(), ABCMS_LOG_FATAL); }
+	return TRUE;
 }
 
-private function opcache_reset(string $filename) : void { // invalidate cached PHP file
+private function opcache_reset(string $file) : bool { // invalidate cached PHP file
 	static $warned; // assigned NULL
-	if (function_exists('opcache_invalidate')) { opcache_invalidate($filename, TRUE); return; }
+	if (function_exists('opcache_invalidate')) { opcache_invalidate($file, TRUE); return TRUE; }
 	if (!$warned) { $warned = TRUE; $this->response('CORE: opcache_invalidate unavailable, stale file may serve from cache', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS); }
-	return;
+	return FALSE;
 }
 
-public function new_jbas(	// create new database
-string $file,				// filename within extension
-) : void {					// return void or WSOD
+public function new_jbas(string $file) : bool { // create new database, file within extension
 	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->response("DATABASE: new name invalid, file={$file}", ABCMS_LOG_FATAL); } // invalid file
 	$ext = $this->output_extension();
 	$fold = ($this->compiles['core']['projectroot']??$this->settings['core']['projectroot'])."/private{$ext}/ABCMS.database";
@@ -1312,14 +1314,15 @@ string $file,				// filename within extension
 	$file = $fold.'/'.$file;
 	$this->touch($file);
 	$this->touch($file.'.lock');
+	return TRUE;
 }
 
-public function set_jbas(	// write to database
-	string	$file,			// filename within extension
-	array	$keys,			// element keys, [] replaces database with (is_array($data) ? $data : [$data])
-	mixed	$data,			// new or updated element
-	bool	$new = TRUE,	// TRUE to add new record (fails if exists), FALSE to update existing (fails if doesn't exist)
-) : bool {					// return success or failure
+public function set_jbas(	// write to json database
+string	$file,				// filename within extension
+array	$keys,				// element keys, [] replaces database with (is_array($data) ? $data : [$data])
+mixed	$data,				// new or updated element
+bool	$new = TRUE,		// TRUE to add new record (fails if exists), FALSE to update existing (fails if doesn't exist)
+) : bool {					// success or failure
 	// errors
 	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->response("DATABASE: set name invalid, file={$file}", ABCMS_LOG_FATAL); } // invalid file
 	if ($new && NULL === $data) { return FALSE; } // may not new NULL
@@ -1391,10 +1394,11 @@ public function set_jbas(	// write to database
 	return TRUE;
 }
 
-public function get_jbas(	// read database
+public function get_jbas(	// read json database
 string	$file,				// filename within extension
 array	$keys,				// read element from key path or [] returns whole database
-) : mixed {					// return element or NULL for failure
+mixed	&$data,				// return data
+) : bool {					// success or failure
 	// errors
 	if (!preg_match(ABCMS_REGEX_DATA, $file)) { $this->response("DATABASE: get name invalid, file={$file}", ABCMS_LOG_FATAL); } // invalid file
 	// cached or not cached
@@ -1428,51 +1432,80 @@ array	$keys,				// read element from key path or [] returns whole database
 	// return data
 	$element = $this->database[$file];
 	foreach ($keys as $key) {
-		if (!isset($element[$key])) { return NULL; }
+		if (!isset($element[$key])) { return FALSE; }
 		$element = $element[$key];
 	}
-	return $element;
-}
-
-public function set_vexp(string $filename, mixed $data) : void { // write var_export()
-	// partial validity check at top level, nested elements unvalidated
-	if (is_object($data) || is_resource($data)) {
-		$this->response("FILE: var_export supports scalars, arrays and NULL only, file={$filename}", ABCMS_LOG_FATAL);
-	}
-	$this->set_file($filename, '<?php return ' . var_export($data, TRUE) . ";\n");
-	$this->opcache_reset($filename);
-}
-
-public function get_vexp(string $filename, mixed &$data) : bool { // read var_export()
-	if (!$this->chk_file($filename, TRUE)) { return FALSE; }
-	// beware, failed include() = FALSE = successful include() returning FALSE
-	static $fn; if (NULL === $fn) { $fn = Closure::bind(static function($f) { return include($f); }, NULL, NULL); }
-	$data = $fn($filename);
+	$data = $element;
 	return TRUE;
 }
 
-public function set_flat(string $filename, mixed $data) : bool { // set indexed delimited table file
+public function set_flat(	// set indexed delimited table file
+string	$file,				// filename within extension
+array	$keys,				// element keys, [] replaces database with (is_array($data) ? $data : [$data])
+mixed	$data,				// new or updated element
+bool	$new = TRUE,		// TRUE to add new record (fails if exists), FALSE to update existing (fails if doesn't exist)
+) : bool {					// success or failure
 	return FALSE; // stub only
 }
 
-public function get_flat(string $filename, mixed &$data) : bool { // get indexed delimited table file
-	if (!$this->chk_file($filename, TRUE)) { return FALSE; } return FALSE; // stub only
-}
-
-public function set_sqli(string $filename, mixed $data) : bool { // set sqlite record
+public function get_flat(	// get indexed delimited table file
+string	$file,				// filename within extension
+array	$keys,				// read element from key path or [] returns whole database
+mixed	&$data,				// return data
+) : bool {					// success or failure
 	return FALSE; // stub only
 }
 
-public function get_sqli(string $filename, mixed &$data) : bool { // get sqlite record
-	if (!$this->chk_file($filename, TRUE)) { return FALSE; } return FALSE; // stub only
-}
-
-public function set_mysq(string $filename, mixed $data) : bool { // set mysql record
+public function set_sqli(	// set sqlite record
+string	$file,				// filename within extension
+array	$keys,				// element keys, [] replaces database with (is_array($data) ? $data : [$data])
+mixed	$data,				// new or updated element
+bool	$new = TRUE,		// TRUE to add new record (fails if exists), FALSE to update existing (fails if doesn't exist)
+) : bool {					// success or failure
 	return FALSE; // stub only
 }
 
-public function get_mysq(string $filename, mixed &$data) : bool { // get mysql record
-	if (!$this->chk_file($filename, TRUE)) { return FALSE; } return FALSE; // stub only
+public function get_sqli(	// get sqlite record
+string	$file,				// filename within extension
+array	$keys,				// read element from key path or [] returns whole database
+mixed	&$data,				// return data
+) : bool {					// success or failure
+	return FALSE; // stub only
+}
+
+public function set_mysq(	// set mysql record
+string	$file,				// filename within extension
+array	$keys,				// element keys, [] replaces database with (is_array($data) ? $data : [$data])
+mixed	$data,				// new or updated element
+bool	$new = TRUE,		// TRUE to add new record (fails if exists), FALSE to update existing (fails if doesn't exist)
+) : bool {					// success or failure
+	return FALSE; // stub only
+}
+
+public function get_mysq(	// get mysql record
+string	$file,				// filename within extension
+array	$keys,				// read element from key path or [] returns whole database
+mixed	&$data,				// return data
+) : bool {					// success or failure
+	return FALSE; // stub only
+}
+
+public function set_vexp(string $file, mixed $data) : bool { // write var_export()
+	// partial validity check at top level, nested elements unvalidated
+	if (is_object($data) || is_resource($data)) {
+		$this->response("FILE: var_export supports scalars, arrays and NULL only, file={$file}", ABCMS_LOG_FATAL);
+	}
+	$this->set_file($file, '<?php return ' . var_export($data, TRUE) . ";\n");
+	$this->opcache_reset($file);
+	return TRUE;
+}
+
+public function get_vexp(string $file, mixed &$data) : bool { // read var_export()
+	if (!$this->chk_file($file, TRUE)) { return FALSE; }
+	// beware, failed include() = FALSE = successful include() returning FALSE
+	static $fn; if (NULL === $fn) { $fn = Closure::bind(static function($f) { return include($f); }, NULL, NULL); }
+	$data = $fn($file);
+	return TRUE;
 }
 
 
@@ -1492,7 +1525,7 @@ string	$default,		// default function, '' = no default
 int		$role,			// minimum role permissions
 int		$flag,			// <0 = extender exclusive, 0 = anyone, 1 = extender exclusive allowed
 bool	$must,			// must do default, TRUE = required -OR- FALSE = optional
-mixed	&...$args,		// default arguments
+mixed	&...$args,		// input args, commonly unused, reference named argument only, otherwise by value
 ) : array {				// return input $args
 	// initialize stack and variables
 	$this->setup_scope('output()'); // not during SETUP.php
@@ -1538,7 +1571,7 @@ mixed	&...$args,		// default arguments
 		if (!$this->output_doit($extin, $whoami, $flag, ($must || $dopt), $exin)) { continue; } // skip for reasons
 		if (!$must && $extin['ord'] < 0 && !isset($extin['ctl']['D'])) { $dopt = FALSE; } // omit default if hook and one extension says not required
 		if ($this->input['role'] >= ABCMS_ROLE_ADMINS) { $this->stackarg[] = func_get_args(); } // log the extension stack for administrator
-		if (isset($extin['arg'])) { $this->array_walk_merge($args, $extin['arg']); } // extend arguments
+		if (!empty($extin['arg'])) { $this->array_walk_merge($args, $extin['arg']); } // extend arguments
 		if (empty($extin['fun'])) { continue; } // extension only grabs exclusivity or set args
 		// response type, the first extension to actually run fixes category and mime for the whole request
 		if (NULL === $this->respcats) {
@@ -1553,10 +1586,10 @@ mixed	&...$args,		// default arguments
 		}
 		// loop only applies to registered extension functions, internal extension dispatch is its own business
 		$save = $loop = ($this->boots['cli'] && !in_array($this->respcats, ABCMS_TYPE_HTMLS, TRUE) ? ABCMS_CLI_LOOP : ABCMS_EXT_LOOP);
-		do { // repeat hook extension until FALSE -OR- NULL || TODO invert the continue test
-			// file category streams straight to the client, no injection, no buffering, no sub-extensions, explicit mime required
+		do { // repeat hook extension until return === FALSE
+			// file, one call to stream, no injection, no buffering, no sub-extensions, explicit mime required
 			if (ABCMS_TYPE_FILE === $this->respcats) {
-				$this->output_call($extin['who'], $extin['fun'], ...$args); // stream file, ignore return, done
+				$this->output_call($extin['who'], $extin['fun'], ...$args); // even if by value from caller, still by reference to output filter
 				$done = TRUE;
 				break 2;
 			}
@@ -1566,7 +1599,7 @@ mixed	&...$args,		// default arguments
 			// output filter extensions by priority
 			foreach($ext['O'] as $extout) {
 				if (!$this->output_doit($extout, $whoami, $flag, TRUE, $exout)) { continue; } // skip for reasons
-				$this->output_call($extout['who'], $extout['fun'], $out, ...$args); // execute output filter
+				$this->output_call($extout['who'], $extout['fun'], $out, ...$args); // output filter, args by reference from extension
 			}
 			// 'html' injections for security and debug info, 'frag' is not injected
 			if (ABCMS_TYPE_HTML === $this->respcats) {
@@ -1595,7 +1628,7 @@ mixed	&...$args,		// default arguments
 
 private function output_fits(	// is recursion to this sub-extension allowed?
 string	$cat,					// sub-extension category, '' adapts to anything
-) : bool {						// return compatible or not
+) : bool {						// compatible or not
 	if ('' === $cat || $cat === $this->respcats) { return TRUE; } // undeclared, or an exact match
 	// categories html and frag can be parent or child of each other
 	return (in_array($cat, ABCMS_TYPE_HTMLS, TRUE) && in_array($this->respcats, ABCMS_TYPE_HTMLS, TRUE));
@@ -1629,7 +1662,7 @@ string	$whoami,				// is this extender allowed
 int		$flag,					// <0 = extender exclusive, 0 = anyone, 1 = extender exclusive allowed
 bool	$must,					// must also do default
 ?string	&$excl,					// exclusive extension winner
-) : bool {						// return TRUE or FALSE
+) : bool {						// doit or dont
 	// exit before exclusive selection
 	if (!$must && !$ext['ord']) {																				return FALSE; }	// no default extension
 	if (!empty($ext['met']) && FALSE === stripos($ext['met'], $this->boots['urlmethod'])) { 					return FALSE; }	// HTTP method | TODO consider this instead in_array($method, explode('-', $met), TRUE)
@@ -1660,7 +1693,7 @@ mixed	&...$args,				// arguments passed
 	static $parsed = array();
 	if (!isset($parsed[$filefunc])) {
 		if (!preg_match(ABCMS_REGEX_FUNC, $filefunc, $match)) { $this->response("DISPATCH: invalid function name, who={$who} func={$filefunc}", ABCMS_LOG_FATAL); }
-		$parsed[$filefunc] = array($match[2], $match[5], $match[6], $match[7]);
+		$parsed[$filefunc] = array($match[2]??'', $match[5]??'', $match[6]??'', $match[7]??'');
 	}
 	[$filepath, $classobject, $operator, $funcmeth] = $parsed[$filefunc];
 	// initialize
@@ -1715,7 +1748,7 @@ string &$html,						// inject into mime type text/html
 	if (FALSE === ($num = preg_match_all(ABCMS_REGEX_FORM, $html))) { $this->response('FORM: security init failed, preg='.preg_last_error_msg(), ABCMS_LOG_FATAL); }
 	if (!$num) { return; }
 	// start session
-	if (!$this->session_start(1)) {
+	if (!$this->session_start(ABCMS_SES_STAR)) {
 		// session failed, disable forms with <fieldset>
 		$this->response('FORM: security failed, forms disabled', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 		$this->response('Forms are temporarily disabled. Please try again later.', ABCMS_LOG_ERROR, ABCMS_LOGTO_USER);
@@ -2004,27 +2037,14 @@ SECTION HOME: Core extension /home/*
 */
 
 private function home_theme(mixed &...$unused) : void { // default home theme
-	$footer = <<<EOF
-<a href='/'>Home</a>
- / <a href='/account'>Account</a>
- / <a href='/contact'>Contact</a>
-EOF
-. ($this->input['role'] < ABCMS_ROLE_ADMINS ? NULL : ' / <a href="/console">Console</a>');
+	$footer = "<a href='/'>Home</a> / <a href='/account'>Account</a> / <a href='/contact'>Contact</a>" .
+		($this->input['role'] < ABCMS_ROLE_ADMINS ? NULL : ' / <a href="/console">Console</a>');
 // TODO, the above line is wrong when first logging in because don't know I am authenticated till later...
 // TODO where do I inject user error results into HTML display?
 // how can I do that without putting the authentication into session_start()????
 	$this->theme( // theme
-		...$args = array( // spreader
-			NULL,	// css
-			NULL,	// js
-<<<EOF
-<h1><a href='/' title='A Basic Content Management System'>A Basic Content Management System&trade;</h1></a></h1>
-EOF
-			,		// header
-			NULL,	// main
-			$footer,// footer
-			1,		// exclusive?
-		),
+		head : "<h1><a href='/' title='A Basic Content Management System'>A Basic Content Management System&trade;</h1></a></h1>", // head
+		foot : $footer, // foot
 	);
 	return;
 }
@@ -2075,7 +2095,7 @@ EOF;
 public function home_account(mixed &...$unused) : void { // home register, login, logout, update, delete
 	// initialize
 	echo '<h2>Account</h2>';
-	if (!$this->session_start(1) || ($this->formposts && !$this->formvalid)) { return; } // invalid session or FORM
+	if (!$this->session_start(ABCMS_SES_STAR) || ($this->formposts && !$this->formvalid)) { return; } // invalid session or FORM
 	$switch =
 		(!$this->formposts ? 'entry' :
 		(!$this->formhuman ? 'inhuman' :
@@ -2086,7 +2106,7 @@ public function home_account(mixed &...$unused) : void { // home register, login
 		case 'inhuman':		$mess = 'Your CAPTCHA entry failed. Please try again.'; break;
 		case 'login':		if (!empty($_POST['Account_Email']) && !empty($_POST['Account_Email2']) &&
 								password_verify($_POST['Account_Password'], $this->settings['core']['passhash']) &&
-								($this->ss['user'] = $this->get_jbas('BASIC.json', array('user', $_POST['Account_Email'])))) {
+								$this->get_jbas('BASIC.json', array('user', $_POST['Account_Email']), $this->ss['user'])) {
 								$this->ss['trys'] = 0;
 								$this->ss['logins'] = $this->get_uniq();
 								$this->set_cookie_core($this->settings['core']['session_logins'], $this->ss['logins'], $this->ss['create'] + ABCMS_SES_LIFE);
@@ -2098,7 +2118,7 @@ public function home_account(mixed &...$unused) : void { // home register, login
 							}
 							else if (++$this->ss['trys'] > ABCMS_SES_LOGI) {
 								// TODO possible log entry to monitor failed login trys, but info not actionable
-								$this->session_start(-1);
+								$this->session_start(ABCMS_SES_KILL);
 								$this->response('Too many failed login attempts. Please try again later.', ABCMS_LOG_FATAL, ABCMS_LOGTO_USER);
 							}
 							else {
@@ -2136,7 +2156,7 @@ public function home_account(mixed &...$unused) : void { // home register, login
 							$subject = "ABCMS Account Deleted: {$_POST['Account_Email']}";
 							$body = '<h4>Hello</h4>Your account is deleted at ' . $this->boots['urldomain'];
 
-		case 'logout':		$this->session_start(-1);
+		case 'logout':		$this->session_start(ABCMS_SES_KILL);
 							$mess = ($mess??'You are logged out.');
 							break;
 
@@ -2159,21 +2179,16 @@ public function home_account(mixed &...$unused) : void { // home register, login
 			$emailerror = 'Email not available';
 		}
 		else if ($this->email(
-			$this->settings['core']['smtp_user']?:'',							// from
-			($this->settings['core']['smtp_name']?:$this->boots['urldomain']),	// name
-			$this->settings['core']['smtp_user']?:'',							// recipients
-			NULL,																// cc
-			$this->settings['core']['smtp_user'],								// bcc
-			$subject,															// subject
-			$body,																// HTML body
-			$this->html_text($body),											// text body
+			$this->settings['core']['smtp_user']?:'',	// from
+			($this->settings['core']['smtp_name']?:$this->boots['urldomain']), // name
+			$this->settings['core']['smtp_user']?:'',	// recipients
+			NULL,										// cc
+			$this->settings['core']['smtp_user'],		// bcc
+			$subject,									// subject
+			$body,										// HTML body
+			$this->html_text($body),					// text body
 			$this->settings['core']['projectroot'].'/private'.ABCMS_EXT_SELF.'/ABCMS.translog', // attachments
-			[	'smtp'	=> $this->settings['core']['smtp_host'],				// SMTP host
-				'port'	=> $this->settings['core']['smtp_port'],				// SMTP port
-				'user'	=> $this->settings['core']['smtp_user'],				// SMTP user
-				'pass'	=> $this->settings['core']['smtp_pass'],				// SMTP pass
-				'ehlo'	=> $this->boots['urldomain'],							// SMTP EHLO
-			],
+			[],											// default options
 			)) {
 			$emailerror = 'Email sent';
 		}
@@ -2214,7 +2229,7 @@ public function home_contact(mixed &...$unused) : void { // home contact form
 	// page title
 	echo "<h2>Contact</h2>\n";
 	// roadblock errors
-	if (!$this->session_start(1) || ($this->formposts && !$this->formvalid)) { return; } // invalid session or FORM
+	if (!$this->session_start(ABCMS_SES_STAR) || ($this->formposts && !$this->formvalid)) { return; } // invalid session or FORM
 	if (!($this->settings['core']['smtp_user']?:'')) { $this->response('Message system not available. Please try again later.', ABCMS_LOG_ERROR, ABCMS_LOGTO_BOTH); return; } // We am here, but no smtp user
 	// execute request
 	if ($this->formhuman && !empty($_POST['Contact_Mess'])) {
@@ -2224,21 +2239,16 @@ public function home_contact(mixed &...$unused) : void { // home contact form
 		$subject = "Message from {$name}, {$mail}";
 		$body = "{$subject}<br><br>{$mess}";
 		if ($this->email(
-			$this->settings['core']['smtp_user']?:'',							// from
-			($this->settings['core']['smtp_name']?:$this->boots['urldomain']),	// name
-			$this->settings['core']['smtp_user']?:'',							// recipients
-			NULL,																// cc
-			$this->settings['core']['smtp_user'],								// bcc
-			$subject,															// subject
-			$body,																// HTML body
-			$this->html_text($body),											// text body
-			NULL,																// attachments
-			[	'smtp'	=> $this->settings['core']['smtp_host'],				// SMTP host
-				'port'	=> $this->settings['core']['smtp_port'],				// SMTP port
-				'user'	=> $this->settings['core']['smtp_user'],				// SMTP user
-				'pass'	=> $this->settings['core']['smtp_pass'],				// SMTP pass
-				'ehlo'	=> $this->boots['urldomain'],							// SMTP EHLO
-			],
+			$this->settings['core']['smtp_user']?:'',	// from
+			($this->settings['core']['smtp_name']?:$this->boots['urldomain']), // name
+			$this->settings['core']['smtp_user']?:'',	// recipients
+			NULL,										// cc
+			$this->settings['core']['smtp_user'],		// bcc
+			$subject,									// subject
+			$body,										// HTML body
+			$this->html_text($body),					// text body
+			NULL,										// attachments
+			[],											// default options
 			)) {
 			$this->response('Message sent, thank you.', ABCMS_LOG_INFO, ABCMS_LOGTO_USER);
 			return;
@@ -2300,26 +2310,14 @@ SECTION CONSOLE: Core extension /console/*
 
 private function console_theme(mixed &...$unused) : void { // default console theme
 	$this->theme(
-		...$args = array(
+		css : // css
 <<<EOF
 body { border: 2rem solid #999999; border-top: 0; }
 header a:link, header a:visited { color: #336699; }
 header a:hover, header a:focus { color: #99ccff; }
 header a:active { color: #993366; }
 EOF
-			,				// css
-			NULL,			// js
-<<<EOF
-<div class='console'>
-<div><a href='/console'>Console</a></div>
-<div><a href='/' title='Close Console'>X</a></div>
-</div>
-EOF
-			,				// header
-			NULL,			// main
-			NULL,			// footer
-			1,				// exclusive?
-		),
+		, head : "<div class='console'><div><a href='/console'>Console</a></div><div><a href='/' title='Close Console'>X</a></div></div>", // head
 	);
 	return;
 }
@@ -2445,6 +2443,8 @@ private function command_code(mixed &...$unused) : void { // command code
 }
 
 private function command_coredump(mixed &...$unused) : void { // command code
+	header('Content-Type: text/html; charset=utf-8');
+	header('Referrer-Policy: strict-origin-when-cross-origin');
 	$this->response('CORE: forced coredump', ABCMS_LOG_FATAL);
 	return;
 }
@@ -2494,8 +2494,8 @@ private function command_updater(mixed &...$unused) : void { // command updater
 SECTION PAYMENTS: Payment gateways API.
 */
 
-private function payment_webhook() : mixed { // validate webhook
-	// TODO call this function on payment webhook 'stripe_path', call after $this->boots[] assigned, but before $this->session_start()
+private function payment_webhook() : ?array { // validate webhook
+	// TODO call this function on payment webhook 'stripe_path', call in input_construct() after $this->boots[] assigned, but before session_start()
 	//if ($this->formposts && '' !== ($hook = rtrim((string)($this->settings['core']['stripe_path'] ?? ''), '/')) && $hook === $this->boots['urlpathone']) { $payevent = $this->payment_webhook(); }
 	if (empty($this->settings['core']['stripe_whsec'])) { http_response_code(400); $this->response('PAYMENT: webhook signature undefined', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS, 400); return NULL; }
 	if (FALSE === ($raw = file_get_contents('php://input'))) { $this->response("PAYMENT: webhook fail hook=php://input".$this->error_get_last(), ABCMS_LOG_FATAL); } // read exact bytes, 1st thing
@@ -2515,6 +2515,7 @@ private function payment_webhook() : mixed { // validate webhook
 	if (abs($this->boots['time'] - $result['t']) > 300) { http_response_code(400); $this->response('PAYMENT: webhook replay prohibited', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS, 400); return NULL; }
 	$event = json_decode($raw, TRUE); // only now safe to parse
 	if (json_last_error() !== JSON_ERROR_NONE) { $this->response('PAYMENT: webhook json corrupted, systemerror='.json_last_error_msg(), ABCMS_LOG_FATAL); }
+	if (!is_array($event)) { $this->response('PAYMENT: webhook json not array', ABCMS_LOG_FATAL); }
 	return $event;
 }
 
@@ -2529,14 +2530,15 @@ SECTION UTILITIES: Utility helper methods.
 */
 
 public function echo(?string ...$args) : void { // wrap the echo() construct for extension function.
-	if (NULL !== $args) { echo implode('',$args); } return;
+	if (NULL !== $args) { echo implode('',$args); }
+	return;
 }
 
 public function print(?string $string = NULL) : bool { // wrap the print() construct for extension function.
 	return (NULL === $string ? TRUE : print($string));
 }
 
-public function get_url(?string $path = NULL) : ?string { // construct url with persistant path variables
+public function get_url(string $path = '') : string { // construct url with persistant path variables
 	// TODO persistent URL vars to be listed in $this->inputs
 	return $path;
 }
@@ -2545,37 +2547,37 @@ public function rp(string|false $path) : string|false { // linux style slashes f
 	return ($path === FALSE ? FALSE : str_replace('\\', '/', $path));
 }
 
-public function include(string $filename, ...$args) : mixed { // include always
-	if (!$this->chk_file($filename, TRUE)) { $this->response("FILE: include not readable, file={$filename}", ABCMS_LOG_FATAL); }
+public function include(string $file, mixed ...$args) : mixed { // include always
+	if (!$this->chk_file($file, TRUE)) { $this->response("FILE: include not readable, file={$file}", ABCMS_LOG_FATAL); }
 	// could also check for stray output when only including for function definition, but that is a non-fatal programmer problem
-	if (($bom = $this->bom_file($filename))) { $this->response("FILE: include bom disallowed, bom={$bom}, file={$filename}", ABCMS_LOG_FATAL); }
+	if (($bom = $this->bom_file($file))) { $this->response("FILE: include bom disallowed, bom={$bom}, file={$file}", ABCMS_LOG_FATAL); }
 	// beware, failed include() = FALSE = successful include() returning FALSE
-	// scope $args within include, hides $this, and protects abmcs() privates
-	static $fn; if (NULL === $fn) { $fn = Closure::bind(function($filename, ...$args) { return include($filename); }, NULL, NULL); }
-	return $fn($filename, ...$args);
+	// $args are truly scoped within the included file, hide $this, and protect abmcs() privates
+	static $fn; if (NULL === $fn) { $fn = Closure::bind(function($file, ...$args) { return include($file); }, NULL, NULL); }
+	return $fn($file, ...$args);
 }
 
-public function include_once(string $filename, ...$args) : mixed { // PHP should have no fault include_once()
+public function include_once(string $file, mixed ...$args) : mixed { // PHP should have no fault include_once()
 	static $included = array();
-	if (!isset($included[$filename])) {
-		if (!$this->chk_file($filename, TRUE)) { $this->response("FILE: include_once not readable, file={$filename}", ABCMS_LOG_FATAL); }
+	if (!isset($included[$file])) {
+		if (!$this->chk_file($file, TRUE)) { $this->response("FILE: include_once not readable, file={$file}", ABCMS_LOG_FATAL); }
 		// could also check for stray output when only including for function definition, but that is a non-fatal programmer problem
-		if (($bom = $this->bom_file($filename))) { $this->response("FILE: include_once bom disallowed, bom={$bom}, file={$filename}", ABCMS_LOG_FATAL); }
-		$included[$filename] = TRUE;
-		// scope $args within include, hides $this, and protects abmcs() privates
-		static $fn; if (NULL === $fn) { $fn = Closure::bind(function($filename, ...$args) { return include($filename); }, NULL, NULL); }
-		return $fn($filename, ...$args);
+		if (($bom = $this->bom_file($file))) { $this->response("FILE: include_once bom disallowed, bom={$bom}, file={$file}", ABCMS_LOG_FATAL); }
+		$included[$file] = TRUE;
+		// $args are truly scoped within the included file, hide $this, and protect abmcs() privates
+		static $fn; if (NULL === $fn) { $fn = Closure::bind(function($file, ...$args) { return include($file); }, NULL, NULL); }
+		return $fn($file, ...$args);
 	}
 	return FALSE;
 }
 
 private function bom_file(	// BOM file?, private so extensions cannot use it outside their folder
-string $filename, 			// filename
+string $file, 				// filename
 ) : string {				// return BOM name, or '' for none
 	static $seen = array(); // one read per file per process
-	if (isset($seen[$filename])) { return $seen[$filename]; }
-	if (FALSE === ($head = file_get_contents($filename, FALSE, NULL, 0, 4))) {
-		$this->response("FILE: bom check failed, file={$filename}".$this->error_get_last(), ABCMS_LOG_FATAL);
+	if (isset($seen[$file])) { return $seen[$file]; }
+	if (FALSE === ($head = file_get_contents($file, FALSE, NULL, 0, 4))) {
+		$this->response("FILE: bom check failed, file={$file}".$this->error_get_last(), ABCMS_LOG_FATAL);
 	}
 	else if (str_starts_with($head, "\xFF\xFE\x00\x00")) {	$bom = 'UTF-32LE'; }
 	else if (str_starts_with($head, "\x00\x00\xFE\xFF")) {	$bom = 'UTF-32BE'; }
@@ -2583,7 +2585,7 @@ string $filename, 			// filename
 	else if (str_starts_with($head, "\xFF\xFE"))         {	$bom = 'UTF-16LE'; }
 	else if (str_starts_with($head, "\xFE\xFF"))         {	$bom = 'UTF-16BE'; }
 	else {													$bom = ''; }
-	return ($seen[$filename] = $bom);
+	return ($seen[$file] = $bom);
 }
 
 public function array_walk_merge(array &$destiny, array $source) : void { // array_walk_recursive() cannot copy multi-dimensional source, array_map() cannot edit destination
@@ -2603,12 +2605,12 @@ public function get_uuid() : string { // RFC 4122 compliant Version 4 UUIDs, glo
 	// generate 16 bytes (128 bits) of random data
 	$data = random_bytes(16);
 	if (strlen($data) !== 16) { $this->response('CORE: uuid4 random_bytes short', ABCMS_LOG_FATAL); }
-    // set version to 0100
-    $data[6] = chr(ord($data[6]) & 0x0f | 0x40);
-    // set bits 6-7 to 10
-    $data[8] = chr(ord($data[8]) & 0x3f | 0x80);
-    // output the 36 character UUID.
-    return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
+	// set version to 0100
+	$data[6] = chr(ord($data[6]) & 0x0f | 0x40);
+	// set bits 6-7 to 10
+	$data[8] = chr(ord($data[8]) & 0x3f | 0x80);
+	// output the 36 character UUID.
+	return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
 }
 
 public function get_uniq() : string { // unique 64 byte token for transients
@@ -2619,11 +2621,11 @@ public function get_dbid() : string {// unique 32 byte token for permanents
 	return chr(random_int(97,122)).chr(random_int(97,122)).bin2hex(random_bytes(15));
 }
 
-public function get_pkey(?string $input) : string { // derived deterministic immutable 64 byte hash key, segregated by extension
+public function get_pkey(?string $input = NULL) : string { // derived deterministic immutable 64 byte hash key, segregated by extension
 	return hash('sha256', $this->output_extension().$input);
 }
 
-public function get_ckey(?string $input) : string { // derived deterministic immutable 64 byte hash key, segregated by extension, keyed on session secret
+public function get_ckey(?string $input = NULL) : string { // derived deterministic immutable 64 byte hash key, segregated by extension, keyed on session secret
 	return hash('sha256', ($this->compiles['core']['secret']??$this->settings['core']['secret']).$this->output_extension().$input);
 }
 
@@ -2678,7 +2680,7 @@ public function get_utf8(string $data, ?string $from = NULL) : string { // NULL 
 
 /*************************************************************************************************
 SECTION EMAIL: SMTP emailer.
- */
+*/
 
 // Adapted by Claude.AI from https://github.com/arkanis/smtp_send.
 // Licensed as arkanis/smtp_send (c) 2014-2021 Stephan Soller, MIT License.
@@ -2689,8 +2691,8 @@ array|string		$to,		// recipients
 array|string|NULL	$cc,		// cc, envelope + header
 array|string|NULL	$bcc,		// bcc, envelope
 string				$subject,	// subject, auto UTF-8 & base64
-string|NULL			$html,		// HTML body
-string|NULL			$text,		// plain-text, optional
+?string				$html,		// HTML body
+?string				$text,		// plain-text, optional
 array|string|NULL	$attach,	// attachments, absolute path
 array				$options=[],// options
 								// 'smtp'	=> hostname, 'tcp://host' (587), or 'ssl://host' (port 465)
@@ -2700,17 +2702,17 @@ array				$options=[],// options
 								// 'time'	=> socket timeout seconds, default php: default_socket_timeout
 								// 'ehlo'	=> EHLO identity
 								// 'ssl'	=> stream SSL context options for STARTTLS, ie. ['verify_peer'=>FALSE]
-) : bool {						// TRUE if delivered
+) : bool {						// success or failure
 	// argument and option defaults
 	if (NULL !== $to && is_string($to)) { $to = array($to); }
 	if (NULL !== $cc && is_string($cc)) { $cc = array($cc); }
 	if (NULL !== $bcc && is_string($bcc)) { $bcc = array($bcc); }
 	if (NULL !== $attach && is_string($attach)) { $attach = array($attach); }
-	$options['smtp']	??= ($this->settings['core']['smtp_host']??('ssl://'.$this->boots['urldomain']));
-	$options['port']	??= ($this->settings['core']['smtp_port']??465);
-	$options_user		= ($options['user']??($this->settings['core']['smtp_user']??NULL)); unset($options['user']);
-	$options_pass		= ($options['pass']??($this->settings['core']['smtp_pass']??NULL)); unset($options['pass']);
-	$options['ehlo']	??= ($this->settings['core']['smtp_ehlo']??$this->boots['urldomain']);
+	$options['smtp']	??= ($this->settings['core']['smtp_host']?:('ssl://'.$this->boots['urldomain']));
+	$options['port']	??= ($this->settings['core']['smtp_port']?:465);
+	$options_user		= (($options['user']??NULL)?:($this->settings['core']['smtp_user']??NULL)); unset($options['user']);
+	$options_pass		= (($options['pass']??NULL)?:($this->settings['core']['smtp_pass']??NULL)); unset($options['pass']);
+	$options['ehlo']	??= ($this->settings['core']['smtp_ehlo']?:$this->boots['urldomain']);
 	$options['time']	??= (int)ini_get('default_socket_timeout');
 	$options['ssl']		??= [];
 	$this->response("EMAIL: begin, from={$from}", ABCMS_LOG_DEBUG); // log
