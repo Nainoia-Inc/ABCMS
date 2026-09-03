@@ -1002,7 +1002,11 @@ int		$expires,			// expiration
 bool	$killit = TRUE,		// kill heed
 ) : void {					// return void or WSOD
 	$this->setup_scope('set_cookie()'); // not during SETUP.php
-	// core only cookies, output_extension() names hook owner, not caller, core uses set_cookie_core()
+	// this guard prevents extensions from touching core cookies
+	// output_extension() names the extension whose hook or SETUP.php is running, not the caller of this function,
+	// so the private set_cookie_core() / public set_cookie() split distinguishes core writes from extension writes
+	// core writes its cookies through ungated set_cookie_core(), keeping session_start() and home_account() callable by extensions
+	// public set_cookie() lets an extension set its own cookies, guarded against the five core names
 	if (ABCMS_EXT_SELF !== ($whoami = $this->output_extension()) &&
 		in_array($cookie, [
 			$this->settings['core']['session_cookie'],
