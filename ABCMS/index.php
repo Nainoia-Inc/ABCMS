@@ -69,7 +69,8 @@ const ABCMS_REGEX_HOOK	= '/^\/[a-z0-9]([_.-]?[a-z0-9]+)*\/[a-z0-9]([_.-]?[a-z0-9
 const ABCMS_REGEX_FOLD	= '(/[a-z0-9]([_.-]?[a-z0-9]+)*/[a-z0-9]([_.-]?[a-z0-9]+)*)';	// extension /vendor/extension (used with '|' regex delimiters validating extension path)
 const ABCMS_REGEX_NICK	= '/^[a-z0-9]([_.-]?[a-z0-9]+)*$/uD'; // extension nickname
 // regex other
-const ABCMS_REGEX_URLS	= '/^(\/[a-z0-9\-_.~]+)+\/?$/ui';				// /URL/
+const ABCMS_REGEX_URLS	= '/^(\/[a-z0-9\-_.~]+)+\/?$/ui';				// /URL/? trailing optional
+const ABCMS_REGEX_URLT	= '/^(\/[a-z0-9\-_.~]+)\/$/ui';					// /URL/ trailing
 const ABCMS_REGEX_URLV	= '/\/([a-z0-9\-_.~]+)=([a-z0-9\-_.~=]+)/ui';	// URL variable
 const ABCMS_REGEX_FORM	= '/(<form(?=[\s>])[^>]*>)(.+?)(<\/form>)/uis';	// form security injection
 const ABCMS_REGEX_DATA	= '/^[a-z0-9\-_]+\.[a-z0-9\-_]+$/uiD';			// Database filename
@@ -183,12 +184,26 @@ try {						// try output
 }
 
 catch (\Throwable $e) {		// catch exceptions
-	// graceful WSOD
-	$title = mb_strtolower(htmlspecialchars(((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://').($_SERVER['HTTP_HOST']??'unknown').($_SERVER['REQUEST_URI']??'')), ENT_QUOTES, 'UTF-8')); // title
-	$nonce = chr(random_int(97,122)).chr(random_int(97,122)).bin2hex(random_bytes(31)); // security nonce
+	// response type
+	$cats = (abcms() ? abcms()->response_cats() : NULL); // what category response?
+	if (!headers_sent()) {
+		// assign content type
+		header('Content-Type: '.
+			('cli' === PHP_SAPI || ABCMS_TYPE_TEXT === $cats ? 'text/plain; charset=utf-8' :
+			(ABCMS_TYPE_DATA === $cats ? 'application/json; charset=utf-8' :
+			'text/html; charset=utf-8')));
+		// fatal if here
+		if (200 === http_response_code()) { http_response_code(500); }
+	}
+	// response output
 	$exception = htmlspecialchars(($e->getMessage() ?: 'Fatal exception, details logged.'), ENT_QUOTES, 'UTF-8'); // thrown error
 	$buffer = NULL; while(ob_get_level()) { $buffer .= ob_get_clean(); } // retrieve buffer
-	if ('cli' !== PHP_SAPI) { echo <<<EOF
+	if ('cli' === PHP_SAPI || ABCMS_TYPE_TEXT === $cats) { echo (abcms() ? abcms()->response_plain() : $exception); } // CLI or text
+	else if (ABCMS_TYPE_DATA === $cats) { echo json_encode(array('error' => (abcms() ? abcms()->response_plain() : $exception))); } // data so text response
+	else if (NULL === $cats || in_array($cats, ABCMS_TYPE_HTMLS, TRUE)) { // html
+		$title = mb_strtolower(htmlspecialchars(((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://').($_SERVER['HTTP_HOST']??'unknown').($_SERVER['REQUEST_URI']??'')), ENT_QUOTES, 'UTF-8'));
+		$nonce = chr(random_int(97,122)).chr(random_int(97,122)).bin2hex(random_bytes(31)); // security nonce
+		echo <<<EOF
 <!DOCTYPE html>
 <html lang='en'>
 <head>
@@ -221,10 +236,6 @@ ERR: "{$exception}"<br>
 <a href='/'>Try again from the homepage</a>.
 </p></div></body></html>
 EOF;
-	}
-	// CLI echo
-	else {
-		echo (abcms() ? abcms()->response_plain() : $exception);
 	}
 	// file output
 	$composer = array(); // composer extensions
@@ -285,19 +296,21 @@ private				array	$resplogs	= [];		// response log
 private				array	$respuser	= [];		// response user
 private				?string	$respcats	= NULL;		// response category, set by outermost output()
 private				?string	$respmime	= NULL;		// response mime type, set by outermost output()
-private				bool	$formposts	= FALSE;	// form posts TODO use this or not? direct or shortened API?
-private				bool	$formvalid	= FALSE;	// form valid TODO use this or not? direct or shortened API?
-private				bool	$formhuman	= FALSE;	// form human TODO use this or not? direct or shortened API?
+private				bool	$formposts	= FALSE;	// form posts
+private				bool	$formvalid	= FALSE;	// form valid
+private				bool	$formhuman	= FALSE;	// form human
+private				?bool	$sessions	= NULL;		// session, NULL = undecided, TRUE = started, FALSE = stateless
+private				array	$claimed	= [];		// hooks a registered extension answered, the default answering does not count
 
 function __construct() { $this->oneshot = function() { $this->input_construct(); }; } // 1st construct object methods, so extension SETUP.php can use abcms() methods
 
-private function input_construct() : void { // 2nd construct object properties
+private function input_construct() : void { // 2nd construct input properties for all routes
 	// initialize
-	ini_set('display_errors', 0); ini_set('log_errors', 1); error_reporting(E_ALL);
-	$this->stackwho[] = ABCMS_EXT_SELF; // push core on extension stack
+	ini_set('display_errors', 0); ini_set('log_errors', 1); ini_set('default_mimetype', ''); error_reporting(E_ALL);
+	$this->stackwho[] = ABCMS_EXT_SELF; // push ABCMS_EXT_SELF, needed for setup() > output_extension()
 	$this->setup(TRUE); // assign $settings
 	$this->ob_trash(); // trash all buffers, should be none
-	// bootstrap inputs for session_start(), then session user validates remaining inputs
+	// bootstrap inputs
 	$this->boots = array(
 		'time'			=> time(), // execution time()
 		'ip'			=> ($ip = ($_SERVER['REMOTE_ADDR'] ?? 'unknown')), // caller ip
@@ -328,25 +341,44 @@ private function input_construct() : void { // 2nd construct object properties
 			? $urldecoded : ($urldecoded = ($this->response('Invalid characters found in the URL. Please try again.', ABCMS_LOG_FATAL, ABCMS_LOGTO_USER)??'/unknown')))),'/'))), // fallback to '/unknown'
 		'urlpathone'	=> (!($ret = preg_match('/^(\/[^\/\x00-\x1f]*)(\/[^\x00-\x1f]+)?$/uD', $urlpathall, $matches)) ? '/' : $matches[1]), // URL first segment for core router
 		'urlpathext'	=> (!$ret || empty($matches[2]) ? '/' : $matches[2]), // URL second+ segments for extension routers
+		'urldecoded'	=> $urldecoded, // URL path urldecoded and still carrying its variables, input_session() validates 'U' vars from it
 	);
+	// finalize
 	$this->formposts = ('POST' === $this->boots['urlmethod']);
-	// possibly start session after boots and validate user
-	$session = $this->session_start(ABCMS_SES_LAZY); // lazy session start
-	// sanitize inputs with user permissions
+	if ($this->boots['auto']) { require_once($this->boots['auto']); } // require composer, unbuffered, unchecked, trusting
+	if (!str_starts_with($urldecoded, $urlpathall)) { $this->response('Settings in URL are out of place and may be ignored.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER); } // if !str_starts_with() URL is externally constructed
+	array_pop($this->stackwho); // pop stack
+	return;
+}
+
+private function input_session(	// 3rd construct, session or stateless and role based input validation, called 1x by output() after route known
+bool	$stateless,				// TRUE = if route declared 'S', no session, no cookies, no CSRF, public role
+) : void {						// void or WSOD
+	// initialize
+	if (NULL !== $this->sessions) { return; } // 1x per request
+	$this->sessions = (bool)!$stateless; // mode chosen
+	$this->stackwho[] = ABCMS_EXT_SELF; // push ABCMS_EXT_SELF for session_start()
+	if ($this->sessions) { $this->session_start(ABCMS_SES_LAZY); } // lazy session start, stateless routes never use sessions or cookies
+	// role based input sanitation, works without a session
 	$this->input = array(
 		'user'			=> $this->ss['user']??NULL, // my user
-		'role'			=> ($role = ($cli ? ABCMS_ROLE_CLI : $this->ss['user']['role']??ABCMS_ROLE_PUBLIC)), // my role
-		'urlvars'		=> (!preg_match_all(ABCMS_REGEX_URLV, $urldecoded, $matches, PREG_PATTERN_ORDER) ? array() : // validate URL vars 'U'
+		'role'			=> ($role = ($this->boots['cli'] ? ABCMS_ROLE_CLI : $this->ss['user']['role']??ABCMS_ROLE_PUBLIC)), // my role
+		'urlvars'		=> (!preg_match_all(ABCMS_REGEX_URLV, $this->boots['urldecoded'], $matches, PREG_PATTERN_ORDER) ? array() : // validate URL vars 'U'
 			$this->input_valid('U', array_combine($matches[1], $matches[2]), $role)),
-		'urlquery'		=> ($this->input_valid('G', (mb_parse_str(($urlparsed['query']??''), $result) ? $result : array()), $role)), // URL validate query vars 'q' from parse_str() because CLI has no $_GET
+		'urlquery'		=> ($this->input_valid('G', (mb_parse_str(($this->boots['urlparsed']['query']??''), $result) ? $result : array()), $role)), // URL validate query vars 'q' from parse_str() because CLI has no $_GET
 		'post'			=> [], // TODO ($this->input_valid('P', $_POST, $role)), // validate $_POST vars 'p' // berware of passwords and secure info hitting the coredump!
-		'nonce'			=> $this->get_uniq(), // style & script security nonce
+		'nonce'			=> $this->get_uniq(), // session security nonce for styles & scripts
 	);
-	// initialize completion
-	if ($this->boots['auto']) { require_once($this->boots['auto']); } // require composer, unbuffered, unchecked, trusting
-	if (!str_starts_with($urldecoded, $urlpathall)) { $this->response('Some settings in that link were out of place and may be ignored.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER); } // warn user, if !str_starts_with() URL is externally constructed
-	array_pop($this->stackwho); // pop core off extension stack
+	array_pop($this->stackwho); // pop stack
 	return;
+}
+
+public function input_rawbody() : string { // raw request body, read once and cache, '' for GET and for multipart which PHP consumes into $_POST and $_FILES
+	static $body; // cache
+	if (NULL === $body && FALSE === ($body = file_get_contents('php://input'))) {
+		$this->response('INPUT: request body unreadable, systemerror=file_get_contents(php://input)', ABCMS_LOG_FATAL);
+	}
+	return $body;
 }
 
 public function __set(string $name, mixed $value) : void { $this->response("CORE: dynamic property disallowed, name={$name}", ABCMS_LOG_FATAL); return; } // disallow dynamic properties
@@ -434,8 +466,6 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 		return;
 	}
 	// register core settings
-	// TODO add a get_hash() that is constant for the lifetime of this install for unique captcha and webhook paths, different from other installs
-	// TODO noting that webhooks paths would be registered permenantly with stripe or whomever and so need to be permanent links
 	$this->response('SETUP: begin', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
 	$this->compiles['core']['filename']			= $this->rp(__FILE__); // my filename
 	$this->compiles['core']['documentroot']		= $this->rp(__DIR__); // my documentroot
@@ -466,11 +496,13 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 	$this->compiles['core']['smtp_user']		= NULL; // SMTP username
 	$this->compiles['core']['smtp_pass']		= NULL; // SMTP password
 	$this->compiles['core']['smtp_ehlo']		= NULL; // SMTP EHLO
-	$this->new_jbas('BASIC.json');
-	$this->compiles['core']['captcha_path']		= '/'.$this->get_uniq().'/'; // CAPTCHA path distinct per installation per setup, trailing slash routes on 1st path segment
+	$this->compiles['core']['stripe_whsec']		= NULL; // Stripe webhook secret, NULL disables route, set in override
+	$this->compiles['core']['stripe_path']		= NULL; // Stripe webhook registered path, trailing slash routes on 1st path segment
+	$this->compiles['core']['captcha_path']		= '/'.$this->get_uniq().'/'; // CAPTCHA path distinct per install per re-setup, trailing slash routes on 1st path segment
 	$this->compiles['core']['translog']			= $coreext.'ABCMS.translog'; // transaction log
 	$this->touch($this->compiles['core']['translog']);
 	$this->compiles['core']['override']			= $coreext.'ABCMS.override.php'; // overrides
+	$this->new_jbas('BASIC.json');
 	// register variables
 	// 'U' = URL variable
 	// 'G' = $_GET variable
@@ -547,10 +579,15 @@ bool	$boot = FALSE,	// TRUE = load existing, else recreate
 			$this->ob_trash($level); // trash extension SETUP.php output, should be none
 		}
 	}
-	// optimize and customize compiled settings
+	// customize, optimize, and error check compiled settings
 	$this->response('SETUP: optimize and customize settings', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
 	$this->setup_override(); // customize settings with the override file, beware injection
-	// TODO optimize and remove mixed non-exclusive and exclusive routes
+	/* TODO loop extend and equate to report missing partners
+	foreach($this->compiles['route'][$hok]??[] as $h) {
+		foreach($h['ex'][$ext]??[] as $x) {
+	foreach
+		$this->compiles['route'][$hok]['eq'][$pat] = $ext;
+	*/
 	// save settings as fast op cachable php include file with atomic with rename()
 	$this->response('SETUP: save settings', ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
 	$this->set_vexp($storage, $this->compiles);
@@ -580,7 +617,7 @@ private function setup_override(	// read the override file, merge it over the co
 	}
 	// build default override settings to help admin
 	// admin could copy entire settings file to override file and customize
-	// TODO fix once $this->settings array is segregated by extension
+	// TODO fix once $this->settings array API is segregated by extension
 	else {
 		$override['core']['session_killit']	= $this->compiles['core']['session_killit'];
 		$override['core']['session_domain']	= $this->compiles['core']['session_domain'];
@@ -590,6 +627,8 @@ private function setup_override(	// read the override file, merge it over the co
 		$override['core']['smtp_user']		= $this->compiles['core']['smtp_user'];
 		$override['core']['smtp_pass']		= $this->compiles['core']['smtp_pass'];
 		$override['core']['smtp_ehlo']		= $this->compiles['core']['smtp_ehlo'];
+		$override['core']['stripe_whsec']	= $this->compiles['core']['stripe_whsec'];
+		$override['core']['stripe_path']	= $this->compiles['core']['stripe_path'];
 		$this->set_vexp($this->compiles['core']['override'], $override);
 	}
 	// merge custom override settings into compiled settings
@@ -611,8 +650,14 @@ private function setup_override(	// read the override file, merge it over the co
 	}
 	// dependent setup_extend() and setup_equate() calls run after override to be overridable
 	// verify custom captcha path and assign to setup_equate()
-	if (!preg_match(ABCMS_REGEX_URLS, $this->compiles['core']['captcha_path'])) { $this->response('SETUP: override captcha_path invalid', ABCMS_LOG_FATAL); }
+	if (!preg_match(ABCMS_REGEX_URLT, $this->compiles['core']['captcha_path'])) { $this->response('SETUP: override captcha_path invalid', ABCMS_LOG_FATAL); }
 	$this->setup_equate(ABCMS_EXT_INITX, 'captcha', $this->compiles['core']['captcha_path']);
+	// verify custom stripe path and register the extension
+	if ($this->compiles['core']['stripe_path']) {
+		if (!preg_match(ABCMS_REGEX_URLT, $this->compiles['core']['stripe_path'])) { $this->response('SETUP: override stripe_path invalid', ABCMS_LOG_FATAL); }
+		$this->setup_extend(ABCMS_EXT_INITX, 'stripe', 'POST', 'IEUS', 'abcms()->payment_router', ABCMS_ROLE_PUBLIC, -40, ABCMS_TYPE_NONE); // stateless callback for Stripe, core extension
+		$this->setup_equate(ABCMS_EXT_INITX, 'stripe', $this->compiles['core']['stripe_path']);
+	}
 	return;
 }
 
@@ -626,6 +671,7 @@ string	$str,						// control string | TODO constants?
 									// 'E' = exclusive to my extension or omit me, default anyone
 									// 'U' = uno/single extension, default multiple extensions cooperate
 									// 'D' = include default, default excluded if extended by $ord < 0
+									// 'S' = stateless request, declares a machine endpoint: one extension only, 'U' required, public, never html, no body by default, recurse to 'S' only
 string	$fun,						// includefile?function
 int		$rol = ABCMS_ROLE_PUBLIC,	// minimum role permission
 int		$ord = 0,					// order considered, PHP_INT_MIN >= $ord <= PHP_INT_MAX
@@ -635,37 +681,86 @@ mixed	...$arg,					// argument alternatives
 ) : bool {							// success or failure
 	// initialize control string and result array
 	$ctl = ('' === $str ? array() : array_flip(str_split(strtoupper($str))));
-	$key = array_diff_key($ctl, array('I'=>0,'O'=>0,'E'=>0,'U'=>0,'D'=>0));
+	$key = array_diff_key($ctl, array('I'=>0,'O'=>0,'E'=>0,'U'=>0,'D'=>0,'S'=>0));
 	// validate
 	$n = [];
 	if (($n[]=(!is_array($this->compiles))) || // bad context
 		($n[]=(!preg_match(ABCMS_REGEX_HOOK, $hok))) || // hook
 		($n[]=('' !== $ext && !preg_match(ABCMS_REGEX_NICK, $ext))) || // extension
 		($n[]=(!empty($met) && array_diff(explode('-', $met), array('CLI','GET','POST','PUT','HEAD','DELETE','PATCH','OPTIONS','CONNECT','TRACE')))) || // method
+		($n[]=(!empty($key))) || // control flag bad
 		($n[]=(isset($ctl['I']) && isset($ctl['O']))) || // input or output
-		($n[]=(!empty($key))) || // control
-		($n[]=(!empty($fun) && !preg_match(ABCMS_REGEX_FUNC, $fun))) || // function
+		($n[]=(isset($ctl['S']) && !isset($ctl['U']))) || // stateless requires uno
+		($n[]=(isset($ctl['O']) && isset($ctl['D']))) || // output no default
+		($n[]=(!empty($fun) && !preg_match(ABCMS_REGEX_FUNC, $fun, $match))) || // function
 		($n[]=('' !== $cat && !isset(ABCMS_TYPE[$cat]))) || // category
 		($n[]=(ABCMS_TYPE_FILE === $cat && '' === $mim)) || // file category requires mime type
+		($n[]=(ABCMS_TYPE_NONE === $cat && '' !== $mim)) || // no body, no mime
 		($n[]=('' === $cat && '' !== $mim)) || // mime type requires a category
-		($n[]=('' !== $mim && !preg_match(ABCMS_REGEX_MIME, $mim)))) { // invalid mime type
+		($n[]=('' !== $mim && !preg_match(ABCMS_REGEX_MIME, $mim))) || // invalid mime type
+		($n[]=(isset($ctl['O']) && !empty($cat))) || // ignored, only inputs set category
+		($n[]=(isset($ctl['O']) && !empty($mim))) || // ignored, only inputs set mime
+		($n[]=(isset($ctl['O']) && !empty($arg))) || // ignored, only inputs merges args
+		($n[]=(isset($ctl['S']) && in_array($cat, ABCMS_TYPE_HTMLS, TRUE))) || // stateless and 'html/frag' incompatible
+		($n[]=(!in_array($rol, ABCMS_ROLE_SET, TRUE))) || // role
+		($n[]=(isset($ctl['S']) && ABCMS_ROLE_PUBLIC < $rol)) || // stateless request always public
+		($n[]=(isset($ctl['D']) && + 0 <= $ord)) // no-op, 'D' only counters the $ord < 0 default-omit rule
+	) {
 		$e = [
 			'context',
 			'hook',
 			'extension',
 			'method, '.$met,
+			'control-bad, '.$str,
 			'control-io, '.$str,
-			'control, '.$str,
+			'stateless-not-uno, '.$str,
+			'output-no-default, '.$str,
 			'function',
 			'category, '.$cat,
-			'mime-missing',
+			'file-mime-missing',
+			'none-nomime',
 			'mime-category-missing',
 			'mime-unrecognized, '.$mim,
+			'O-ignores-cat, '.$cat,
+			'O-ignores-mim, '.$mim,
+			'O-ignores-arg',
+			'S-cat-html',
+			'role, '.$rol,
+			'S-nonpublic',
+			'D-positive-ord',
 		];
 		$this->response("SETUP: setup_extend invalid, hook={$hok} ext={$ext} func={$fun}, invalid=".($e[count($n)-1]??'unknown'), ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
 		return FALSE;
 	}
+	// include and abcms() function exists, not possible to validate abritrary include functions
+	[$filepath, $classobject, $operator, $funcmeth] = array($match[2]??'', $match[5]??'', $match[6]??'', $match[7]??'');
+	$who = $this->output_extension();
+	if (!is_readable($this->compiles['core']['projectroot'].'/private'.$who.$filepath)) {
+		$this->response("SETUP: setup_extend file unreadable, hook={$hok} ext={$ext} func={$fun}, filepath={$filepath}", ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+		return FALSE;
+	}
+	if ('abcms' === $classobject && '()->' === $operator) {
+		if (!method_exists($this, $funcmeth)) {
+			$this->response("SETUP: setup_extend unknown method, hook={$hok} ext={$ext} func={$fun}", ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+			return FALSE;
+		}
+		else if (ABCMS_EXT_SELF !== $this->output_extension() &&
+			!(new ReflectionClass($this))->getMethod($funcmeth)->isPublic()) {
+			$this->response("SETUP: setup_extend private method, hook={$hok} ext={$ext} func={$fun}", ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+			return FALSE;
+		}
+	}
+	// duplicate?
+	foreach($this->compiles['route'][$hok]['ex'][$ext]??[] as $rows) {
+		foreach($rows as $x) {
+			if ($x['fun'] === $fun && ('' === $x['met'] || '' === $met || array_intersect(explode('-', $x['met']), explode('-', $met)))) {
+				$this->response("SETUP: setup_extend duplicate, hook={$hok} ext={$ext} func={$fun}, met={$met}", ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+				return FALSE;
+			}
+		}
+	}
 	// assign extension
+	if (isset($ctl['S']) && '' === $cat) { $cat = ABCMS_TYPE_NONE; } // assign 'S' default category
 	unset($ctl['I']);
 	$this->compiles['route'][$hok]['ex'][$ext][(isset($ctl['O']) ? 'O' : 'I')][] = array(
 		'met'	=> $met,
@@ -675,7 +770,7 @@ mixed	...$arg,					// argument alternatives
 		'cat'	=> $cat,
 		'mim'	=> $mim,
 		'ctl'	=> $ctl,
-		'who'	=> $this->output_extension(),
+		'who'	=> $who,
 		'arg'	=> $arg,
 	);
 	return TRUE;
@@ -1003,10 +1098,10 @@ bool	$killit = TRUE,		// kill heed
 ) : void {					// return void or WSOD
 	$this->setup_scope('set_cookie()'); // not during SETUP.php
 	// this guard prevents extensions from touching core cookies
-	// output_extension() names the extension whose hook or SETUP.php is running, not the caller of this function,
-	// so the private set_cookie_core() / public set_cookie() split distinguishes core writes from extension writes
-	// core writes its cookies through ungated set_cookie_core(), keeping session_start() and home_account() callable by extensions
-	// public set_cookie() lets an extension set its own cookies, guarded against the five core names
+	// the private set_cookie_core() / public set_cookie() split is needed because
+	// output_extension() identifies output() hook owners, not abcms() public function callers
+	// set_cookie_core() allows extensions to call abcms() public functions such as session_start() that set core cookies
+	// set_cookie() allows extensions to set their own cookies guarded against touching core cookies
 	if (ABCMS_EXT_SELF !== ($whoami = $this->output_extension()) &&
 		in_array($cookie, [
 			$this->settings['core']['session_cookie'],
@@ -1565,18 +1660,31 @@ mixed	&...$args,		// input args, commonly unused, reference named argument only,
 			 array())), // OR nothing
 			(!empty($hooky['eq']['']) && !empty($hooky['ex'][$hooky['eq']['']])	? $hooky['ex'][$hooky['eq']['']] : array()), // AND empty path
 			(!empty($hooky['ex'][''])											? $hooky['ex'][''] : array())); // AND empty name
-		if (count($ext['I']) > 1) { usort($ext['I'], function($a, $b) { return (($ret=(isset($a['ctl']['U'])===isset($b['ctl']['U']) ? 0 : (isset($a['ctl']['U']) ? -1 : 1))) ? $ret : $a['ord'] <=> $b['ord']); } ); }
-		if (count($ext['O']) > 1) {	usort($ext['O'], function($a, $b) { return (($ret=(isset($a['ctl']['U'])===isset($b['ctl']['U']) ? 0 : (isset($a['ctl']['U']) ? -1 : 1))) ? $ret : $a['ord'] <=> $b['ord']); } ); }
+		// 'S' stateless outranks 'U' uno outranks $ord, stateless must sort first so the session decision below cannot depend on $ord
+		static $sorter; if (NULL === $sorter) { $sorter = function($a, $b) {
+			if ($ret = (isset($a['ctl']['S']) === isset($b['ctl']['S']) ? 0 : (isset($a['ctl']['S']) ? -1 : 1))) { return $ret; } // stateless
+			if ($ret = (isset($a['ctl']['U']) === isset($b['ctl']['U']) ? 0 : (isset($a['ctl']['U']) ? -1 : 1))) { return $ret; } // uno
+			return $a['ord'] <=> $b['ord']; }; } // order
+		if (count($ext['I']) > 1) { usort($ext['I'], $sorter); }
+		if (count($ext['O']) > 1) { usort($ext['O'], $sorter); }
+	}
+	// chose session or stateless once per request from route candidates first, then role based $this->input validation
+	if (NULL === $this->sessions) {
+		if (1 !== $flag) { $this->response("DISPATCH: entry flag unexpected, flag={$flag}", ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS); }
+		$flag = 1; // initial call to output() must allow exclusive extensions
+		$this->input_session($this->output_stateless($ext['I']));
 	}
 	// execute
 	$exin = $exout = NULL; // exclusive winner or non-exclusive
 	$dopt = TRUE; // default optional
 	foreach($ext['I'] as $extin) { // input extensions by priority
 		if (!$this->output_doit($extin, $whoami, $flag, ($must || $dopt), $exin)) { continue; } // skip for reasons
+		if ($flag > 0 && NULL === $exin) { $exin = (isset($extin['ctl']['E']) ? $extin['who'] : FALSE); } // assign exclusive
 		if (!$must && $extin['ord'] < 0 && !isset($extin['ctl']['D'])) { $dopt = FALSE; } // omit default if hook and one extension says not required
 		if ($this->input['role'] >= ABCMS_ROLE_ADMINS) { $this->stackarg[] = func_get_args(); } // log the extension stack for administrator
 		if (!empty($extin['arg'])) { $this->array_walk_merge($args, $extin['arg']); } // extend arguments
 		if (empty($extin['fun'])) { continue; } // extension only grabs exclusivity or set args
+		if (NULL !== $extin['ctl']) { $this->claimed[$hook] = TRUE; } // claiming hook will execute
 		// response type, the first extension to actually run fixes category and mime for the whole request
 		if (NULL === $this->respcats) {
 			$this->respcats	= (($extin['cat'] ?? '') ?: ABCMS_TYPE_HTML); // undeclared stays html so injection is never lost by omission
@@ -1591,7 +1699,11 @@ mixed	&...$args,		// input args, commonly unused, reference named argument only,
 		// loop only applies to registered extension functions, internal extension dispatch is its own business
 		$save = $loop = ($this->boots['cli'] && !in_array($this->respcats, ABCMS_TYPE_HTMLS, TRUE) ? ABCMS_CLI_LOOP : ABCMS_EXT_LOOP);
 		do { // repeat hook extension until return === FALSE
-			// file, one call to stream, no injection, no buffering, no sub-extensions, explicit mime required
+			// no output filters needed on a streamed or bodiless RESPONSE
+			if (!empty($ext['O']) && (ABCMS_TYPE_FILE === $this->respcats || ABCMS_TYPE_NONE === $this->respcats)) {
+				$this->response("DISPATCH: stream/bodiless output filters skipped, hook={$hook} who={$extin['who']} func={$extin['fun']} declared={$extin['cat']} response={$this->respcats}", ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+			}
+			// mime = 'file', one call to stream, no injection, no buffering, no sub-extensions, explicit mime required
 			if (ABCMS_TYPE_FILE === $this->respcats) {
 				$this->output_call($extin['who'], $extin['fun'], ...$args); // even if by value from caller, still by reference to output filter
 				$done = TRUE;
@@ -1600,12 +1712,19 @@ mixed	&...$args,		// input args, commonly unused, reference named argument only,
 			if (FALSE === ob_start()) { $this->response('OUTPUT: buffer start failed, systemerror=ob_start() fail', ABCMS_LOG_FATAL); } // buffer output
 			$done = $this->output_call($extin['who'], $extin['fun'], ...$args); // execute hook extension
 			if (FALSE === ($out = ob_get_clean())) { $this->response('OUTPUT: buffer get clean failed, systemerror=ob_get_clean() fail', ABCMS_LOG_FATAL); } // retrieve buffer
+			// mime = 'none'
+			if (ABCMS_TYPE_NONE === $this->respcats) {
+				if ('' !== $out) { $this->response("DISPATCH: body on a no-body response, hook={$hook} who={$extin['who']} func={$extin['fun']} bytes=".strlen($out), ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS); }
+				$out = '';
+				break 2;
+			}
 			// output filter extensions by priority
 			foreach($ext['O'] as $extout) {
 				if (!$this->output_doit($extout, $whoami, $flag, TRUE, $exout)) { continue; } // skip for reasons
+				if ($flag > 0 && NULL === $exout) { $exout = (isset($extout['ctl']['E']) ? $extout['who'] : FALSE); } // assign exclusive
 				$this->output_call($extout['who'], $extout['fun'], $out, ...$args); // output filter, args by reference from extension
 			}
-			// 'html' injections for security and debug info, 'frag' is not injected
+			// mime = 'html' injections for security and debug info, 'frag' is not injected
 			if (ABCMS_TYPE_HTML === $this->respcats) {
 				if (ABCMS_EXT_INITX === $hook) {
 					$this->output_security($out); // inject security
@@ -1625,9 +1744,28 @@ mixed	&...$args,		// input args, commonly unused, reference named argument only,
 		} while (FALSE === $done); // repeat if FALSE, NULL || TRUE are done
 		if (isset($extin['ctl']['U'])) { break; } // uno extension allowed
 	}
+	// no extension run equals 404
+	if (NULL === $this->respcats) { // no extension ever answered, the category is only set when one runs
+		$this->response("DISPATCH: zero extensions called, hook={$hook}, meth={$meth}, default={$default}", ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS);
+		http_response_code(404);
+	}
 	// stack pop and return $arguments
-	} finally { if ($pushed) { array_pop($this->stackwho); } }
+	} finally { if ($pushed) {
+		array_pop($this->stackwho);
+	} }
 	return $args;
+}
+
+private function output_stateless(	// is this route stateless or sessioned
+array	$exts,						// input extension candidates for chosen route
+) : bool {							// TRUE = 'S' declared by a candidate on this route
+	foreach ($exts as $ext) {
+		if (!isset($ext['ctl']['S'])) { continue; } // not stateless
+		if (!empty($ext['met']) && FALSE === stripos($ext['met'], $this->boots['urlmethod'])) { continue; } // wrong method, this candidate cannot run
+		// the other parallel tests from output_doit() are never true in this case and not needed here
+		return TRUE;
+	}
+	return FALSE;
 }
 
 private function output_fits(	// is recursion to this sub-extension allowed?
@@ -1646,8 +1784,10 @@ string	$mim,						// explicit mime or '' for the category default
 	// zero output allowed before these headers or any extensions called, otherwise fatal
 	if (headers_sent($hfile, $hline)) { $this->response("OUTPUT: headers already sent, header={$hfile}:{$hline}", ABCMS_LOG_FATAL); }
 	header('X-Content-Type-Options: nosniff'); // nosniff for everyone
-	if (ABCMS_TYPE_NONE === $cat) { return; } // no body, no content type
-	$mim = ($mim ?: (ABCMS_TYPE[$cat]??ABCMS_TYPE[ABCMS_TYPE_HTML])); // mime type?
+	// no body, no content type, header_remove(), earlier ini_set('default_mimetype', ''); guarantees
+	if (ABCMS_TYPE_NONE === $cat) { header_remove('Content-Type'); return; }
+	// mime type?
+	$mim = ($mim ?: (ABCMS_TYPE[$cat]??ABCMS_TYPE[ABCMS_TYPE_HTML]));
 	// image/svg+xml runs script when served inline so never present it as a document
 	if (0 === strncasecmp($mim, 'image/svg', 9)) { header('Content-Disposition: attachment'); }
 	header('Content-Type: '.$mim); // custom mime type
@@ -1665,24 +1805,33 @@ array	$ext,					// extension definition
 string	$whoami,				// is this extender allowed
 int		$flag,					// <0 = extender exclusive, 0 = anyone, 1 = extender exclusive allowed
 bool	$must,					// must also do default
-?string	&$excl,					// exclusive extension winner
+?string	$excl,					// exclusive extension winner
 ) : bool {						// doit or dont
 	// exit before exclusive selection
 	if (!$must && !$ext['ord']) {																				return FALSE; }	// no default extension
-	if (!empty($ext['met']) && FALSE === stripos($ext['met'], $this->boots['urlmethod'])) { 					return FALSE; }	// HTTP method | TODO consider this instead in_array($method, explode('-', $met), TRUE)
+	if (!empty($ext['met']) && FALSE === stripos($ext['met'], $this->boots['urlmethod'])) { 					return FALSE; }	// HTTP method
 	if ($flag < 0 && $whoami !== $ext['who']) {
-		$this->response("DISPATCH: extender not self, whoami={$whoami} who={$ext['who']}", ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);	return FALSE; }	// extender no match
+		$this->response("DISPATCH: extender not self, whoami={$whoami} who={$ext['who']}", ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS); return FALSE; }	// extender no match
 	if (!$flag && isset($ext['ctl']['E'])) {																	return FALSE; }	// non-exclusive, cancel request
-	// exclusive winner or non-exclusive
-	if ($flag > 0) {
-		if (NULL === $excl) { $excl = (isset($ext['ctl']['E']) ? $ext['who'] : FALSE); }
+	// statefull/stateless extension must match initial level, same as the html and frag category rule in output_fits()
+	if ($this->sessions === isset($ext['ctl']['S'])) {
+		$this->response("DISPATCH: statefull/stateless mismatch, who={$ext['who']} func={$ext['fun']}", ($this->sessions ? ABCMS_LOG_ERROR : ABCMS_LOG_WARN), ABCMS_LOGTO_LOGS);
+		return FALSE;
+	}
+	// permission for extension?
+	if ($this->input['role'] < $ext['rol']) {
+		// always record anonymous prober fails
+		$this->response("DISPATCH: no permission, who={$ext['who']} func={$ext['fun']} rol={$ext['rol']} role={$this->input['role']}", ABCMS_LOG_WARN, ABCMS_LOGTO_LOGS);
+		// anonymous prober learns nothing, only a signed in user told why
+		if (ABCMS_ROLE_PUBLIC < $this->input['role']) {
+			$this->response('No permission to requested resource.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER);
+		}
+		return FALSE;
+	}
+	// exclusive winner or non-exclusive, the winner is recorded by the caller only after a row passes every gate
+	if ($flag > 0 && NULL !== $excl) {
 		if (!$excl && isset($ext['ctl']['E'])) {																return FALSE; }	// non-exclusive, cancel request
 		if ($excl && $ext['who'] !== $excl) {																	return FALSE; }	// exclusive, but not winner
-	}
-	if ($this->input['role'] < $ext['rol']) {
-		// TODO possible log entry to monitor no perms errors, but this is equal to page not found, info not actionable
-		$this->response('No permission to requested resource.', ABCMS_LOG_WARN, ABCMS_LOGTO_USER); // no permission
-		return FALSE;
 	}
 	// do it
 	return TRUE;
@@ -1972,7 +2121,11 @@ int		$code = 200,				// log the http request code returned
 		if (!$this->iamsuper() && ABCMS_LOGTO_USER !== $goto) { $mess = 'Fatal exception, details logged.'; }
 		if (!isset($this->input)) { $this->response_flush(); } // boot fatal, finally cannot flush
 	}
-	if (ABCMS_LOGTO_BOTH === $goto || ABCMS_LOGTO_USER === $goto) { $this->respuser[] = ['level' => ABCMS_LOG[$levs], 'message' => $mess]; }
+	if (ABCMS_LOGTO_BOTH === $goto || ABCMS_LOGTO_USER === $goto) { // no duplicate messages
+		if (!in_array(($entry = ['level' => ABCMS_LOG[$levs], 'message' => $mess]), $this->respuser, TRUE)) {
+			$this->respuser[] = $entry;
+		}
+	}
 	if (ABCMS_LOG_FATAL === $levs) { throw new Exception($mess); }
 	return;
 }
@@ -1990,6 +2143,8 @@ public function response_flush() : void { // write response logs
 	}
 	return;
 }
+
+public function response_cats() : ?string { return $this->respcats; } // response category fixed by the first extension to run, NULL if none did, public needed by WSOD
 
 public function response_plain() : string { // return formatted log
 	return ($this->respuser ? implode("\n", array_map(function($row) { return implode(': ', $row); }, $this->respuser))."\n" : '');
@@ -2281,6 +2436,7 @@ EOF;
 }
 
 public function home_notfound(mixed &...$unused) : void { // home page not found
+	http_response_code(404); // useful for direct call, but most 404s from missing route
 	echo <<<EOF
 <h2>Status</h2>
 <p class='center'>
@@ -2498,12 +2654,19 @@ private function command_updater(mixed &...$unused) : void { // command updater
 SECTION PAYMENTS: Payment gateways API.
 */
 
-private function payment_webhook() : ?array { // validate webhook
-	// TODO call this function on payment webhook 'stripe_path', call in input_construct() after $this->boots[] assigned, but before session_start()
-	//if ($this->formposts && '' !== ($hook = rtrim((string)($this->settings['core']['stripe_path'] ?? ''), '/')) && $hook === $this->boots['urlpathone']) { $payevent = $this->payment_webhook(); }
+public function payment_router(mixed &...$unused) : void { // stripe webhook route, registered ABCMS_TYPE_NONE and 'S', no session, no cookies, no response body
+	if (NULL === ($event = $this->payment_webhook())) { return; } // rejected, logged, and the response code is already set
+	// TODO idempotency before acting, stripe retries for three days and re-signs each attempt so the replay window never catches a duplicate, record $event['id']
+	$this->response('PAYMENT: webhook accepted, type='.($event['type']??'unknown').' id='.($event['id']??'unknown'), ABCMS_LOG_INFO, ABCMS_LOGTO_LOGS);
+	// TODO act on the event, or recurse deeper into output() to a '/payment/'.$event['type'] hook, only 'S' extensions may join a stateless request
+	http_response_code(200); // acknowledge quickly, stripe retries a timeout
+	return;
+}
+
+private function payment_webhook() : ?array { // verify a stripe webhook, public API only apart from the secret, an extension would keep its own secret in get_jbas()
 	if (empty($this->settings['core']['stripe_whsec'])) { http_response_code(400); $this->response('PAYMENT: webhook signature undefined', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS, 400); return NULL; }
-	if (FALSE === ($raw = file_get_contents('php://input'))) { $this->response("PAYMENT: webhook fail hook=php://input".$this->error_get_last(), ABCMS_LOG_FATAL); } // read exact bytes, 1st thing
-	if ('' === $raw) { return NULL; } // not a webhook
+	$raw = $this->input_rawbody(); // exact bytes, cached, never a re-serialized form
+	if ('' === $raw) { http_response_code(400); $this->response('PAYMENT: webhook malformed', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS, 400); return NULL; }
 	foreach(explode(',',($_SERVER['HTTP_STRIPE_SIGNATURE']??'')) as $pair) { // explode by ','
 		if (count(($parts = explode('=', $pair, 2))) < 2) { continue; } // explode by '='
 		$key   = trim($parts[0]);
@@ -2512,14 +2675,14 @@ private function payment_webhook() : ?array { // validate webhook
 		else if ('v1' === $key) {	$result['v1'][] = $value; } // multiple per key rotation
 	}
 	if (empty($result['t'])) { http_response_code(400); $this->response('PAYMENT: webhook signature time missing', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS, 400); return NULL; }
-	$want = hash_hmac('sha256', $result['t'].'.'.$raw, $this->settings['core']['stripe_whsec']); // TODO assign ['stripe_whsec'] in override settings
+	$want = hash_hmac('sha256', $result['t'].'.'.$raw, $this->settings['core']['stripe_whsec']);
 	$valid = FALSE;
 	foreach($result['v1']??[] as $sign) { if (hash_equals($want, $sign)) { $valid = TRUE; break; } }
 	if (!$valid) { http_response_code(400); $this->response('PAYMENT: webhook signature mismatch', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS, 400); return NULL; }
 	if (abs($this->boots['time'] - $result['t']) > 300) { http_response_code(400); $this->response('PAYMENT: webhook replay prohibited', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS, 400); return NULL; }
 	$event = json_decode($raw, TRUE); // only now safe to parse
-	if (json_last_error() !== JSON_ERROR_NONE) { $this->response('PAYMENT: webhook json corrupted, systemerror='.json_last_error_msg(), ABCMS_LOG_FATAL); }
-	if (!is_array($event)) { $this->response('PAYMENT: webhook json not array', ABCMS_LOG_FATAL); }
+	if (json_last_error() !== JSON_ERROR_NONE) { http_response_code(400); $this->response('PAYMENT: webhook json corrupted, systemerror='.json_last_error_msg(), ABCMS_LOG_FATAL); }
+	if (!is_array($event)) { http_response_code(400); $this->response('PAYMENT: webhook json not array', ABCMS_LOG_ERROR, ABCMS_LOGTO_LOGS, 400); return NULL; }
 	return $event;
 }
 
@@ -3020,6 +3183,7 @@ I just cannot find the page requested.<br>
 EOF;
 }
 $this->output(ABCMS_EXT_MAIN, 'CLI-GET-POST', 'abcms()->echo', ABCMS_ROLE_PUBLIC, $flag, FALSE, ...array($main));
+if (empty($this->claimed[ABCMS_EXT_MAINX])) { http_response_code(404); } // hook unclaimed
 echo $this->response_html();
 ?>
 </main>
