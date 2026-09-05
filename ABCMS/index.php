@@ -2228,7 +2228,9 @@ A PHP web developer toolkit and CMS in one file.
 Composer install, or drop index.php in docroot and go. What's included?
 <ul class='line-height-16'>
 <li>Zero dependencies in one file with no node_modules, no build, no vendor lock-in, for a working CMS.</li>
-<li>Routed extensions via output(); one call routes pages, APIs, CLI, anything, and without controller boilerplate.</li>
+<li>Routed extensions via output(); prepend, append, replace, or filter output with no controller boilerplate.</li>
+<li>Webhook ready with stateless routes that skip sessions and cookies, including a signed Stripe endpoint in core.</li>
+<li>Declare a response as html, frag, text, data, file, or none and the right headers and status follow.</li>
 <li>Automatic input validation and sanitization on query strings, form data, and path variables.</li>
 <li>Path variables live in the URL itself as /key=value segments with no router configuration needed.</li>
 <li>Realtime file-based routing because extensions load on demand without Composer autoload overhead.</li>
@@ -2239,7 +2241,8 @@ Composer install, or drop index.php in docroot and go. What's included?
 <li>Trifecta authentication with account email, security email, and system-generated 64-byte passwords.</li>
 <li>CSP-ready by default with nonces wired into every injected script and style tag.</li>
 <li>Concurrency-safe JSON database, with locked read/write and CSV, SQLite, and MySQL on the roadmap.</li>
-<li>Graceful failure handling with clean, safe error pages for visitors, and full debug coredumps for autopsy.</li>
+<li>Graceful failure with safe error pages in the caller's own format, and full debug coredumps for autopsy.</li>
+<li>Extension errors logged by name at setup; duplicates, roles, category, mime, and missing functions.</li>
 <li>Core /homepage, /contact, /account, /webfiles, /console, and /CLI, all use the same output() mechanism.</li>
 <li>Built-in SMTP, hardened against header injection, with no mail library required.</li>
 <li>Essential utilities include fail-safe include_once(), unique token generation, and more.</li>
